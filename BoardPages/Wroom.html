@@ -20,6 +20,10 @@
             position: relative;
         }
         #canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            z-index: 1; /* Ensure canvas is in the base stacking layer */
             display: block;
             width: 100%;
             height: 100%;
@@ -33,6 +37,10 @@
             z-index: 10;
             pointer-events: none; /* Allow mouse events to pass through to the canvas */
             width: 90%;
+            transition: opacity 0.3s ease-in-out;
+        }
+        #header.hidden {
+            opacity: 0;
         }
         #header h1 {
             font-size: 2rem;
@@ -45,8 +53,6 @@
             color: #a0aec0;
         }
         #tooltip {
-            visibility: hidden;
-            opacity: 0;
             position: absolute;
             background-color: #2d3748;
             color: #f7fafc;
@@ -54,13 +60,40 @@
             border-radius: 8px;
             border: 1px solid #4a5568;
             box-shadow: 0 4px 6px rgba(0,0,0,0.3);
-            transition: opacity 0.2s ease-in-out;
             width: 280px;
-            z-index: 20;
+            z-index: 20; /* Higher z-index than canvas */
             font-size: 0.8rem;
             line-height: 1.5;
-            pointer-events: none; /* Tooltip should not be interactive itself */
+            visibility: hidden;
+            opacity: 0;
+            transition: opacity 0.3s ease-in-out, top 0.4s ease-in-out, left 0.4s ease-in-out, transform 0.4s ease-in-out, width 0.4s ease-in-out, height 0.4s ease-in-out;
+            pointer-events: none;
         }
+        #tooltip.focused {
+            visibility: visible;
+            opacity: 1;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%) scale(1.1);
+            pointer-events: auto; /* Allow clicking the close button */
+        }
+        #tooltip-close-btn {
+            display: none; /* Hidden by default */
+            position: absolute;
+            top: 5px;
+            right: 8px;
+            font-size: 1.5rem;
+            color: #a0aec0;
+            cursor: pointer;
+            transition: color 0.2s;
+        }
+        #tooltip-close-btn:hover {
+            color: white;
+        }
+        #tooltip.focused #tooltip-close-btn {
+            display: block; /* Show when focused */
+        }
+
         #tooltip h4 {
             font-weight: 700;
             margin: 0 0 0.5rem 0;
@@ -88,17 +121,26 @@
             color: #f6ad55; /* orange-400 */
             font-weight: bold;
         }
-        #legend {
+        .legend {
             position: absolute;
             bottom: 20px;
-            left: 20px;
             background-color: rgba(45, 55, 72, 0.8);
             padding: 0.75rem;
             border-radius: 8px;
             border: 1px solid #4a5568;
             z-index: 10;
             backdrop-filter: blur(5px);
+            max-height: calc(100vh - 40px);
+            overflow-y: auto;
+            transition: opacity 0.3s ease-in-out;
         }
+        .legend.hidden {
+            opacity: 0;
+            pointer-events: none;
+        }
+        #pin-type-legend { left: 20px; }
+        #protocol-legend { right: 20px; }
+
         .legend-item {
             display: flex;
             align-items: center;
@@ -121,7 +163,7 @@
             margin-right: 0.5rem;
             border: 1px solid #e2e8f0;
         }
-        #legend-toggle {
+        .legend-toggle {
             position: absolute;
             top: 5px;
             right: 5px;
@@ -129,27 +171,49 @@
             font-size: 0.7rem;
             color: #a0aec0;
         }
-        #legend-content.hidden {
+        .legend-content.hidden {
             display: none;
         }
+        .protocol-group { margin-bottom: 0.75rem; }
+        .protocol-group h5 { font-weight: bold; color: #a0aec0; margin-bottom: 0.25rem; border-bottom: 1px solid #4a5568; padding-bottom: 0.25rem;}
+        .protocol-item { position: relative; padding: 0.1rem 0.5rem; border-radius: 6px; cursor: pointer; transition: background-color 0.2s; }
+        .protocol-item:hover { background-color: rgba(100, 116, 139, 0.5); }
+
+        .peripheral-list-template {
+            display: none; /* Hide the templates */
+        }
+
+        #peripheral-popup {
+            visibility: hidden;
+            opacity: 0;
+            transform: translateX(10px); /* Start 10px to the right (hidden) */
+            transition: visibility 0.2s, opacity 0.2s ease-in-out, transform 0.2s ease-in-out;
+            position: absolute;
+            width: 200px;
+            background-color: rgba(60, 70, 90, 0.95);
+            padding: 0.5rem;
+            border-radius: 6px;
+            border: 1px solid #4a5568;
+            z-index: 100; /* High z-index to be on top of everything */
+            pointer-events: none; /* Prevent popup from capturing mouse events */
+        }
+        #peripheral-popup.visible {
+            visibility: visible;
+            opacity: 1;
+            transform: translateX(0); /* Animate to its final position */
+        }
+        #peripheral-popup span { font-weight: bold; color: #a0aec0; font-size: 0.7rem; }
+        #peripheral-popup ul { list-style-type: disc; padding-left: 1.2rem; }
+
 
         /* Responsive Styles for smaller screens */
-        @media (max-width: 640px) {
-            #header h1 {
-                font-size: 1.5rem;
-            }
-            #header p {
-                font-size: 0.8rem;
-            }
-            #legend {
-                bottom: 10px;
-                left: 10px;
-                padding: 0.5rem;
-                font-size: 0.8rem;
-            }
-            .legend-item {
-                padding: 0.2rem 0.4rem;
-            }
+        @media (max-width: 768px) {
+            #header h1 { font-size: 1.5rem; }
+            #header p { font-size: 0.8rem; }
+            .legend { bottom: 10px; padding: 0.5rem; font-size: 0.8rem; }
+            #pin-type-legend { left: 10px; }
+            #protocol-legend { right: 10px; }
+            .legend-item { padding: 0.2rem 0.4rem; }
         }
     </style>
 </head>
@@ -160,11 +224,14 @@
             <p>Click and drag to rotate. Scroll to zoom. Hover over pins.</p>
         </div>
         <canvas id="canvas"></canvas>
-        <div id="tooltip"></div>
+        <div id="tooltip">
+             <div id="tooltip-close-btn">&times;</div>
+             <div id="tooltip-content"></div>
+        </div>
         
-        <div id="legend">
-            <div id="legend-toggle">[-]</div>
-            <div id="legend-content">
+        <div id="pin-type-legend" class="legend">
+            <div id="pin-type-toggle" class="legend-toggle">[-]</div>
+            <div id="pin-type-content">
                 <div id="legend-standard" class="legend-item">
                     <div class="legend-color" style="background-color: #ffd700;"></div>
                     <span>Standard GPIO</span>
@@ -179,6 +246,127 @@
                 </div>
             </div>
         </div>
+
+        <div id="protocol-legend" class="legend">
+            <div id="protocol-toggle" class="legend-toggle">[-]</div>
+            <div id="protocol-content">
+                <div class="protocol-group">
+                    <h5>Analog I/O</h5>
+                    <div class="protocol-item" data-protocol="adc1">
+                        ADC1
+                        <div class="peripheral-list-template">
+                            <span>Examples:</span>
+                            <ul>
+                                <li>Potentiometers</li>
+                                <li>Photoresistors (LDR)</li>
+                                <li>Analog Sensors</li>
+                            </ul>
+                        </div>
+                    </div>
+                    <div class="protocol-item" data-protocol="adc2">
+                        ADC2
+                        <div class="peripheral-list-template">
+                            <span>Note:</span>
+                            <ul>
+                                <li>Cannot be used when Wi-Fi is active.</li>
+                            </ul>
+                        </div>
+                    </div>
+                    <div class="protocol-item" data-protocol="dac">
+                        DAC
+                        <div class="peripheral-list-template">
+                            <span>Examples:</span>
+                            <ul>
+                                <li>LED Fading</li>
+                                <li>Simple Audio Waveforms</li>
+                            </ul>
+                        </div>
+                    </div>
+                    <div class="protocol-item" data-protocol="touch">
+                        Touch
+                        <div class="peripheral-list-template">
+                            <span>Examples:</span>
+                            <ul>
+                                <li>Capacitive Touch Pads</li>
+                                <li>Buttons / Sliders</li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+                <div class="protocol-group">
+                    <h5>Digital I/O</h5>
+                    <div class="protocol-item" data-protocol="pwm">
+                        PWM Capable
+                        <div class="peripheral-list-template">
+                            <span>Examples:</span>
+                            <ul>
+                                <li>LED Dimming</li>
+                                <li>Motor Speed Control</li>
+                                <li>Servo Motors</li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+                <div class="protocol-group">
+                    <h5>Serial Communication</h5>
+                    <div class="protocol-item" data-protocol="i2c_bus">
+                        I2C Bus
+                        <div class="peripheral-list-template">
+                            <span>Examples:</span>
+                            <ul>
+                                <li>OLED Display</li>
+                                <li>I2S DAC Control</li>
+                                <li>Sensors (IMU, Temp)</li>
+                            </ul>
+                        </div>
+                    </div>
+                    <div class="protocol-item" data-protocol="spi_bus">
+                        SPI Bus (VSPI)
+                        <div class="peripheral-list-template">
+                            <span>Examples:</span>
+                            <ul>
+                                <li>SD Card Module</li>
+                                <li>TFT Display</li>
+                                <li>LoRa Module</li>
+                            </ul>
+                        </div>
+                    </div>
+                    <div class="protocol-item" data-protocol="i2s_bus">
+                        I2S Bus
+                         <div class="peripheral-list-template">
+                            <span>Examples:</span>
+                            <ul>
+                                <li>Audio DACs</li>
+                                <li>Digital Microphones</li>
+                            </ul>
+                        </div>
+                    </div>
+                    <div class="protocol-item" data-protocol="uart0">
+                        UART0 (Default)
+                        <div class="peripheral-list-template">
+                            <span>Usage:</span>
+                            <ul>
+                                <li>Programming</li>
+                                <li>Serial Monitor</li>
+                            </ul>
+                        </div>
+                    </div>
+                    <div class="protocol-item" data-protocol="uart2">
+                        UART2
+                        <div class="peripheral-list-template">
+                            <span>Examples:</span>
+                            <ul>
+                                <li>GPS Modules</li>
+                                <li>Serial-to-WiFi Bridge</li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- This single div will be used for all peripheral popups -->
+        <div id="peripheral-popup"></div>
     </div>
 
     <!-- Import three.js and OrbitControls -->
@@ -240,6 +428,7 @@
         const highlightPinMaterial = new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xffff00, emissiveIntensity: 0.7 });
         const highlightStrappingMaterial = new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0x63b3ed, emissiveIntensity: 0.7 });
         const highlightPowerMaterial = new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xe53e3e, emissiveIntensity: 0.7 });
+        const protocolHighlightMaterial = new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0x48bb78, emissiveIntensity: 0.7 }); // Green highlight
 
         // --- BOARD MODEL ---
         const boardGroup = new THREE.Group();
@@ -252,7 +441,6 @@
         usb.position.set(0, 0.1, 2.3);
         boardGroup.add(usb);
         
-        // Buttons
         const buttonGeo = new THREE.BoxGeometry(0.3, 0.1, 0.3);
         const enButton = new THREE.Mesh(buttonGeo, buttonMaterial);
         enButton.position.set(-0.6, 0.1, 2.0);
@@ -295,43 +483,57 @@
 
         const pinoutData = [
             // Left Side
-            { side: 'left', posZ: -2.0, details: '<h4>Pin 1: EN</h4><ul><li><span class="protocol-title">Control:</span> Chip Enable</li></ul><div class="note"><span class="boot-title">Boot Note:</span> Must be pulled HIGH for the chip to run.</div>', type: 'power' },
-            { side: 'left', posZ: -1.75, details: `<h4>Pin 2: GPIO36</h4><ul><li><span class="protocol-title">ADC1_0</span>, RTC_GPIO0</li></ul>${inputOnlyNote}`, type: 'standard' },
-            { side: 'left', posZ: -1.5, details: `<h4>Pin 3: GPIO39</h4><ul><li><span class="protocol-title">ADC1_3</span>, RTC_GPIO3</li></ul>${inputOnlyNote}`, type: 'standard' },
-            { side: 'left', posZ: -1.25, details: `<h4>Pin 4: GPIO34</h4><ul><li><span class="protocol-title">ADC1_6</span>, RTC_GPIO4</li></ul>${inputOnlyNote}`, type: 'standard' },
-            { side: 'left', posZ: -1.0, details: `<h4>Pin 5: GPIO35</h4><ul><li><span class="protocol-title">ADC1_7</span>, RTC_GPIO5</li></ul>${inputOnlyNote}`, type: 'standard' },
-            { side: 'left', posZ: -0.75, details: `<h4>Pin 6: GPIO32</h4><ul><li><span class="protocol-title">ADC1_4</span>, TOUCH9, RTC_GPIO9</li></ul>${muxNote('High-impedance input on boot.')}`, type: 'standard' },
-            { side: 'left', posZ: -0.5, details: `<h4>Pin 7: GPIO33</h4><ul><li><span class="protocol-title">ADC1_5</span>, TOUCH8, RTC_GPIO8</li></ul>${muxNote('High-impedance input on boot.')}`, type: 'standard' },
-            { side: 'left', posZ: -0.25, details: `<h4>Pin 8: GPIO25</h4><ul><li><span class="protocol-title">DAC1</span>, ADC2_CH8, RTC_GPIO6</li></ul>${adcMuxNote('High-impedance input on boot.')}`, type: 'standard' },
-            { side: 'left', posZ: 0.0, details: `<h4>Pin 9: GPIO26</h4><ul><li><span class="protocol-title">DAC2</span>, ADC2_CH9, RTC_GPIO7</li></ul>${adcMuxNote('High-impedance input on boot.')}`, type: 'standard' },
-            { side: 'left', posZ: 0.25, details: `<h4>Pin 10: GPIO27</h4><ul><li><span class="protocol-title">ADC2_7</span>, TOUCH7, RTC_GPIO17</li></ul>${adcMuxNote('High-impedance input on boot.')}`, type: 'standard' },
-            { side: 'left', posZ: 0.5, details: `<h4>Pin 11: GPIO14</h4><ul><li><span class="protocol-title">HSPI_CLK</span>, ADC2_6, TOUCH6, RTC_GPIO16</li></ul>${adcMuxNote('Outputs a clock signal on boot. Default JTAG TCK.')}`, type: 'standard' },
-            { side: 'left', posZ: 0.75, details: `<h4>Pin 12: GPIO12</h4><ul><li><span class="protocol-title">HSPI_MISO</span>, ADC2_5, TOUCH5, RTC_GPIO15</li></ul><div class="note"><span class="boot-title">Boot Note:</span> Strapping Pin (MTDI). If held LOW, flash voltage is 1.8V. Default JTAG TDI.</div>`, type: 'strapping' },
-            { side: 'left', posZ: 1.0, details: `<h4>Pin 13: GPIO13</h4><ul><li><span class="protocol-title">HSPI_MOSI</span>, ADC2_4, TOUCH4, RTC_GPIO14</li></ul>${adcMuxNote('High-impedance input on boot. Default JTAG TMS.')}`, type: 'standard' },
-            { side: 'left', posZ: 1.25, details: '<h4>Pin 14: GND</h4><ul><li><span class="protocol-title">Power:</span> Ground</li></ul>', type: 'power' },
-            { side: 'left', posZ: 1.5, details: '<h4>Pin 15: VN</h4><ul><li><span class="protocol-title">Power:</span> Input (3.6V - 18V)</li></ul>', type: 'power' },
+            { gpio: -1, side: 'left', posZ: -2.0, details: '<h4>Pin 1: EN</h4><ul><li><span class="protocol-title">Control:</span> Chip Enable</li></ul><div class="note"><span class="boot-title">Boot Note:</span> Must be pulled HIGH for the chip to run.</div>', type: 'power' },
+            { gpio: 36, side: 'left', posZ: -1.75, details: `<h4>Pin 2: GPIO36</h4><ul><li><span class="protocol-title">ADC1_0</span>, RTC_GPIO0</li></ul>${inputOnlyNote}`, type: 'standard' },
+            { gpio: 39, side: 'left', posZ: -1.5, details: `<h4>Pin 3: GPIO39</h4><ul><li><span class="protocol-title">ADC1_3</span>, RTC_GPIO3</li></ul>${inputOnlyNote}`, type: 'standard' },
+            { gpio: 34, side: 'left', posZ: -1.25, details: `<h4>Pin 4: GPIO34</h4><ul><li><span class="protocol-title">ADC1_6</span>, RTC_GPIO4</li></ul>${inputOnlyNote}`, type: 'standard' },
+            { gpio: 35, side: 'left', posZ: -1.0, details: `<h4>Pin 5: GPIO35</h4><ul><li><span class="protocol-title">ADC1_7</span>, RTC_GPIO5</li></ul>${inputOnlyNote}`, type: 'standard' },
+            { gpio: 32, side: 'left', posZ: -0.75, details: `<h4>Pin 6: GPIO32</h4><ul><li><span class="protocol-title">ADC1_4</span>, TOUCH9, RTC_GPIO9</li></ul>${muxNote('High-impedance input on boot.')}`, type: 'standard' },
+            { gpio: 33, side: 'left', posZ: -0.5, details: `<h4>Pin 7: GPIO33</h4><ul><li><span class="protocol-title">ADC1_5</span>, TOUCH8, RTC_GPIO8</li></ul>${muxNote('High-impedance input on boot.')}`, type: 'standard' },
+            { gpio: 25, side: 'left', posZ: -0.25, details: `<h4>Pin 8: GPIO25</h4><ul><li><span class="protocol-title">DAC1</span>, ADC2_CH8, RTC_GPIO6</li></ul>${adcMuxNote('High-impedance input on boot.')}`, type: 'standard' },
+            { gpio: 26, side: 'left', posZ: 0.0, details: `<h4>Pin 9: GPIO26</h4><ul><li><span class="protocol-title">DAC2</span>, ADC2_CH9, RTC_GPIO7</li></ul>${adcMuxNote('High-impedance input on boot.')}`, type: 'standard' },
+            { gpio: 27, side: 'left', posZ: 0.25, details: `<h4>Pin 10: GPIO27</h4><ul><li><span class="protocol-title">ADC2_7</span>, TOUCH7, RTC_GPIO17</li></ul>${adcMuxNote('High-impedance input on boot.')}`, type: 'standard' },
+            { gpio: 14, side: 'left', posZ: 0.5, details: `<h4>Pin 11: GPIO14</h4><ul><li><span class="protocol-title">HSPI_CLK</span>, ADC2_6, TOUCH6, RTC_GPIO16</li></ul>${adcMuxNote('Outputs a clock signal on boot. Default JTAG TCK.')}`, type: 'standard' },
+            { gpio: 12, side: 'left', posZ: 0.75, details: `<h4>Pin 12: GPIO12</h4><ul><li><span class="protocol-title">HSPI_MISO</span>, ADC2_5, TOUCH5, RTC_GPIO15</li></ul><div class="note"><span class="boot-title">Boot Note:</span> Strapping Pin (MTDI). If held LOW, flash voltage is 1.8V. Default JTAG TDI.</div>`, type: 'strapping' },
+            { gpio: 13, side: 'left', posZ: 1.0, details: `<h4>Pin 13: GPIO13</h4><ul><li><span class="protocol-title">HSPI_MOSI</span>, ADC2_4, TOUCH4, RTC_GPIO14</li></ul>${adcMuxNote('High-impedance input on boot. Default JTAG TMS.')}`, type: 'standard' },
+            { gpio: -1, side: 'left', posZ: 1.25, details: '<h4>Pin 14: GND</h4><ul><li><span class="protocol-title">Power:</span> Ground</li></ul>', type: 'power' },
+            { gpio: -1, side: 'left', posZ: 1.5, details: '<h4>Pin 15: VN</h4><ul><li><span class="protocol-title">Power:</span> Input (3.6V - 18V)</li></ul>', type: 'power' },
             
             // Right Side
-            { side: 'right', posZ: -2.0, details: `<h4>Pin 30: GPIO23</h4><ul><li><span class="protocol-title">VSPI_MOSI</span></li></ul>${muxNote('High-impedance input on boot.')}`, type: 'standard' },
-            { side: 'right', posZ: -1.75, details: `<h4>Pin 29: GPIO22</h4><ul><li><span class="protocol-title">I2C_SCL</span>, VSPI_WP</li></ul>${muxNote('High-impedance input on boot.')}`, type: 'standard' },
-            { side: 'right', posZ: -1.5, details: `<h4>Pin 28: GPIO1</h4><ul><li><span class="protocol-title">U0-TXD</span></li></ul>${muxNote('Outputs boot log data by default.')}`, type: 'standard' },
-            { side: 'right', posZ: -1.25, details: `<h4>Pin 27: GPIO3</h4><ul><li><span class="protocol-title">U0-RXD</span></li></ul>${muxNote('High-impedance input on boot.')}`, type: 'standard' },
-            { side: 'right', posZ: -1.0, details: `<h4>Pin 26: GPIO21</h4><ul><li><span class="protocol-title">I2C_SDA</span></li></ul>${muxNote('High-impedance input on boot.')}`, type: 'standard' },
-            { side: 'right', posZ: -0.75, details: `<h4>Pin 25: GPIO19</h4><ul><li><span class="protocol-title">VSPI_MISO</span></li></ul>${muxNote('High-impedance input on boot.')}`, type: 'standard' },
-            { side: 'right', posZ: -0.5, details: `<h4>Pin 24: GPIO18</h4><ul><li><span class="protocol-title">VSPI_SCK</span></li></ul>${muxNote('High-impedance input on boot.')}`, type: 'standard' },
-            { side: 'right', posZ: -0.25, details: `<h4>Pin 23: GPIO5</h4><ul><li><span class="protocol-title">VSPI_CS0</span></li></ul><div class="note"><span class="boot-title">Boot Note:</span> Strapping Pin. If held HIGH, enables SDIO boot mode. Keep floating or LOW for normal SPI flash boot.</div>`, type: 'strapping' },
-            { side: 'right', posZ: 0.0, details: `<h4>Pin 22: GPIO17</h4><ul><li><span class="protocol-title">U2-TXD</span></li></ul>${muxNote('High-impedance input on boot.')}`, type: 'standard' },
-            { side: 'right', posZ: 0.25, details: `<h4>Pin 21: GPIO16</h4><ul><li><span class="protocol-title">U2-RXD</span></li></ul>${muxNote('High-impedance input on boot.')}`, type: 'standard' },
-            { side: 'right', posZ: 0.5, details: `<h4>Pin 20: GPIO4</h4><ul><li><span class="protocol-title">ADC2_0</span>, TOUCH0, RTC_GPIO10</li></ul>${adcMuxNote('High-impedance input on boot.')}`, type: 'standard' },
-            { side: 'right', posZ: 0.75, details: `<h4>Pin 19: GPIO2</h4><ul><li><span class="protocol-title">ADC2_2</span>, TOUCH2, RTC_GPIO12</li></ul><div class="note"><span class="boot-title">Boot Note:</span> Strapping Pin. If held LOW, enters serial bootloader mode. Do not connect peripherals that pull this pin LOW at boot.</div>`, type: 'strapping' },
-            { side: 'right', posZ: 1.0, details: `<h4>Pin 18: GPIO15</h4><ul><li><span class="protocol-title">ADC2_3</span>, TOUCH3, RTC_GPIO13</li></ul><div class="note"><span class="boot-title">Boot Note:</span> Strapping Pin. If held HIGH, silences boot ROM messages. Default JTAG TDO.</div>`, type: 'strapping' },
-            { side: 'right', posZ: 1.25, details: '<h4>Pin 17: GND</h4><ul><li><span class="protocol-title">Power:</span> Ground</li></ul>', type: 'power' },
-            { side: 'right', posZ: 1.5, details: '<h4>Pin 16: 3.3V</h4><ul><li><span class="protocol-title">Power:</span> 3.3V Output</li></ul>', type: 'power' },
+            { gpio: 23, side: 'right', posZ: -2.0, details: `<h4>Pin 30: GPIO23</h4><ul><li><span class="protocol-title">VSPI_MOSI</span></li></ul>${muxNote('High-impedance input on boot.')}`, type: 'standard' },
+            { gpio: 22, side: 'right', posZ: -1.75, details: `<h4>Pin 29: GPIO22</h4><ul><li><span class="protocol-title">I2C_SCL</span>, VSPI_WP</li></ul>${muxNote('High-impedance input on boot. For OLED, use as SCL.')}`, type: 'standard' },
+            { gpio: 1, side: 'right', posZ: -1.5, details: `<h4>Pin 28: GPIO1</h4><ul><li><span class="protocol-title">U0-TXD</span></li></ul>${muxNote('Outputs boot log data by default.')}`, type: 'standard' },
+            { gpio: 3, side: 'right', posZ: -1.25, details: `<h4>Pin 27: GPIO3</h4><ul><li><span class="protocol-title">U0-RXD</span></li></ul>${muxNote('High-impedance input on boot.')}`, type: 'standard' },
+            { gpio: 21, side: 'right', posZ: -1.0, details: `<h4>Pin 26: GPIO21</h4><ul><li><span class="protocol-title">I2C_SDA</span></li></ul>${muxNote('High-impedance input on boot. For OLED, use as SDA (Address: 0x3C).')}`, type: 'standard' },
+            { gpio: 19, side: 'right', posZ: -0.75, details: `<h4>Pin 25: GPIO19</h4><ul><li><span class="protocol-title">VSPI_MISO</span></li></ul>${muxNote('High-impedance input on boot.')}`, type: 'standard' },
+            { gpio: 18, side: 'right', posZ: -0.5, details: `<h4>Pin 24: GPIO18</h4><ul><li><span class="protocol-title">VSPI_SCK</span></li></ul>${muxNote('High-impedance input on boot.')}`, type: 'standard' },
+            { gpio: 5, side: 'right', posZ: -0.25, details: `<h4>Pin 23: GPIO5</h4><ul><li><span class="protocol-title">VSPI_CS0</span></li></ul><div class="note"><span class="boot-title">Boot Note:</span> Strapping Pin. If held HIGH, enables SDIO boot mode. Keep floating or LOW for normal SPI flash boot.</div>`, type: 'strapping' },
+            { gpio: 17, side: 'right', posZ: 0.0, details: `<h4>Pin 22: GPIO17</h4><ul><li><span class="protocol-title">U2-TXD</span></li></ul>${muxNote('High-impedance input on boot.')}`, type: 'standard' },
+            { gpio: 16, side: 'right', posZ: 0.25, details: `<h4>Pin 21: GPIO16</h4><ul><li><span class="protocol-title">U2-RXD</span></li></ul>${muxNote('High-impedance input on boot.')}`, type: 'standard' },
+            { gpio: 4, side: 'right', posZ: 0.5, details: `<h4>Pin 20: GPIO4</h4><ul><li><span class="protocol-title">ADC2_0</span>, TOUCH0, RTC_GPIO10</li></ul>${adcMuxNote('High-impedance input on boot.')}`, type: 'standard' },
+            { gpio: 2, side: 'right', posZ: 0.75, details: `<h4>Pin 19: GPIO2</h4><ul><li><span class="protocol-title">ADC2_2</span>, TOUCH2, RTC_GPIO12</li></ul><div class="note"><span class="boot-title">Boot Note:</span> Strapping Pin. If held LOW, enters serial bootloader mode. Do not connect peripherals that pull this pin LOW at boot.</div>`, type: 'strapping' },
+            { gpio: 15, side: 'right', posZ: 1.0, details: `<h4>Pin 18: GPIO15</h4><ul><li><span class="protocol-title">ADC2_3</span>, TOUCH3, RTC_GPIO13</li></ul><div class="note"><span class="boot-title">Boot Note:</span> Strapping Pin. If held HIGH, silences boot ROM messages. Default JTAG TDO.</div>`, type: 'strapping' },
+            { gpio: -1, side: 'right', posZ: 1.25, details: '<h4>Pin 17: GND</h4><ul><li><span class="protocol-title">Power:</span> Ground</li></ul>', type: 'power' },
+            { gpio: -1, side: 'right', posZ: 1.5, details: '<h4>Pin 16: 3.3V</h4><ul><li><span class="protocol-title">Power:</span> 3.3V Output</li></ul>', type: 'power' },
         ];
+        
+        const protocolToGpioMap = {
+            i2c_bus: [21, 22],
+            spi_bus: [23, 19, 18, 5], // VSPI
+            i2s_bus: [32, 33, 25, 26, 5, 14, 18, 19, 23],
+            adc1: [36, 39, 34, 35, 32, 33],
+            adc2: [25, 26, 27, 14, 12, 13, 4, 2, 15],
+            dac: [25, 26],
+            touch: [32, 33, 27, 14, 12, 13, 4, 2, 15],
+            pwm: [32, 33, 25, 26, 27, 14, 12, 13, 23, 22, 21, 19, 18, 5, 17, 16, 4, 2, 15],
+            uart0: [1, 3],
+            uart2: [17, 16]
+        };
 
         // --- CREATE PINS AND HOTSPOTS ---
-        const pinHotspots = [];
+        const allHotspots = [];
         const pinMeshes = { standard: [], strapping: [], power: [] };
+        const gpioToPinMeshMap = new Map();
         const pinGeometry = new THREE.CylinderGeometry(0.05, 0.05, 0.4, 8);
         const hotspotGeometry = new THREE.CylinderGeometry(0.1, 0.1, 0.5, 8);
 
@@ -344,40 +546,121 @@
             
             const pinMesh = new THREE.Mesh(pinGeometry, currentPinMaterial);
             pinMesh.position.set(posX, 0.08, pinData.posZ);
+            pinMesh.userData.originalMaterial = currentPinMaterial;
             boardGroup.add(pinMesh);
 
             pinMeshes[pinData.type].push(pinMesh);
+            if (pinData.gpio !== -1) {
+                gpioToPinMeshMap.set(pinData.gpio, pinMesh);
+            }
 
             const hotspotMesh = new THREE.Mesh(hotspotGeometry, hotspotMaterial);
             hotspotMesh.position.copy(pinMesh.position);
             hotspotMesh.userData.details = pinData.details;
             boardGroup.add(hotspotMesh);
-            pinHotspots.push(hotspotMesh);
+            allHotspots.push(hotspotMesh);
         });
+        
+        // --- ADD PROCESSOR HOTSPOT ---
+        const processorHotspotGeo = new THREE.BoxGeometry(1.8, 0.3, 1.8);
+        const processorHotspot = new THREE.Mesh(processorHotspotGeo, hotspotMaterial);
+        processorHotspot.position.y = 0.15;
+        processorHotspot.userData.details = `
+            <h4>ESP32-WROOM-32</h4>
+            <ul>
+                <li><span class="protocol-title">Processor:</span> Xtensa dual-core 32-bit LX6</li>
+                <li><span class="protocol-title">Clock Speed:</span> Up to 240 MHz</li>
+                <li><span class="protocol-title">SRAM:</span> 520 KB</li>
+                <li><span class="protocol-title">Flash:</span> 4 MB</li>
+                <li><span class="protocol-title">Wi-Fi:</span> 802.11 b/g/n</li>
+                <li><span class="protocol-title">Bluetooth:</span> v4.2 BR/EDR and BLE</li>
+            </ul>
+        `;
+        boardGroup.add(processorHotspot);
+        allHotspots.push(processorHotspot);
+
 
         // --- LEGEND INTERACTIVITY ---
-        document.getElementById('legend-standard').addEventListener('mouseenter', () => pinMeshes.standard.forEach(m => m.material = highlightPinMaterial));
-        document.getElementById('legend-standard').addEventListener('mouseleave', () => pinMeshes.standard.forEach(m => m.material = pinMaterial));
-        document.getElementById('legend-strapping').addEventListener('mouseenter', () => pinMeshes.strapping.forEach(m => m.material = highlightStrappingMaterial));
-        document.getElementById('legend-strapping').addEventListener('mouseleave', () => pinMeshes.strapping.forEach(m => m.material = strappingPinMaterial));
-        document.getElementById('legend-power').addEventListener('mouseenter', () => pinMeshes.power.forEach(m => m.material = highlightPowerMaterial));
-        document.getElementById('legend-power').addEventListener('mouseleave', () => pinMeshes.power.forEach(m => m.material = powerPinMaterial));
+        document.querySelectorAll('.legend-item').forEach(item => {
+            item.addEventListener('mouseenter', () => {
+                if (item.id === 'legend-standard') pinMeshes.standard.forEach(m => m.material = highlightPinMaterial);
+                if (item.id === 'legend-strapping') pinMeshes.strapping.forEach(m => m.material = highlightStrappingMaterial);
+                if (item.id === 'legend-power') pinMeshes.power.forEach(m => m.material = highlightPowerMaterial);
+            });
+            item.addEventListener('mouseleave', () => {
+                if (item.id === 'legend-standard') pinMeshes.standard.forEach(m => m.material = m.userData.originalMaterial);
+                if (item.id === 'legend-strapping') pinMeshes.strapping.forEach(m => m.material = m.userData.originalMaterial);
+                if (item.id === 'legend-power') pinMeshes.power.forEach(m => m.material = m.userData.originalMaterial);
+            });
+        });
+
+        const peripheralPopup = document.getElementById('peripheral-popup');
+        document.querySelectorAll('.protocol-item').forEach(item => {
+            const protocol = item.dataset.protocol;
+            const gpios = protocolToGpioMap[protocol] || [];
+            const template = item.querySelector('.peripheral-list-template');
+
+            item.addEventListener('mouseenter', () => {
+                gpios.forEach(gpio => {
+                    const mesh = gpioToPinMeshMap.get(gpio);
+                    if (mesh) mesh.material = protocolHighlightMaterial;
+                });
+                if (template) {
+                    const rect = item.getBoundingClientRect();
+                    peripheralPopup.innerHTML = template.innerHTML;
+                    
+                    let topPos = rect.top;
+                    const popupHeight = peripheralPopup.offsetHeight || 120; // Estimate height
+                    if (topPos + popupHeight > window.innerHeight) {
+                        topPos = window.innerHeight - popupHeight - 10;
+                    }
+
+                    peripheralPopup.style.top = `${topPos}px`;
+                    peripheralPopup.style.right = `${window.innerWidth - rect.left + 5}px`;
+                    peripheralPopup.style.left = 'auto';
+                    peripheralPopup.classList.add('visible');
+                }
+            });
+            item.addEventListener('mouseleave', () => {
+                gpios.forEach(gpio => {
+                    const mesh = gpioToPinMeshMap.get(gpio);
+                    if (mesh) mesh.material = mesh.userData.originalMaterial;
+                });
+                 if (template) {
+                    peripheralPopup.classList.remove('visible');
+                }
+            });
+        });
         
-        const legendToggle = document.getElementById('legend-toggle');
-        const legendContent = document.getElementById('legend-content');
-        legendToggle.addEventListener('click', () => {
-            legendContent.classList.toggle('hidden');
-            legendToggle.textContent = legendContent.classList.contains('hidden') ? '[+]' : '[-]';
+        document.getElementById('pin-type-toggle').addEventListener('click', (e) => {
+            const content = document.getElementById('pin-type-content');
+            content.classList.toggle('hidden');
+            e.target.textContent = content.classList.contains('hidden') ? '[+]' : '[-]';
+        });
+        document.getElementById('protocol-toggle').addEventListener('click', (e) => {
+            const content = document.getElementById('protocol-content');
+            content.classList.toggle('hidden');
+            e.target.textContent = content.classList.contains('hidden') ? '[+]' : '[-]';
         });
 
         // --- INTERACTIVITY & ANIMATION ---
         const raycaster = new THREE.Raycaster();
         const mouse = new THREE.Vector2();
-        const tooltipElement = document.getElementById('tooltip');
-        let intersectedPin = null;
+        const tooltip = document.getElementById('tooltip');
+        const tooltipContent = document.getElementById('tooltip-content');
+        const tooltipCloseBtn = document.getElementById('tooltip-close-btn');
+        const header = document.getElementById('header');
+        const legends = document.querySelectorAll('.legend');
+
+        let intersectedObject = null;
+        let isFocusMode = false;
+        let animationActive = false;
+        let savedCameraState = {};
+        let targetPosition = new THREE.Vector3();
+        let targetLookAt = new THREE.Vector3();
 
         function onMouseMove(event) {
-            if (event.target.closest('#legend')) {
+            if (isFocusMode || event.target.closest('.legend')) {
                 mouse.x = -9999; mouse.y = -9999; return;
             }
             mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
@@ -396,32 +679,107 @@
         window.addEventListener('resize', onWindowResize);
         onWindowResize();
 
+        function onClick(event) {
+            if (animationActive || isFocusMode) return;
+            
+            const intersects = raycaster.intersectObjects(allHotspots);
+            if (intersects.length > 0) {
+                // Hide the hover tooltip before starting the focus animation
+                if (intersectedObject) {
+                    tooltip.style.visibility = 'hidden';
+                    tooltip.style.opacity = '0';
+                    intersectedObject = null;
+                }
+                enterFocusMode(intersects[0].object);
+            }
+        }
+        window.addEventListener('click', onClick);
+
+        tooltipCloseBtn.addEventListener('click', () => {
+            if (animationActive) return;
+            exitFocusMode();
+        });
+
+        function enterFocusMode(targetObject) {
+            isFocusMode = true;
+            animationActive = true;
+            controls.enabled = false;
+            
+            savedCameraState = {
+                position: camera.position.clone(),
+                target: controls.target.clone()
+            };
+
+            const targetWorldPos = new THREE.Vector3();
+            targetObject.getWorldPosition(targetWorldPos);
+            targetLookAt.copy(targetWorldPos);
+            
+            const direction = new THREE.Vector3().subVectors(camera.position, controls.target).normalize();
+            const distance = targetObject.geometry.type === 'BoxGeometry' ? 3 : 1.5;
+            targetPosition.copy(targetWorldPos).add(direction.multiplyScalar(distance));
+
+            tooltipContent.innerHTML = targetObject.userData.details;
+            
+            // Remove all inline styles to let the CSS class take over completely.
+            tooltip.removeAttribute('style');
+
+            tooltip.classList.add('focused');
+            header.classList.add('hidden');
+            legends.forEach(l => l.classList.add('hidden'));
+        }
+
+        function exitFocusMode() {
+            isFocusMode = false;
+            animationActive = true;
+            
+            targetPosition.copy(savedCameraState.position);
+            targetLookAt.copy(savedCameraState.target);
+
+            tooltip.classList.remove('focused');
+            header.classList.remove('hidden');
+            legends.forEach(l => l.classList.remove('hidden'));
+        }
+
         function animate() {
             requestAnimationFrame(animate);
-            controls.update();
+            
+            if (animationActive) {
+                camera.position.lerp(targetPosition, 0.05);
+                controls.target.lerp(targetLookAt, 0.05);
+                const distance = camera.position.distanceTo(targetPosition);
+                if (distance < 0.01) {
+                    animationActive = false;
+                    if (!isFocusMode) {
+                        controls.enabled = true;
+                    }
+                }
+            } else if (!isFocusMode) {
+                controls.update();
+            }
 
             raycaster.setFromCamera(mouse, camera);
-            const intersects = raycaster.intersectObjects(pinHotspots);
+            const intersects = raycaster.intersectObjects(allHotspots);
 
-            if (intersects.length > 0) {
-                if (intersectedPin !== intersects[0].object) {
-                    intersectedPin = intersects[0].object;
-                    tooltipElement.innerHTML = intersectedPin.userData.details;
-                    tooltipElement.style.visibility = 'visible';
-                    tooltipElement.style.opacity = '1';
+            if (intersects.length > 0 && !isFocusMode) {
+                if (intersectedObject !== intersects[0].object) {
+                    intersectedObject = intersects[0].object;
+                    tooltipContent.innerHTML = intersectedObject.userData.details;
+                    tooltip.style.visibility = 'visible';
+                    tooltip.style.opacity = '1';
                 }
                 const vector = new THREE.Vector3();
-                intersectedPin.getWorldPosition(vector).project(camera);
+                intersectedObject.getWorldPosition(vector).project(camera);
                 const x = (vector.x * 0.5 + 0.5) * window.innerWidth;
                 const y = (vector.y * -0.5 + 0.5) * window.innerHeight;
-                tooltipElement.style.left = `${x + 15}px`;
-                tooltipElement.style.top = `${y}px`;
-            } else {
-                if (intersectedPin) {
-                    tooltipElement.style.visibility = 'hidden';
-                    tooltipElement.style.opacity = '0';
+                tooltip.style.left = `${x + 15}px`;
+                tooltip.style.top = `${y}px`;
+                tooltip.style.transform = 'translate(0, 0) scale(1.0)';
+            } else if (!isFocusMode) {
+                if (intersectedObject) {
+                    tooltip.style.visibility = 'hidden';
+                    tooltip.style.opacity = '0';
                 }
-                intersectedPin = null;
+                intersectedObject = null;
             }
             renderer.render(scene, camera);
         }
