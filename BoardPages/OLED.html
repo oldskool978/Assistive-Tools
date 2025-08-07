@@ -1,0 +1,509 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Interactive 3D 0.91" OLED Pinout</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #1a202c;
+            color: #e2e8f0;
+            margin: 0;
+            overflow: hidden; /* Prevent scrollbars from canvas */
+        }
+        #container {
+            width: 100vw;
+            height: 100vh;
+            position: relative;
+        }
+        #canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            z-index: 1; /* Ensure canvas is in the base stacking layer */
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
+        #header {
+            position: absolute;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            text-align: center;
+            z-index: 10;
+            pointer-events: none; /* Allow mouse events to pass through to the canvas */
+            width: 90%;
+            transition: opacity 0.3s ease-in-out;
+        }
+        #header.hidden {
+            opacity: 0;
+        }
+        #header h1 {
+            font-size: 2rem;
+            font-weight: 700;
+            color: white;
+            text-shadow: 0 0 10px rgba(0,0,0,0.5);
+        }
+        #header p {
+            font-size: 1rem;
+            color: #a0aec0;
+        }
+        #tooltip {
+            position: absolute;
+            background-color: #2d3748;
+            color: #f7fafc;
+            padding: 0.75rem;
+            border-radius: 8px;
+            border: 1px solid #4a5568;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+            width: 280px;
+            z-index: 20; /* Higher z-index than canvas */
+            font-size: 0.8rem;
+            line-height: 1.5;
+            visibility: hidden;
+            opacity: 0;
+            transition: opacity 0.3s ease-in-out, top 0.4s ease-in-out, left 0.4s ease-in-out, transform 0.4s ease-in-out, width 0.4s ease-in-out, height 0.4s ease-in-out;
+            pointer-events: none;
+        }
+        #tooltip.focused {
+            visibility: visible;
+            opacity: 1;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%) scale(1.1);
+            pointer-events: auto; /* Allow clicking the close button */
+        }
+        #tooltip-close-btn {
+            display: none; /* Hidden by default */
+            position: absolute;
+            top: 5px;
+            right: 8px;
+            font-size: 1.5rem;
+            color: #a0aec0;
+            cursor: pointer;
+            transition: color 0.2s;
+        }
+        #tooltip-close-btn:hover {
+            color: white;
+        }
+        #tooltip.focused #tooltip-close-btn {
+            display: block; /* Show when focused */
+        }
+
+        #tooltip h4 {
+            font-weight: 700;
+            margin: 0 0 0.5rem 0;
+            color: #63b3ed;
+            border-bottom: 1px solid #718096;
+            padding-bottom: 0.25rem;
+        }
+        #tooltip ul {
+            list-style-type: none;
+            padding: 0; margin: 0;
+        }
+        #tooltip .protocol-title {
+            font-weight: bold;
+            color: #90cdf4;
+        }
+        #tooltip .note {
+            font-style: italic;
+            color: #a0aec0;
+            font-size: 0.75rem;
+            margin-top: 0.5rem;
+            border-top: 1px solid #718096;
+            padding-top: 0.5rem;
+        }
+        .note .boot-title {
+            color: #f6ad55; /* orange-400 */
+            font-weight: bold;
+        }
+        .legend {
+            position: absolute;
+            bottom: 20px;
+            background-color: rgba(45, 55, 72, 0.8);
+            padding: 0.75rem;
+            border-radius: 8px;
+            border: 1px solid #4a5568;
+            z-index: 10;
+            backdrop-filter: blur(5px);
+            max-height: calc(100vh - 40px);
+            overflow-y: auto;
+            transition: opacity 0.3s ease-in-out;
+        }
+        .legend.hidden {
+            opacity: 0;
+            pointer-events: none;
+        }
+        #pin-type-legend { left: 20px; }
+        #module-info-legend { right: 20px; }
+
+        .legend-item {
+            display: flex;
+            align-items: center;
+            margin-bottom: 0.5rem;
+            padding: 0.25rem 0.5rem;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: background-color 0.2s ease-in-out;
+        }
+        .legend-item:hover {
+            background-color: rgba(100, 116, 139, 0.5); /* slate-500 with opacity */
+        }
+        .legend-item:last-child {
+            margin-bottom: 0;
+        }
+        .legend-color {
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            margin-right: 0.5rem;
+            border: 1px solid #e2e8f0;
+        }
+        .legend-toggle {
+            position: absolute;
+            top: 5px;
+            right: 5px;
+            cursor: pointer;
+            font-size: 0.7rem;
+            color: #a0aec0;
+        }
+        .legend-content.hidden {
+            display: none;
+        }
+        .info-group { margin-bottom: 0.75rem; }
+        .info-group h5 { font-weight: bold; color: #a0aec0; margin-bottom: 0.25rem; border-bottom: 1px solid #4a5568; padding-bottom: 0.25rem;}
+        .info-item { padding: 0.1rem 0.5rem; }
+
+
+        /* Responsive Styles for smaller screens */
+        @media (max-width: 768px) {
+            #header h1 { font-size: 1.5rem; }
+            #header p { font-size: 0.8rem; }
+            .legend { bottom: 10px; padding: 0.5rem; font-size: 0.8rem; }
+            #pin-type-legend { left: 10px; }
+            #module-info-legend { right: 10px; }
+            .legend-item { padding: 0.2rem 0.4rem; }
+        }
+    </style>
+</head>
+<body>
+    <div id="container">
+        <div id="header">
+            <h1>0.91" I2C OLED Display</h1>
+            <p>Click and drag to rotate. Scroll to zoom. Hover over pins.</p>
+        </div>
+        <canvas id="canvas"></canvas>
+        <div id="tooltip">
+             <div id="tooltip-close-btn">&times;</div>
+             <div id="tooltip-content"></div>
+        </div>
+        
+        <div id="pin-type-legend" class="legend">
+            <div id="pin-type-toggle" class="legend-toggle">[-]</div>
+            <div id="pin-type-content">
+                <div id="legend-power" class="legend-item">
+                    <div class="legend-color" style="background-color: #e53e3e;"></div>
+                    <span>Power Pins</span>
+                </div>
+                <div id="legend-i2c" class="legend-item">
+                    <div class="legend-color" style="background-color: #63b3ed;"></div>
+                    <span>I2C Pins</span>
+                </div>
+            </div>
+        </div>
+
+        <div id="module-info-legend" class="legend">
+            <div id="module-info-toggle" class="legend-toggle">[-]</div>
+            <div id="module-info-content">
+                <div class="info-group">
+                    <h5>Module Info</h5>
+                    <div class="info-item">Driver: SSD1306</div>
+                    <div class="info-item">Resolution: 128x32</div>
+                    <div class="info-item">I2C Address: 0x3C</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Import three.js and OrbitControls -->
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://cdn.jsdelivr.net/npm/three@0.164.1/build/three.module.js",
+                "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.164.1/examples/jsm/"
+            }
+        }
+    </script>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+        // --- SCENE SETUP ---
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        const renderer = new THREE.WebGLRenderer({ canvas: document.getElementById('canvas'), antialias: true, alpha: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(window.devicePixelRatio);
+        scene.background = new THREE.Color(0x1a202c);
+
+        // --- LIGHTING ---
+        scene.add(new THREE.AmbientLight(0xffffff, 1.5));
+        const directionalLight = new THREE.DirectionalLight(0xffffff, 2.5);
+        directionalLight.position.set(5, 10, 7.5);
+        scene.add(directionalLight);
+
+        // --- CONTROLS ---
+        const controls = new OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true;
+        controls.dampingFactor = 0.05;
+        controls.minDistance = 1;
+        controls.maxDistance = 10;
+        controls.rotateSpeed = 0.5;
+        controls.zoomSpeed = 0.8;
+        controls.panSpeed = 0.5;
+        camera.position.set(0, 1, 3);
+        controls.update();
+
+        // --- MATERIALS ---
+        const pcbMaterial = new THREE.MeshStandardMaterial({ color: 0x003366, roughness: 0.6, metalness: 0.2 }); // Blue PCB
+        const screenMaterial = new THREE.MeshStandardMaterial({ color: 0x000000, emissive: 0x00aaff, emissiveIntensity: 0.3 });
+        const powerPinMaterial = new THREE.MeshStandardMaterial({ color: 0xe53e3e, metalness: 0.5, roughness: 0.3 });
+        const i2cPinMaterial = new THREE.MeshStandardMaterial({ color: 0x63b3ed, metalness: 0.5, roughness: 0.3 });
+        const hotspotMaterial = new THREE.MeshBasicMaterial({ visible: false });
+        const solderMaterial = new THREE.MeshStandardMaterial({ color: 0xcccccc, metalness: 0.9, roughness: 0.2 });
+        
+        // Highlight materials
+        const highlightPowerMaterial = new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xe53e3e, emissiveIntensity: 0.7 });
+        const highlightI2cMaterial = new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0x63b3ed, emissiveIntensity: 0.7 });
+
+        // --- BOARD MODEL ---
+        const boardGroup = new THREE.Group();
+        const pcb = new THREE.Mesh(new THREE.BoxGeometry(3.8, 0.16, 1.2), pcbMaterial);
+        boardGroup.add(pcb);
+        const screen = new THREE.Mesh(new THREE.BoxGeometry(3.0, 0.1, 0.8), screenMaterial);
+        screen.position.y = 0.13;
+        boardGroup.add(screen);
+        scene.add(boardGroup);
+
+        // --- PIN DATA (Corrected Order) ---
+        const pinoutData = [
+            { name: 'GND', posX: 1.7, posZ: -0.4, details: '<h4>Pin: GND</h4><ul><li><span class="protocol-title">Function:</span> Ground</li></ul><div class="note">Connect to any GND pin on the ESP32.</div>', type: 'power' },
+            { name: 'VCC', posX: 1.7, posZ: -0.15, details: '<h4>Pin: VCC</h4><ul><li><span class="protocol-title">Function:</span> Power Supply</li></ul><div class="note">Connect to the 3.3V pin on the ESP32.</div>', type: 'power' },
+            { name: 'SCK', posX: 1.7, posZ: 0.1, details: '<h4>Pin: SCK / SCL</h4><ul><li><span class="protocol-title">Function:</span> I2C Clock</li></ul><div class="note">Connect to the default I2C clock pin, **GPIO 22**, on the ESP32.</div>', type: 'i2c' },
+            { name: 'SDA', posX: 1.7, posZ: 0.35, details: '<h4>Pin: SDA</h4><ul><li><span class="protocol-title">Function:</span> I2C Data</li></ul><div class="note">Connect to the default I2C data pin, **GPIO 21**, on the ESP32.</div>', type: 'i2c' },
+        ];
+
+        // --- CREATE PINS AND HOTSPOTS ---
+        const allHotspots = [];
+        const pinMeshes = { power: [], i2c: [] };
+        const pinGeometry = new THREE.CylinderGeometry(0.03, 0.03, 0.3, 8);
+        const solderPadGeometry = new THREE.CylinderGeometry(0.08, 0.08, 0.02, 12);
+        const hotspotGeometry = new THREE.CylinderGeometry(0.12, 0.12, 0.5, 8);
+
+        pinoutData.forEach(pinData => {
+            let currentPinMaterial;
+            if (pinData.type === 'power') currentPinMaterial = powerPinMaterial;
+            else currentPinMaterial = i2cPinMaterial;
+            
+            // Solder Pad
+            const solderPad = new THREE.Mesh(solderPadGeometry, solderMaterial);
+            solderPad.position.set(pinData.posX, 0.08, pinData.posZ);
+            boardGroup.add(solderPad);
+            
+            // Pin
+            const pinMesh = new THREE.Mesh(pinGeometry, currentPinMaterial);
+            pinMesh.position.set(pinData.posX, -0.1, pinData.posZ); // Position coming out of bottom
+            pinMesh.userData.originalMaterial = currentPinMaterial;
+            boardGroup.add(pinMesh);
+
+            pinMeshes[pinData.type].push(pinMesh);
+
+            // Hotspot
+            const hotspotMesh = new THREE.Mesh(hotspotGeometry, hotspotMaterial);
+            hotspotMesh.position.set(pinData.posX, 0, pinData.posZ);
+            hotspotMesh.userData.details = pinData.details;
+            boardGroup.add(hotspotMesh);
+            allHotspots.push(hotspotMesh);
+        });
+        
+        // --- LEGEND INTERACTIVITY ---
+        document.getElementById('legend-power').addEventListener('mouseenter', () => pinMeshes.power.forEach(m => m.material = highlightPowerMaterial));
+        document.getElementById('legend-power').addEventListener('mouseleave', () => pinMeshes.power.forEach(m => m.material = m.userData.originalMaterial));
+        document.getElementById('legend-i2c').addEventListener('mouseenter', () => pinMeshes.i2c.forEach(m => m.material = highlightI2cMaterial));
+        document.getElementById('legend-i2c').addEventListener('mouseleave', () => pinMeshes.i2c.forEach(m => m.material = m.userData.originalMaterial));
+        
+        document.getElementById('pin-type-toggle').addEventListener('click', (e) => {
+            const content = document.getElementById('pin-type-content');
+            content.classList.toggle('hidden');
+            e.target.textContent = content.classList.contains('hidden') ? '[+]' : '[-]';
+        });
+        document.getElementById('module-info-toggle').addEventListener('click', (e) => {
+            const content = document.getElementById('module-info-content');
+            content.classList.toggle('hidden');
+            e.target.textContent = content.classList.contains('hidden') ? '[+]' : '[-]';
+        });
+
+        // --- INTERACTIVITY & ANIMATION ---
+        const raycaster = new THREE.Raycaster();
+        const mouse = new THREE.Vector2();
+        const tooltip = document.getElementById('tooltip');
+        const tooltipContent = document.getElementById('tooltip-content');
+        const tooltipCloseBtn = document.getElementById('tooltip-close-btn');
+        const header = document.getElementById('header');
+        const legends = document.querySelectorAll('.legend');
+
+        let intersectedObject = null;
+        let isFocusMode = false;
+        let animationActive = false;
+        let savedCameraState = {};
+        let targetPosition = new THREE.Vector3();
+        let targetLookAt = new THREE.Vector3();
+
+        function onMouseMove(event) {
+            if (isFocusMode || event.target.closest('.legend')) {
+                mouse.x = -9999; mouse.y = -9999; return;
+            }
+            mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+            mouse.y = - (event.clientY / window.innerHeight) * 2 + 1;
+        }
+        window.addEventListener('mousemove', onMouseMove);
+        
+        function onWindowResize() {
+            const width = window.innerWidth;
+            const height = window.innerHeight;
+            camera.aspect = width / height;
+            camera.zoom = Math.min(width, height) / 700;
+            camera.updateProjectionMatrix();
+            renderer.setSize(width, height);
+        }
+        window.addEventListener('resize', onWindowResize);
+        onWindowResize();
+
+        function onClick(event) {
+            if (animationActive || isFocusMode) return;
+            
+            const intersects = raycaster.intersectObjects(allHotspots);
+            if (intersects.length > 0) {
+                if (intersectedObject) {
+                    tooltip.style.visibility = 'hidden';
+                    tooltip.style.opacity = '0';
+                    intersectedObject = null;
+                }
+                enterFocusMode(intersects[0].object);
+            }
+        }
+        window.addEventListener('click', onClick);
+
+        tooltipCloseBtn.addEventListener('click', () => {
+            if (animationActive) return;
+            exitFocusMode();
+        });
+
+        function enterFocusMode(targetObject) {
+            isFocusMode = true;
+            animationActive = true;
+            controls.enabled = false;
+            
+            savedCameraState = {
+                position: camera.position.clone(),
+                target: controls.target.clone()
+            };
+
+            const targetWorldPos = new THREE.Vector3();
+            targetObject.getWorldPosition(targetWorldPos);
+            targetLookAt.copy(targetWorldPos);
+            
+            const direction = new THREE.Vector3().subVectors(camera.position, controls.target).normalize();
+            const distance = 1.5;
+            targetPosition.copy(targetWorldPos).add(direction.multiplyScalar(distance));
+
+            tooltipContent.innerHTML = targetObject.userData.details;
+            tooltip.removeAttribute('style');
+            tooltip.classList.add('focused');
+            header.classList.add('hidden');
+            legends.forEach(l => l.classList.add('hidden'));
+        }
+
+        function exitFocusMode() {
+            isFocusMode = false;
+            animationActive = true;
+            
+            targetPosition.copy(savedCameraState.position);
+            targetLookAt.copy(savedCameraState.target);
+
+            tooltip.classList.remove('focused');
+            header.classList.remove('hidden');
+            legends.forEach(l => l.classList.remove('hidden'));
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            
+            if (animationActive) {
+                camera.position.lerp(targetPosition, 0.05);
+                controls.target.lerp(targetLookAt, 0.05);
+                const distance = camera.position.distanceTo(targetPosition);
+                if (distance < 0.01) {
+                    animationActive = false;
+                    if (!isFocusMode) {
+                        controls.enabled = true;
+                    }
+                }
+            } else if (!isFocusMode) {
+                controls.update();
+            }
+
+            raycaster.setFromCamera(mouse, camera);
+            const intersects = raycaster.intersectObjects(allHotspots);
+
+            if (intersects.length > 0 && !isFocusMode) {
+                if (intersectedObject !== intersects[0].object) {
+                    intersectedObject = intersects[0].object;
+                    tooltipContent.innerHTML = intersectedObject.userData.details;
+                    tooltip.style.visibility = 'visible';
+                    tooltip.style.opacity = '1';
+                }
+                const vector = new THREE.Vector3();
+                intersectedObject.getWorldPosition(vector).project(camera);
+                let x = (vector.x * 0.5 + 0.5) * window.innerWidth;
+                let y = (vector.y * -0.5 + 0.5) * window.innerHeight;
+
+                // Boundary check logic
+                const tooltipWidth = 280;
+                const tooltipHeight = tooltip.offsetHeight;
+                const margin = 15;
+
+                if (x + tooltipWidth + margin > window.innerWidth) {
+                    x = x - tooltipWidth - margin;
+                } else {
+                    x = x + margin;
+                }
+                if (y + tooltipHeight > window.innerHeight) {
+                    y = window.innerHeight - tooltipHeight;
+                }
+                 if (y < 0) {
+                    y = 0;
+                }
+                
+                tooltip.style.left = `${x}px`;
+                tooltip.style.top = `${y}px`;
+                tooltip.style.transform = 'translate(0, 0) scale(1.0)';
+            } else if (!isFocusMode) {
+                if (intersectedObject) {
+                    tooltip.style.visibility = 'hidden';
+                    tooltip.style.opacity = '0';
+                }
+                intersectedObject = null;
+            }
+            renderer.render(scene, camera);
+        }
+
+        animate();
+    </script>
+</body>
+</html>
