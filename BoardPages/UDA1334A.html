@@ -1,0 +1,560 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>UDA1334A I2S DAC - Interactive 3D Pinout</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #1a202c;
+            color: #e2e8f0;
+            margin: 0;
+            overflow: hidden;
+        }
+        #container {
+            width: 100vw;
+            height: 100vh;
+            position: relative;
+        }
+        #canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            z-index: 1;
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
+        #header {
+            position: absolute;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            text-align: center;
+            z-index: 10;
+            pointer-events: none;
+            width: 90%;
+            transition: opacity 0.3s ease-in-out;
+        }
+        #header.hidden {
+            opacity: 0;
+        }
+        #header h1 {
+            font-size: 2rem;
+            font-weight: 700;
+            color: white;
+            text-shadow: 0 0 10px rgba(0,0,0,0.5);
+        }
+        #header p {
+            font-size: 1rem;
+            color: #a0aec0;
+        }
+        #tooltip {
+            position: absolute;
+            background-color: #2d3748;
+            color: #f7fafc;
+            padding: 0.75rem;
+            border-radius: 8px;
+            border: 1px solid #4a5568;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+            width: 280px;
+            z-index: 20;
+            font-size: 0.8rem;
+            line-height: 1.5;
+            visibility: hidden;
+            opacity: 0;
+            transition: opacity 0.3s ease-in-out, top 0.4s ease-in-out, left 0.4s ease-in-out, transform 0.4s ease-in-out, width 0.4s ease-in-out, height 0.4s ease-in-out;
+            pointer-events: none;
+        }
+        #tooltip.focused {
+            visibility: visible;
+            opacity: 1;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%) scale(1.1);
+            pointer-events: auto;
+        }
+        #tooltip-close-btn {
+            display: none;
+            position: absolute;
+            top: 5px;
+            right: 8px;
+            font-size: 1.5rem;
+            color: #a0aec0;
+            cursor: pointer;
+            transition: color 0.2s;
+        }
+        #tooltip-close-btn:hover {
+            color: white;
+        }
+        #tooltip.focused #tooltip-close-btn {
+            display: block;
+        }
+        #tooltip h4 {
+            font-weight: 700;
+            margin: 0 0 0.5rem 0;
+            color: #63b3ed;
+            border-bottom: 1px solid #718096;
+            padding-bottom: 0.25rem;
+        }
+        #tooltip ul {
+            list-style-type: none;
+            padding: 0; margin: 0;
+        }
+        #tooltip .protocol-title {
+            font-weight: bold;
+            color: #90cdf4;
+        }
+        #tooltip .note {
+            font-style: italic;
+            color: #a0aec0;
+            font-size: 0.75rem;
+            margin-top: 0.5rem;
+            border-top: 1px solid #718096;
+            padding-top: 0.5rem;
+        }
+        .legend {
+            position: absolute;
+            bottom: 20px;
+            background-color: rgba(45, 55, 72, 0.8);
+            padding: 0.75rem;
+            border-radius: 8px;
+            border: 1px solid #4a5568;
+            z-index: 10;
+            backdrop-filter: blur(5px);
+            max-height: calc(100vh - 40px);
+            overflow-y: auto;
+            transition: opacity 0.3s ease-in-out;
+        }
+        .legend.hidden {
+            opacity: 0;
+            pointer-events: none;
+        }
+        #pin-type-legend { left: 20px; }
+        #protocol-legend { right: 20px; }
+
+        .legend-item {
+            display: flex;
+            align-items: center;
+            margin-bottom: 0.5rem;
+            padding: 0.25rem 0.5rem;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: background-color 0.2s ease-in-out;
+        }
+        .legend-item:hover {
+            background-color: rgba(100, 116, 139, 0.5);
+        }
+        .legend-item:last-child {
+            margin-bottom: 0;
+        }
+        .legend-color {
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            margin-right: 0.5rem;
+            border: 1px solid #e2e8f0;
+        }
+        .legend-toggle {
+            position: absolute;
+            top: 5px;
+            right: 5px;
+            cursor: pointer;
+            font-size: 0.7rem;
+            color: #a0aec0;
+        }
+        .legend-content.hidden {
+            display: none;
+        }
+        .info-group { margin-bottom: 0.75rem; }
+        .info-group h5 { font-weight: bold; color: #a0aec0; margin-bottom: 0.25rem; border-bottom: 1px solid #4a5568; padding-bottom: 0.25rem;}
+        .info-item { padding: 0.1rem 0.5rem; }
+
+        @media (max-width: 768px) {
+            #header h1 { font-size: 1.5rem; }
+            #header p { font-size: 0.8rem; }
+            .legend { bottom: 10px; padding: 0.5rem; font-size: 0.8rem; }
+            #pin-type-legend { left: 10px; }
+            #protocol-legend { right: 10px; }
+            .legend-item { padding: 0.2rem 0.4rem; }
+        }
+    </style>
+</head>
+<body>
+    <div id="container">
+        <div id="header">
+            <h1>UDA1334A I2S DAC Module</h1>
+            <p>Click and drag to rotate. Scroll to zoom. Click a pin for details.</p>
+        </div>
+        <canvas id="canvas"></canvas>
+        <div id="tooltip">
+            <div id="tooltip-close-btn">&times;</div>
+            <div id="tooltip-content"></div>
+        </div>
+        
+        <div id="pin-type-legend" class="legend">
+            <div id="pin-type-toggle" class="legend-toggle">[-]</div>
+            <div id="pin-type-content" class="legend-content">
+                <div id="legend-power" class="legend-item">
+                    <div class="legend-color" style="background-color: #e53e3e;"></div>
+                    <span>Power</span>
+                </div>
+                <div id="legend-i2s" class="legend-item">
+                    <div class="legend-color" style="background-color: #63b3ed;"></div>
+                    <span>I2S Protocol</span>
+                </div>
+                <div id="legend-control" class="legend-item">
+                    <div class="legend-color" style="background-color: #f6ad55;"></div>
+                    <span>Control/Config</span>
+                </div>
+                 <div id="legend-analog" class="legend-item">
+                    <div class="legend-color" style="background-color: #48bb78;"></div>
+                    <span>Analog Out</span>
+                </div>
+            </div>
+        </div>
+
+        <div id="protocol-legend" class="legend">
+            <div id="protocol-toggle" class="legend-toggle">[-]</div>
+            <div id="protocol-content" class="legend-content">
+                <div class="info-group">
+                    <h5>I2S Protocol</h5>
+                    <div class="info-item">BCLK: Bit Clock</div>
+                    <div class="info-item">WSEL: Word Select (L/R)</div>
+                    <div class="info-item">DIN: Data In</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://cdn.jsdelivr.net/npm/three@0.164.1/build/three.module.js",
+                "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.164.1/examples/jsm/"
+            }
+        }
+    </script>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+        // --- SCENE SETUP ---
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 1000);
+        const renderer = new THREE.WebGLRenderer({ canvas: document.getElementById('canvas'), antialias: true, alpha: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(window.devicePixelRatio);
+        scene.background = new THREE.Color(0x1a202c);
+
+        // --- LIGHTING ---
+        scene.add(new THREE.AmbientLight(0xffffff, 1.5));
+        const directionalLight = new THREE.DirectionalLight(0xffffff, 2.5);
+        directionalLight.position.set(10, 20, 15);
+        scene.add(directionalLight);
+
+        // --- CONTROLS ---
+        const controls = new OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true;
+        controls.dampingFactor = 0.05;
+        controls.minDistance = 20;
+        controls.maxDistance = 150;
+        controls.maxPolarAngle = Math.PI / 2 - 0.05;
+        camera.position.set(0, 60, 70);
+        controls.update();
+
+        // --- MATERIALS ---
+        const pcbMaterial = new THREE.MeshStandardMaterial({ color: 0x4a0072, roughness: 0.6, metalness: 0.2 });
+        const chipMaterial = new THREE.MeshStandardMaterial({ color: 0x222222, roughness: 0.4 });
+        const jackMaterial = new THREE.MeshStandardMaterial({ color: 0x111111 });
+        const jackPortMaterial = new THREE.MeshStandardMaterial({ color: 0xcccccc, metalness: 0.8, roughness: 0.2 });
+        const capacitorMaterial = new THREE.MeshStandardMaterial({ color: 0x333333, roughness: 0.3 });
+        const hotspotMaterial = new THREE.MeshBasicMaterial({ visible: false });
+        
+        const powerPinMaterial = new THREE.MeshStandardMaterial({ color: '#e53e3e', metalness: 0.5, roughness: 0.4 });
+        const i2sPinMaterial = new THREE.MeshStandardMaterial({ color: '#63b3ed', metalness: 0.5, roughness: 0.4 });
+        const controlPinMaterial = new THREE.MeshStandardMaterial({ color: '#f6ad55', metalness: 0.5, roughness: 0.4 });
+        const analogPinMaterial = new THREE.MeshStandardMaterial({ color: '#48bb78', metalness: 0.5, roughness: 0.4 });
+
+        // Highlight materials
+        const highlightChipMaterial = new THREE.MeshStandardMaterial({ color: '#ffffff', emissive: '#63b3ed', emissiveIntensity: 0.5 });
+        const highlightPowerMaterial = new THREE.MeshStandardMaterial({ color: '#ffffff', emissive: '#e53e3e', emissiveIntensity: 0.8 });
+        const highlightI2sMaterial = new THREE.MeshStandardMaterial({ color: '#ffffff', emissive: '#63b3ed', emissiveIntensity: 0.8 });
+        const highlightControlMaterial = new THREE.MeshStandardMaterial({ color: '#ffffff', emissive: '#f6ad55', emissiveIntensity: 0.8 });
+        const highlightAnalogMaterial = new THREE.MeshStandardMaterial({ color: '#ffffff', emissive: '#48bb78', emissiveIntensity: 0.8 });
+        
+        // --- PIN DATA (Final Corrected Order) ---
+        const pinoutData = [
+            // Top Pins
+            { name: 'SCLK', posX: -12.5, posZ: -11.5, type: 'control', details: '<h4>Pin: SCLK</h4><ul><li><span class="protocol-title">Function:</span> System Clock</li></ul><div class="note">Provides the system clock for the DAC. Can be independent of the I2S clocks.</div>' },
+            { name: 'SF1', posX: -7.5, posZ: -11.5, type: 'control', details: '<h4>Pin: SF1</h4><ul><li><span class="protocol-title">Function:</span> System Format 1</li></ul><div class="note">Used with SF0 to select the input data format (e.g., I2S, Left-justified).</div>' },
+            { name: 'MUTE', posX: -2.5, posZ: -11.5, type: 'control', details: '<h4>Pin: MUTE</h4><ul><li><span class="protocol-title">Function:</span> Mute Control</li></ul><div class="note">Pull high to mute the analog outputs.</div>' },
+            { name: 'SF0', posX: 5.0, posZ: -11.5, type: 'control', details: '<h4>Pin: SF0</h4><ul><li><span class="protocol-title">Function:</span> System Format 0</li></ul><div class="note">Used with SF1 to select the input data format.</div>' },
+            { name: 'PLL', posX: 10.0, posZ: -11.5, type: 'control', details: '<h4>Pin: PLL</h4><ul><li><span class="protocol-title">Function:</span> PLL Control</li></ul><div class="note">Controls the internal Phase-Locked Loop for clock generation.</div>' },
+            { name: 'DEEM', posX: 15.0, posZ: -11.5, type: 'control', details: '<h4>Pin: DEEM</h4><ul><li><span class="protocol-title">Function:</span> De-emphasis</li></ul><div class="note">Controls the de-emphasis filter for specific sample rates (e.g., 44.1kHz).</div>' },
+            // Bottom Pins - Reordered as requested
+            { name: 'VIN', posX: -17.0, posZ: 11.5, type: 'power', details: '<h4>Pin: VIN</h4><ul><li><span class="protocol-title">Function:</span> Power Input</li></ul><div class="note">Accepts 3.3V to 5V power supply.</div>' },
+            { name: '3VO', posX: -13.2, posZ: 11.5, type: 'power', details: '<h4>Pin: 3VO</h4><ul><li><span class="protocol-title">Function:</span> 3.3V Output</li></ul><div class="note">Provides a regulated 3.3V output from the board.</div>' },
+            { name: 'GND', posX: -9.4, posZ: 11.5, type: 'power', details: '<h4>Pin: GND</h4><ul><li><span class="protocol-title">Function:</span> Digital Ground</li></ul><div class="note">Common ground reference for the digital circuitry.</div>' },
+            { name: 'WSEL', posX: -5.6, posZ: 11.5, type: 'i2s', details: '<h4>Pin: WSEL</h4><ul><li><span class="protocol-title">Function:</span> Word Select / LRCLK</li></ul><div class="note">Left/Right clock. Selects the channel (left or right) being transmitted.</div>' },
+            { name: 'DIN', posX: -1.8, posZ: 11.5, type: 'i2s', details: '<h4>Pin: DIN</h4><ul><li><span class="protocol-title">Function:</span> I2S Data In</li></ul><div class="note">The actual digital audio data stream. Connect to your microcontroller\'s I2S data out.</div>' },
+            { name: 'BCLK', posX: 2.0, posZ: 11.5, type: 'i2s', details: '<h4>Pin: BCLK</h4><ul><li><span class="protocol-title">Function:</span> Bit Clock</li></ul><div class="note">Serial clock for the I2S interface. It clocks each bit of data.</div>' },
+            { name: 'Lout', posX: 5.8, posZ: 11.5, type: 'analog', details: '<h4>Pin: Lout</h4><ul><li><span class="protocol-title">Function:</span> Left Analog Out</li></ul><div class="note">Line-level analog audio output for the left channel.</div>' },
+            { name: 'AGND', posX: 9.6, posZ: 11.5, type: 'power', details: '<h4>Pin: AGND</h4><ul><li><span class="protocol-title">Function:</span> Analog Ground</li></ul><div class="note">Separate ground reference for the analog output section to reduce noise.</div>' },
+            { name: 'Rout', posX: 13.4, posZ: 11.5, type: 'analog', details: '<h4>Pin: Rout</h4><ul><li><span class="protocol-title">Function:</span> Right Analog Out</li></ul><div class="note">Line-level analog audio output for the right channel.</div>' },
+        ];
+        
+        // Array to hold all interactive objects
+        const allHotspots = [];
+
+        // --- BOARD MODEL ---
+        const boardGroup = new THREE.Group();
+        const pcbWidth = 38.2;
+        const pcbHeight = 25.5;
+        const pcbDepth = 1.6;
+        const pcb = new THREE.Mesh(new THREE.BoxGeometry(pcbWidth, pcbDepth, pcbHeight), pcbMaterial);
+        boardGroup.add(pcb);
+
+        // --- Main Chip with Hotspot ---
+        const chip = new THREE.Mesh(new THREE.BoxGeometry(8, 1, 8), chipMaterial);
+        chip.position.set(-5, pcbDepth / 2 + 0.5, 0);
+        chip.userData.originalMaterial = chipMaterial;
+        chip.userData.highlightMaterial = highlightChipMaterial;
+        boardGroup.add(chip);
+
+        const chipHotspot = new THREE.Mesh(new THREE.BoxGeometry(8.5, 2, 8.5), hotspotMaterial);
+        chipHotspot.position.copy(chip.position);
+        chipHotspot.userData.mesh = chip; // Link hotspot to the visible mesh
+        chipHotspot.userData.details = `<h4>UDA1334A DAC</h4>
+            <ul>
+                <li><span class="protocol-title">Type:</span> Low Power Stereo DAC</li>
+                <li><span class="protocol-title">Interface:</span> I2S, LSB-justified</li>
+                <li><span class="protocol-title">Bit Depth:</span> 16/18/20/24-bit</li>
+                <li><span class="protocol-title">Sample Rate:</span> up to 100 kHz</li>
+            </ul>
+            <div class="note">Features on-chip PLL for system clock generation from BCLK, digital de-emphasis, and a high signal-to-noise ratio.</div>`;
+        boardGroup.add(chipHotspot);
+        allHotspots.push(chipHotspot);
+
+
+        const jackGroup = new THREE.Group();
+        const jackBase = new THREE.Mesh(new THREE.BoxGeometry(12, 6, 10), jackMaterial);
+        jackBase.position.set(pcbWidth/2 - 7, pcbDepth/2 + 3, 0);
+        jackGroup.add(jackBase);
+        const jackPort = new THREE.Mesh(new THREE.CylinderGeometry(2.5, 2.5, 5, 16), jackPortMaterial);
+        jackPort.rotation.z = Math.PI / 2;
+        jackPort.position.set(pcbWidth/2 - 1, pcbDepth/2 + 3, 0);
+        jackGroup.add(jackPort);
+        boardGroup.add(jackGroup);
+        
+        function createCapacitor(x, z, size = 2) {
+            const cap = new THREE.Mesh(new THREE.CylinderGeometry(size/2, size/2, size * 1.2, 12), capacitorMaterial);
+            cap.position.set(x, pcbDepth / 2 + (size*1.2)/2, z);
+            boardGroup.add(cap);
+        }
+        createCapacitor(5, 5, 3);
+        createCapacitor(5, -5, 3);
+        scene.add(boardGroup);
+
+        // --- CREATE PINS AND HOTSPOTS ---
+        const pinMeshes = { power: [], i2s: [], control: [], analog: [] };
+        const pinGeometry = new THREE.CylinderGeometry(0.4, 0.4, 5, 8);
+        const hotspotGeometry = new THREE.BoxGeometry(2.5, 6, 2.5);
+
+        pinoutData.forEach(pinData => {
+            let material, highlightMaterial;
+            switch (pinData.type) {
+                case 'power': material = powerPinMaterial; highlightMaterial = highlightPowerMaterial; break;
+                case 'i2s': material = i2sPinMaterial; highlightMaterial = highlightI2sMaterial; break;
+                case 'control': material = controlPinMaterial; highlightMaterial = highlightControlMaterial; break;
+                case 'analog': material = analogPinMaterial; highlightMaterial = highlightAnalogMaterial; break;
+                default: material = new THREE.MeshStandardMaterial({color: 0xffffff});
+            }
+            
+            const pinMesh = new THREE.Mesh(pinGeometry, material);
+            pinMesh.position.set(pinData.posX, 0, pinData.posZ);
+            pinMesh.userData.originalMaterial = material;
+            pinMesh.userData.highlightMaterial = highlightMaterial;
+            boardGroup.add(pinMesh);
+            pinMeshes[pinData.type].push(pinMesh);
+
+            const hotspotMesh = new THREE.Mesh(hotspotGeometry, hotspotMaterial);
+            hotspotMesh.position.copy(pinMesh.position);
+            hotspotMesh.userData.details = pinData.details;
+            hotspotMesh.userData.mesh = pinMesh; // Link hotspot to pin mesh
+            boardGroup.add(hotspotMesh);
+            allHotspots.push(hotspotMesh);
+        });
+        
+        // --- LEGEND INTERACTIVITY ---
+        function setupLegendHighlight(legendId, pinType) {
+            const legendEl = document.getElementById(legendId);
+            legendEl.addEventListener('mouseenter', () => pinMeshes[pinType].forEach(m => m.material = m.userData.highlightMaterial));
+            legendEl.addEventListener('mouseleave', () => pinMeshes[pinType].forEach(m => m.material = m.userData.originalMaterial));
+        }
+        setupLegendHighlight('legend-power', 'power');
+        setupLegendHighlight('legend-i2s', 'i2s');
+        setupLegendHighlight('legend-control', 'control');
+        setupLegendHighlight('legend-analog', 'analog');
+        
+        document.getElementById('pin-type-toggle').addEventListener('click', (e) => {
+            const content = document.getElementById('pin-type-content');
+            content.classList.toggle('hidden');
+            e.target.textContent = content.classList.contains('hidden') ? '[+]' : '[-]';
+        });
+        document.getElementById('protocol-toggle').addEventListener('click', (e) => {
+            const content = document.getElementById('protocol-content');
+            content.classList.toggle('hidden');
+            e.target.textContent = content.classList.contains('hidden') ? '[+]' : '[-]';
+        });
+
+        // --- INTERACTIVITY & ANIMATION ---
+        const raycaster = new THREE.Raycaster();
+        const mouse = new THREE.Vector2();
+        const tooltip = document.getElementById('tooltip');
+        const tooltipContent = document.getElementById('tooltip-content');
+        const tooltipCloseBtn = document.getElementById('tooltip-close-btn');
+        const header = document.getElementById('header');
+        const legends = document.querySelectorAll('.legend');
+
+        let hoveredHotspot = null;
+        let isFocusMode = false;
+        let animationActive = false;
+        let savedCameraState = {};
+        let targetPosition = new THREE.Vector3();
+        let targetLookAt = new THREE.Vector3();
+
+        function onMouseMove(event) {
+            if (isFocusMode || event.target.closest('.legend')) {
+                mouse.x = -9999; mouse.y = -9999; return;
+            }
+            mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+            mouse.y = - (event.clientY / window.innerHeight) * 2 + 1;
+        }
+        window.addEventListener('mousemove', onMouseMove);
+        
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+        window.addEventListener('resize', onWindowResize);
+
+        function onClick(event) {
+            if (animationActive || isFocusMode) return;
+            
+            const intersects = raycaster.intersectObjects(allHotspots);
+            if (intersects.length > 0) {
+                if (hoveredHotspot) {
+                    // Remove hover effect before focusing
+                    hoveredHotspot.userData.mesh.material = hoveredHotspot.userData.mesh.userData.originalMaterial;
+                    tooltip.style.visibility = 'hidden';
+                    tooltip.style.opacity = '0';
+                    hoveredHotspot = null;
+                }
+                enterFocusMode(intersects[0].object);
+            }
+        }
+        window.addEventListener('click', onClick);
+
+        tooltipCloseBtn.addEventListener('click', () => {
+            if (animationActive) return;
+            exitFocusMode();
+        });
+
+        function enterFocusMode(targetObject) {
+            isFocusMode = true;
+            animationActive = true;
+            controls.enabled = false;
+            
+            savedCameraState = {
+                position: camera.position.clone(),
+                target: controls.target.clone()
+            };
+
+            const targetWorldPos = new THREE.Vector3();
+            targetObject.getWorldPosition(targetWorldPos);
+            targetLookAt.copy(targetWorldPos);
+            
+            const direction = new THREE.Vector3().subVectors(camera.position, controls.target).normalize();
+            const distance = 30;
+            targetPosition.copy(targetWorldPos).add(direction.multiplyScalar(distance));
+
+            tooltipContent.innerHTML = targetObject.userData.details;
+            tooltip.removeAttribute('style');
+            tooltip.classList.add('focused');
+            header.classList.add('hidden');
+            legends.forEach(l => l.classList.add('hidden'));
+        }
+
+        function exitFocusMode() {
+            isFocusMode = false;
+            animationActive = true;
+            
+            targetPosition.copy(savedCameraState.position);
+            targetLookAt.copy(savedCameraState.target);
+
+            tooltip.classList.remove('focused');
+            header.classList.remove('hidden');
+            legends.forEach(l => l.classList.remove('hidden'));
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            
+            if (animationActive) {
+                camera.position.lerp(targetPosition, 0.08);
+                controls.target.lerp(targetLookAt, 0.08);
+                const distance = camera.position.distanceTo(targetPosition);
+                if (distance < 0.1) {
+                    animationActive = false;
+                    if (!isFocusMode) {
+                        controls.enabled = true;
+                    }
+                }
+            } else if (!isFocusMode) {
+                controls.update();
+            }
+
+            raycaster.setFromCamera(mouse, camera);
+            const intersects = raycaster.intersectObjects(allHotspots);
+
+            if (intersects.length > 0 && !isFocusMode) {
+                const newHoveredHotspot = intersects[0].object;
+                if (hoveredHotspot !== newHoveredHotspot) {
+                    // If we were hovering something else, restore its material
+                    if (hoveredHotspot) {
+                        hoveredHotspot.userData.mesh.material = hoveredHotspot.userData.mesh.userData.originalMaterial;
+                    }
+                    
+                    hoveredHotspot = newHoveredHotspot;
+                    hoveredHotspot.userData.mesh.material = hoveredHotspot.userData.mesh.userData.highlightMaterial;
+
+                    tooltipContent.innerHTML = hoveredHotspot.userData.details;
+                    tooltip.style.visibility = 'visible';
+                    tooltip.style.opacity = '1';
+                }
+                
+                tooltip.style.left = (mouse.x * 0.5 + 0.5) * window.innerWidth + 20 + 'px';
+                tooltip.style.top = (-mouse.y * 0.5 + 0.5) * window.innerHeight + 20 + 'px';
+                tooltip.style.transform = 'translate(0, 0) scale(1.0)';
+
+            } else if (!isFocusMode) {
+                if (hoveredHotspot) {
+                    hoveredHotspot.userData.mesh.material = hoveredHotspot.userData.mesh.userData.originalMaterial;
+                    tooltip.style.visibility = 'hidden';
+                    tooltip.style.opacity = '0';
+                }
+                hoveredHotspot = null;
+            }
+            renderer.render(scene, camera);
+        }
+
+        animate();
+    </script>
+</body>
+</html>
