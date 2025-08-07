@@ -1,0 +1,432 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Interactive 3D ESP32 Pinout</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #1a202c;
+            color: #e2e8f0;
+            margin: 0;
+            overflow: hidden; /* Prevent scrollbars from canvas */
+        }
+        #container {
+            width: 100vw;
+            height: 100vh;
+            position: relative;
+        }
+        #canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
+        #header {
+            position: absolute;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            text-align: center;
+            z-index: 10;
+            pointer-events: none; /* Allow mouse events to pass through to the canvas */
+            width: 90%;
+        }
+        #header h1 {
+            font-size: 2rem;
+            font-weight: 700;
+            color: white;
+            text-shadow: 0 0 10px rgba(0,0,0,0.5);
+        }
+        #header p {
+            font-size: 1rem;
+            color: #a0aec0;
+        }
+        #tooltip {
+            visibility: hidden;
+            opacity: 0;
+            position: absolute;
+            background-color: #2d3748;
+            color: #f7fafc;
+            padding: 0.75rem;
+            border-radius: 8px;
+            border: 1px solid #4a5568;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+            transition: opacity 0.2s ease-in-out;
+            width: 280px;
+            z-index: 20;
+            font-size: 0.8rem;
+            line-height: 1.5;
+            pointer-events: none; /* Tooltip should not be interactive itself */
+        }
+        #tooltip h4 {
+            font-weight: 700;
+            margin: 0 0 0.5rem 0;
+            color: #63b3ed;
+            border-bottom: 1px solid #718096;
+            padding-bottom: 0.25rem;
+        }
+        #tooltip ul {
+            list-style-type: none;
+            padding: 0; margin: 0;
+        }
+        #tooltip .protocol-title {
+            font-weight: bold;
+            color: #90cdf4;
+        }
+        #tooltip .note {
+            font-style: italic;
+            color: #a0aec0;
+            font-size: 0.75rem;
+            margin-top: 0.5rem;
+            border-top: 1px solid #718096;
+            padding-top: 0.5rem;
+        }
+        .note .boot-title {
+            color: #f6ad55; /* orange-400 */
+            font-weight: bold;
+        }
+        #legend {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            background-color: rgba(45, 55, 72, 0.8);
+            padding: 0.75rem;
+            border-radius: 8px;
+            border: 1px solid #4a5568;
+            z-index: 10;
+            backdrop-filter: blur(5px);
+        }
+        .legend-item {
+            display: flex;
+            align-items: center;
+            margin-bottom: 0.5rem;
+            padding: 0.25rem 0.5rem;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: background-color 0.2s ease-in-out;
+        }
+        .legend-item:hover {
+            background-color: rgba(100, 116, 139, 0.5); /* slate-500 with opacity */
+        }
+        .legend-item:last-child {
+            margin-bottom: 0;
+        }
+        .legend-color {
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            margin-right: 0.5rem;
+            border: 1px solid #e2e8f0;
+        }
+        #legend-toggle {
+            position: absolute;
+            top: 5px;
+            right: 5px;
+            cursor: pointer;
+            font-size: 0.7rem;
+            color: #a0aec0;
+        }
+        #legend-content.hidden {
+            display: none;
+        }
+
+        /* Responsive Styles for smaller screens */
+        @media (max-width: 640px) {
+            #header h1 {
+                font-size: 1.5rem;
+            }
+            #header p {
+                font-size: 0.8rem;
+            }
+            #legend {
+                bottom: 10px;
+                left: 10px;
+                padding: 0.5rem;
+                font-size: 0.8rem;
+            }
+            .legend-item {
+                padding: 0.2rem 0.4rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div id="container">
+        <div id="header">
+            <h1>ESP32 30-Pin Board</h1>
+            <p>Click and drag to rotate. Scroll to zoom. Hover over pins.</p>
+        </div>
+        <canvas id="canvas"></canvas>
+        <div id="tooltip"></div>
+        
+        <div id="legend">
+            <div id="legend-toggle">[-]</div>
+            <div id="legend-content">
+                <div id="legend-standard" class="legend-item">
+                    <div class="legend-color" style="background-color: #ffd700;"></div>
+                    <span>Standard GPIO</span>
+                </div>
+                <div id="legend-strapping" class="legend-item">
+                    <div class="legend-color" style="background-color: #63b3ed;"></div>
+                    <span>Strapping Pin</span>
+                </div>
+                <div id="legend-power" class="legend-item">
+                    <div class="legend-color" style="background-color: #e53e3e;"></div>
+                    <span>Power Pin</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Import three.js and OrbitControls -->
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://cdn.jsdelivr.net/npm/three@0.164.1/build/three.module.js",
+                "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.164.1/examples/jsm/"
+            }
+        }
+    </script>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+        import { FontLoader } from 'three/addons/loaders/FontLoader.js';
+        import { TextGeometry } from 'three/addons/geometries/TextGeometry.js';
+
+        // --- SCENE SETUP ---
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        const renderer = new THREE.WebGLRenderer({ canvas: document.getElementById('canvas'), antialias: true, alpha: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(window.devicePixelRatio);
+        scene.background = new THREE.Color(0x1a202c);
+
+        // --- LIGHTING ---
+        scene.add(new THREE.AmbientLight(0xffffff, 1.5));
+        const directionalLight = new THREE.DirectionalLight(0xffffff, 2.5);
+        directionalLight.position.set(5, 10, 7.5);
+        scene.add(directionalLight);
+
+        // --- CONTROLS ---
+        const controls = new OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true;
+        controls.dampingFactor = 0.05;
+        controls.minDistance = 2;
+        controls.maxDistance = 15;
+        controls.rotateSpeed = 0.5;
+        controls.zoomSpeed = 0.8;
+        controls.panSpeed = 0.5;
+        camera.position.set(0, 3.5, 4);
+        controls.update();
+
+        // --- MATERIALS ---
+        const pcbMaterial = new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.6, metalness: 0.2 });
+        const chipMaterial = new THREE.MeshStandardMaterial({ color: 0x222222, roughness: 0.4 });
+        const metalMaterial = new THREE.MeshStandardMaterial({ color: 0xcccccc, metalness: 0.9, roughness: 0.2 });
+        const pinMaterial = new THREE.MeshStandardMaterial({ color: 0xffd700, metalness: 0.5, roughness: 0.3 });
+        const strappingPinMaterial = new THREE.MeshStandardMaterial({ color: 0x63b3ed, metalness: 0.5, roughness: 0.3 });
+        const powerPinMaterial = new THREE.MeshStandardMaterial({ color: 0xe53e3e, metalness: 0.5, roughness: 0.3 });
+        const buttonMaterial = new THREE.MeshStandardMaterial({ color: 0xdddddd });
+        const ledOffMaterial = new THREE.MeshStandardMaterial({ color: 0x550000 });
+        const ledOnMaterial = new THREE.MeshStandardMaterial({ color: 0xff0000, emissive: 0xff0000, emissiveIntensity: 1 });
+        const hotspotMaterial = new THREE.MeshBasicMaterial({ visible: false });
+        const textMaterial = new THREE.MeshBasicMaterial({ color: 0xffffff }); // White text for PCB
+        
+        // Highlight materials
+        const highlightPinMaterial = new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xffff00, emissiveIntensity: 0.7 });
+        const highlightStrappingMaterial = new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0x63b3ed, emissiveIntensity: 0.7 });
+        const highlightPowerMaterial = new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xe53e3e, emissiveIntensity: 0.7 });
+
+        // --- BOARD MODEL ---
+        const boardGroup = new THREE.Group();
+        const pcb = new THREE.Mesh(new THREE.BoxGeometry(2.8, 0.16, 5.0), pcbMaterial);
+        boardGroup.add(pcb);
+        const wroomModule = new THREE.Mesh(new THREE.BoxGeometry(1.8, 0.2, 1.8), metalMaterial);
+        wroomModule.position.y = 0.15;
+        boardGroup.add(wroomModule);
+        const usb = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.3, 0.5), metalMaterial);
+        usb.position.set(0, 0.1, 2.3);
+        boardGroup.add(usb);
+        
+        // Buttons
+        const buttonGeo = new THREE.BoxGeometry(0.3, 0.1, 0.3);
+        const enButton = new THREE.Mesh(buttonGeo, buttonMaterial);
+        enButton.position.set(-0.6, 0.1, 2.0);
+        boardGroup.add(enButton);
+        const bootButton = new THREE.Mesh(buttonGeo, buttonMaterial);
+        bootButton.position.set(0.6, 0.1, 2.0);
+        boardGroup.add(bootButton);
+
+        const pwrLed = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.05, 0.15), ledOnMaterial);
+        pwrLed.position.set(0, 0.105, 0.8);
+        boardGroup.add(pwrLed);
+        const d2Led = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.05, 0.15), ledOffMaterial);
+        d2Led.position.set(0.3, 0.105, 0.8);
+        boardGroup.add(d2Led);
+        scene.add(boardGroup);
+
+        // --- 3D TEXT LABELS ---
+        const fontLoader = new FontLoader();
+        fontLoader.load('https://cdn.jsdelivr.net/npm/three@0.164.1/examples/fonts/helvetiker_regular.typeface.json', (font) => {
+            const textParams = { font: font, size: 0.15, height: 0.02, curveSegments: 4 };
+            const enGeo = new TextGeometry('EN', textParams);
+            enGeo.center();
+            const enMesh = new THREE.Mesh(enGeo, textMaterial);
+            enMesh.position.set(-0.6, 0.09, 1.8); 
+            enMesh.rotation.x = -Math.PI / 2;
+            boardGroup.add(enMesh);
+
+            const bootGeo = new TextGeometry('BOOT', textParams);
+            bootGeo.center();
+            const bootMesh = new THREE.Mesh(bootGeo, textMaterial);
+            bootMesh.position.set(0.6, 0.09, 1.8); 
+            bootMesh.rotation.x = -Math.PI / 2;
+            boardGroup.add(bootMesh);
+        });
+
+        // --- PIN DATA ---
+        const muxNote = (bootNote) => `<div class='note'><span class='boot-title'>Boot Note:</span> ${bootNote}<br><span class='protocol-title'>Multiplexing:</span> This pin can be configured as I2C, SPI, or UART.</div>`;
+        const adcMuxNote = (bootNote) => `<div class='note'><span class='boot-title'>Boot Note:</span> ${bootNote}<br><span class='protocol-title'>Multiplexing:</span> Can be used for I2C, SPI, UART. ADC2 functions are unavailable when Wi-Fi is active.</div>`;
+        const inputOnlyNote = `<div class='note'><span class='boot-title'>Boot Note:</span> High-impedance input on boot. These pins cannot be configured as outputs.</div>`;
+
+        const pinoutData = [
+            // Left Side
+            { side: 'left', posZ: -2.0, details: '<h4>Pin 1: EN</h4><ul><li><span class="protocol-title">Control:</span> Chip Enable</li></ul><div class="note"><span class="boot-title">Boot Note:</span> Must be pulled HIGH for the chip to run.</div>', type: 'power' },
+            { side: 'left', posZ: -1.75, details: `<h4>Pin 2: GPIO36</h4><ul><li><span class="protocol-title">ADC1_0</span>, RTC_GPIO0</li></ul>${inputOnlyNote}`, type: 'standard' },
+            { side: 'left', posZ: -1.5, details: `<h4>Pin 3: GPIO39</h4><ul><li><span class="protocol-title">ADC1_3</span>, RTC_GPIO3</li></ul>${inputOnlyNote}`, type: 'standard' },
+            { side: 'left', posZ: -1.25, details: `<h4>Pin 4: GPIO34</h4><ul><li><span class="protocol-title">ADC1_6</span>, RTC_GPIO4</li></ul>${inputOnlyNote}`, type: 'standard' },
+            { side: 'left', posZ: -1.0, details: `<h4>Pin 5: GPIO35</h4><ul><li><span class="protocol-title">ADC1_7</span>, RTC_GPIO5</li></ul>${inputOnlyNote}`, type: 'standard' },
+            { side: 'left', posZ: -0.75, details: `<h4>Pin 6: GPIO32</h4><ul><li><span class="protocol-title">ADC1_4</span>, TOUCH9, RTC_GPIO9</li></ul>${muxNote('High-impedance input on boot.')}`, type: 'standard' },
+            { side: 'left', posZ: -0.5, details: `<h4>Pin 7: GPIO33</h4><ul><li><span class="protocol-title">ADC1_5</span>, TOUCH8, RTC_GPIO8</li></ul>${muxNote('High-impedance input on boot.')}`, type: 'standard' },
+            { side: 'left', posZ: -0.25, details: `<h4>Pin 8: GPIO25</h4><ul><li><span class="protocol-title">DAC1</span>, ADC2_CH8, RTC_GPIO6</li></ul>${adcMuxNote('High-impedance input on boot.')}`, type: 'standard' },
+            { side: 'left', posZ: 0.0, details: `<h4>Pin 9: GPIO26</h4><ul><li><span class="protocol-title">DAC2</span>, ADC2_CH9, RTC_GPIO7</li></ul>${adcMuxNote('High-impedance input on boot.')}`, type: 'standard' },
+            { side: 'left', posZ: 0.25, details: `<h4>Pin 10: GPIO27</h4><ul><li><span class="protocol-title">ADC2_7</span>, TOUCH7, RTC_GPIO17</li></ul>${adcMuxNote('High-impedance input on boot.')}`, type: 'standard' },
+            { side: 'left', posZ: 0.5, details: `<h4>Pin 11: GPIO14</h4><ul><li><span class="protocol-title">HSPI_CLK</span>, ADC2_6, TOUCH6, RTC_GPIO16</li></ul>${adcMuxNote('Outputs a clock signal on boot. Default JTAG TCK.')}`, type: 'standard' },
+            { side: 'left', posZ: 0.75, details: `<h4>Pin 12: GPIO12</h4><ul><li><span class="protocol-title">HSPI_MISO</span>, ADC2_5, TOUCH5, RTC_GPIO15</li></ul><div class="note"><span class="boot-title">Boot Note:</span> Strapping Pin (MTDI). If held LOW, flash voltage is 1.8V. Default JTAG TDI.</div>`, type: 'strapping' },
+            { side: 'left', posZ: 1.0, details: `<h4>Pin 13: GPIO13</h4><ul><li><span class="protocol-title">HSPI_MOSI</span>, ADC2_4, TOUCH4, RTC_GPIO14</li></ul>${adcMuxNote('High-impedance input on boot. Default JTAG TMS.')}`, type: 'standard' },
+            { side: 'left', posZ: 1.25, details: '<h4>Pin 14: GND</h4><ul><li><span class="protocol-title">Power:</span> Ground</li></ul>', type: 'power' },
+            { side: 'left', posZ: 1.5, details: '<h4>Pin 15: VN</h4><ul><li><span class="protocol-title">Power:</span> Input (3.6V - 18V)</li></ul>', type: 'power' },
+            
+            // Right Side
+            { side: 'right', posZ: -2.0, details: `<h4>Pin 30: GPIO23</h4><ul><li><span class="protocol-title">VSPI_MOSI</span></li></ul>${muxNote('High-impedance input on boot.')}`, type: 'standard' },
+            { side: 'right', posZ: -1.75, details: `<h4>Pin 29: GPIO22</h4><ul><li><span class="protocol-title">I2C_SCL</span>, VSPI_WP</li></ul>${muxNote('High-impedance input on boot.')}`, type: 'standard' },
+            { side: 'right', posZ: -1.5, details: `<h4>Pin 28: GPIO1</h4><ul><li><span class="protocol-title">U0-TXD</span></li></ul>${muxNote('Outputs boot log data by default.')}`, type: 'standard' },
+            { side: 'right', posZ: -1.25, details: `<h4>Pin 27: GPIO3</h4><ul><li><span class="protocol-title">U0-RXD</span></li></ul>${muxNote('High-impedance input on boot.')}`, type: 'standard' },
+            { side: 'right', posZ: -1.0, details: `<h4>Pin 26: GPIO21</h4><ul><li><span class="protocol-title">I2C_SDA</span></li></ul>${muxNote('High-impedance input on boot.')}`, type: 'standard' },
+            { side: 'right', posZ: -0.75, details: `<h4>Pin 25: GPIO19</h4><ul><li><span class="protocol-title">VSPI_MISO</span></li></ul>${muxNote('High-impedance input on boot.')}`, type: 'standard' },
+            { side: 'right', posZ: -0.5, details: `<h4>Pin 24: GPIO18</h4><ul><li><span class="protocol-title">VSPI_SCK</span></li></ul>${muxNote('High-impedance input on boot.')}`, type: 'standard' },
+            { side: 'right', posZ: -0.25, details: `<h4>Pin 23: GPIO5</h4><ul><li><span class="protocol-title">VSPI_CS0</span></li></ul><div class="note"><span class="boot-title">Boot Note:</span> Strapping Pin. If held HIGH, enables SDIO boot mode. Keep floating or LOW for normal SPI flash boot.</div>`, type: 'strapping' },
+            { side: 'right', posZ: 0.0, details: `<h4>Pin 22: GPIO17</h4><ul><li><span class="protocol-title">U2-TXD</span></li></ul>${muxNote('High-impedance input on boot.')}`, type: 'standard' },
+            { side: 'right', posZ: 0.25, details: `<h4>Pin 21: GPIO16</h4><ul><li><span class="protocol-title">U2-RXD</span></li></ul>${muxNote('High-impedance input on boot.')}`, type: 'standard' },
+            { side: 'right', posZ: 0.5, details: `<h4>Pin 20: GPIO4</h4><ul><li><span class="protocol-title">ADC2_0</span>, TOUCH0, RTC_GPIO10</li></ul>${adcMuxNote('High-impedance input on boot.')}`, type: 'standard' },
+            { side: 'right', posZ: 0.75, details: `<h4>Pin 19: GPIO2</h4><ul><li><span class="protocol-title">ADC2_2</span>, TOUCH2, RTC_GPIO12</li></ul><div class="note"><span class="boot-title">Boot Note:</span> Strapping Pin. If held LOW, enters serial bootloader mode. Do not connect peripherals that pull this pin LOW at boot.</div>`, type: 'strapping' },
+            { side: 'right', posZ: 1.0, details: `<h4>Pin 18: GPIO15</h4><ul><li><span class="protocol-title">ADC2_3</span>, TOUCH3, RTC_GPIO13</li></ul><div class="note"><span class="boot-title">Boot Note:</span> Strapping Pin. If held HIGH, silences boot ROM messages. Default JTAG TDO.</div>`, type: 'strapping' },
+            { side: 'right', posZ: 1.25, details: '<h4>Pin 17: GND</h4><ul><li><span class="protocol-title">Power:</span> Ground</li></ul>', type: 'power' },
+            { side: 'right', posZ: 1.5, details: '<h4>Pin 16: 3.3V</h4><ul><li><span class="protocol-title">Power:</span> 3.3V Output</li></ul>', type: 'power' },
+        ];
+
+        // --- CREATE PINS AND HOTSPOTS ---
+        const pinHotspots = [];
+        const pinMeshes = { standard: [], strapping: [], power: [] };
+        const pinGeometry = new THREE.CylinderGeometry(0.05, 0.05, 0.4, 8);
+        const hotspotGeometry = new THREE.CylinderGeometry(0.1, 0.1, 0.5, 8);
+
+        pinoutData.forEach(pinData => {
+            const posX = pinData.side === 'left' ? -1.25 : 1.25;
+            let currentPinMaterial;
+            if (pinData.type === 'strapping') currentPinMaterial = strappingPinMaterial;
+            else if (pinData.type === 'power') currentPinMaterial = powerPinMaterial;
+            else currentPinMaterial = pinMaterial;
+            
+            const pinMesh = new THREE.Mesh(pinGeometry, currentPinMaterial);
+            pinMesh.position.set(posX, 0.08, pinData.posZ);
+            boardGroup.add(pinMesh);
+
+            pinMeshes[pinData.type].push(pinMesh);
+
+            const hotspotMesh = new THREE.Mesh(hotspotGeometry, hotspotMaterial);
+            hotspotMesh.position.copy(pinMesh.position);
+            hotspotMesh.userData.details = pinData.details;
+            boardGroup.add(hotspotMesh);
+            pinHotspots.push(hotspotMesh);
+        });
+
+        // --- LEGEND INTERACTIVITY ---
+        document.getElementById('legend-standard').addEventListener('mouseenter', () => pinMeshes.standard.forEach(m => m.material = highlightPinMaterial));
+        document.getElementById('legend-standard').addEventListener('mouseleave', () => pinMeshes.standard.forEach(m => m.material = pinMaterial));
+        document.getElementById('legend-strapping').addEventListener('mouseenter', () => pinMeshes.strapping.forEach(m => m.material = highlightStrappingMaterial));
+        document.getElementById('legend-strapping').addEventListener('mouseleave', () => pinMeshes.strapping.forEach(m => m.material = strappingPinMaterial));
+        document.getElementById('legend-power').addEventListener('mouseenter', () => pinMeshes.power.forEach(m => m.material = highlightPowerMaterial));
+        document.getElementById('legend-power').addEventListener('mouseleave', () => pinMeshes.power.forEach(m => m.material = powerPinMaterial));
+        
+        const legendToggle = document.getElementById('legend-toggle');
+        const legendContent = document.getElementById('legend-content');
+        legendToggle.addEventListener('click', () => {
+            legendContent.classList.toggle('hidden');
+            legendToggle.textContent = legendContent.classList.contains('hidden') ? '[+]' : '[-]';
+        });
+
+        // --- INTERACTIVITY & ANIMATION ---
+        const raycaster = new THREE.Raycaster();
+        const mouse = new THREE.Vector2();
+        const tooltipElement = document.getElementById('tooltip');
+        let intersectedPin = null;
+
+        function onMouseMove(event) {
+            if (event.target.closest('#legend')) {
+                mouse.x = -9999; mouse.y = -9999; return;
+            }
+            mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+            mouse.y = - (event.clientY / window.innerHeight) * 2 + 1;
+        }
+        window.addEventListener('mousemove', onMouseMove);
+        
+        function onWindowResize() {
+            const width = window.innerWidth;
+            const height = window.innerHeight;
+            camera.aspect = width / height;
+            camera.zoom = Math.min(width, height) / 700;
+            camera.updateProjectionMatrix();
+            renderer.setSize(width, height);
+        }
+        window.addEventListener('resize', onWindowResize);
+        onWindowResize();
+
+        function animate() {
+            requestAnimationFrame(animate);
+            controls.update();
+
+            raycaster.setFromCamera(mouse, camera);
+            const intersects = raycaster.intersectObjects(pinHotspots);
+
+            if (intersects.length > 0) {
+                if (intersectedPin !== intersects[0].object) {
+                    intersectedPin = intersects[0].object;
+                    tooltipElement.innerHTML = intersectedPin.userData.details;
+                    tooltipElement.style.visibility = 'visible';
+                    tooltipElement.style.opacity = '1';
+                }
+                const vector = new THREE.Vector3();
+                intersectedPin.getWorldPosition(vector).project(camera);
+                const x = (vector.x * 0.5 + 0.5) * window.innerWidth;
+                const y = (vector.y * -0.5 + 0.5) * window.innerHeight;
+                tooltipElement.style.left = `${x + 15}px`;
+                tooltipElement.style.top = `${y}px`;
+            } else {
+                if (intersectedPin) {
+                    tooltipElement.style.visibility = 'hidden';
+                    tooltipElement.style.opacity = '0';
+                }
+                intersectedPin = null;
+            }
+            renderer.render(scene, camera);
+        }
+
+        animate();
+    </script>
+</body>
+</html>
