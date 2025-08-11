@@ -63,7 +63,6 @@
                 fallbackStrokeColor: '#0d1a26',
                 maxStrokeWidth: 8.5,
                 maxPaletteSize: 16,
-                animationDurationSeconds: 4,
                 holdDurationMs: 500,
             },
 
@@ -75,27 +74,31 @@
                 clipPathCache: new Map(), reusablePathForSampling: null,
                 maxGeometricStrokeWidth: 0,
                 currentSvgText: '',
+                // State for our pseudo-random number generator
+                _lcg_seed: 1,
             },
 
             // --- Pre-calculated Constants & Animation Profiles ---
             PRECALCULATED: {
-                DEG_TO_RAD: 0.017453292519943295,
                 ANIMATION_DURATION_MS: 4000,
-                // High-precision LUT for maximum accuracy.
-                EASING_LUT_INT: [0,807,1615,2422,3228,4034,4840,5645,6449,7252,8054,8854,9654,10451,11248,12042,12835,13626,14414,15201,15985,16767,17546,18323,19097,19867,20635,21400,22162,22920,23674,24425,25173,25916,26656,27391,28123,28850,29573,30291,31005,31714,32418,33117,33811,34500,35184,35863,36536,37203,37865,38521,39171,39816,40454,41086,41712,42332,42945,43551,44151,44745,45331,45911,46483,47049,47608,48159,48703,49239,49768,50290,50804,51310,51808,52299,52781,53256,53723,54181,54631,55073,55506,55931,56348,56756,57155,57546,57928,58301,58665,59021,59367,59705,60033,60352,60663,60964,61255,61538,61811,62074,62328,62573,62808,63034,63250,63457,63654,63841,64019,64187,64345,64493,64632,64760,64879,64988,65088,65177,65256,65326,65386,65435,65475,65505,65525,65535,65535,65525,65505,65475,65435,65386,65326,65256,65177,65088,64988,64879,64760,64632,64493,64345,64187,64019,63841,63654,63457,63250,63034,62808,62573,62328,62074,61811,61538,61255,60964,60663,60352,60033,59705,59367,59021,58665,58301,57928,57546,57155,56756,56348,55931,55506,55073,54631,54181,53723,53256,52781,52299,51808,51310,50804,50290,49768,49239,48703,48159,47608,47049,46483,45911,45331,44745,44151,43551,42945,42332,41712,41086,40454,39816,39171,38521,37865,37203,36536,35863,35184,34500,33811,33117,32418,31714,31005,30291,29573,28850,28123,27391,26656,25916,25173,24425,23674,22920,22162,21400,20635,19867,19097,18323,17546,16767,15985,15201,14414,13626,12835,12042,11248,10451,9654,8854,8054,7252,6449,5645,4840,4034,3228,2422,1615,807,0],
-                EASING_LUT_SCALE: 65536,
+                INV_ANIMATION_DURATION_MS: 0.00025,
+                // High-precision 256-entry byte-sized LUT for smooth "ink swell" easing.
+                EASING_LUT_INT: [0,0,0,0,1,1,1,2,2,3,4,5,6,6,8,9,10,11,12,14,15,17,18,20,22,23,25,27,29,31,33,35,38,40,42,45,47,49,52,54,57,60,62,65,68,71,73,76,79,82,85,88,91,94,97,100,103,106,109,113,116,119,122,125,128,131,135,138,141,144,147,150,153,156,159,162,165,168,171,174,177,180,183,186,189,191,194,197,199,202,204,207,209,212,214,216,218,221,223,225,227,229,231,232,234,236,238,239,241,242,243,245,246,247,248,249,250,251,252,252,253,253,254,254,255,255,255,255,255,255,255,255,254,254,253,253,252,252,251,250,249,248,247,246,245,243,242,241,239,238,236,234,232,231,229,227,225,223,221,218,216,214,212,209,207,204,202,199,197,194,191,189,186,183,180,177,174,171,168,165,162,159,156,153,150,147,144,141,138,135,131,128,125,122,119,116,113,109,106,103,100,97,94,91,88,85,82,79,76,73,71,68,65,62,60,57,54,52,49,47,45,42,40,38,35,33,31,29,27,25,23,22,20,18,17,15,14,12,11,10,9,8,6,6,5,4,3,2,2,1,1,1,0,0,0,0],
+                EASING_LUT_SCALE: 256,
+                // High-precision integer-based SIN_LUT.
+                SIN_LUT_INT: [0,572,1144,1715,2286,2856,3425,3993,4560,5126,5690,6252,6813,7371,7927,8481,9032,9580,10126,10668,11207,11743,12275,12803,13328,13848,14364,14876,15383,15886,16384,16877,17364,17846,18323,18795,19260,19720,20174,20621,21063,21497,21926,22347,22762,23170,23571,23965,24351,24730,25101,25465,25821,26169,26509,26842,27165,27481,27788,28087,28377,28659,28932,29196,29451,29697,29935,30163,30381,30591,30791,30982,31164,31336,31498,31651,31794,31928,32051,32165,32270,32364,32449,32523,32588,32643,32688,32723,32748,32763,32768,32763,32748,32723,32688,32643,32588,32523,32449,32364,32270,32165,32051,31928,31794,31651,31498,31336,31164,30982,30791,30591,30381,30163,29935,29697,29451,29196,28932,28659,28377,28087,27788,27481,27165,26842,26509,26169,25821,25465,25101,24730,24351,23965,23571,23170,22762,22347,21926,21497,21063,20621,20174,19720,19260,18795,18323,17846,17364,16877,16384,15886,15383,14876,14364,13848,13328,12803,12275,11743,11207,10668,10126,9580,9032,8481,7927,7371,6813,6252,5690,5126,4560,3993,3425,2856,2286,1715,1144,572,0,-572,-1144,-1715,-2286,-2856,-3425,-3993,-4560,-5126,-5690,-6252,-6813,-7371,-7927,-8481,-9032,-9580,-10126,-10668,-11207,-11743,-12275,-12803,-13328,-13848,-14364,-14876,-15383,-15886,-16384,-16877,-17364,-17846,-18323,-18795,-19260,-19720,-20174,-20621,-21063,-21497,-21926,-22347,-22762,-23170,-23571,-23965,-24351,-24730,-25101,-25465,-25821,-26169,-26509,-26842,-27165,-27481,-27788,-28087,-28377,-28659,-28932,-29196,-29451,-29697,-29935,-30163,-30381,-30591,-30791,-30982,-31164,-31336,-31498,-31651,-31794,-31928,-32051,-32165,-32270,-32364,-32449,-32523,-32588,-32643,-32688,-32723,-32748,-32763,-32767,-32763,-32748,-32723,-32688,-32643,-32588,-32523,-32449,-32364,-32270,-32165,-32051,-31928,-31794,-31651,-31498,-31336,-31164,-30982,-30791,-30591,-30381,-30163,-29935,-29697,-29451,-29196,-28932,-28659,-28377,-28087,-27788,-27481,-27165,-26842,-26509,-26169,-25821,-25465,-25101,-24730,-24351,-23965,-23571,-23170,-22762,-22347,-21926,-21497,-21063,-20621,-20174,-19720,-19260,-18795,-18323,-17846,-17364,-16877,-16384,-15886,-15383,-14876,-14364,-13848,-13328,-12803,-12275,-11743,-11207,-10668,-10126,-9580,-9032,-8481,-7927,-7371,-6813,-6252,-5690,-5126,-4560,-3993,-3425,-2856,-2286,-1715,-1144,-572],
+                SIN_LUT_SCALE: 65535,
             },
             
             /**
              * Calculates the animation profile by linearly interpolating between values in the integer LUT.
-             * This restores floating-point precision for a smooth animation curve without the performance
-             * cost of Math.sin(), addressing the "stepping" issue from using a discrete LUT.
+             * This restores floating-point precision for a smooth animation curve.
              * @param {number} p - The progress of the animation (0.0 to 1.0).
              * @returns {number} The interpolated value from the LUT, maintaining precision.
              */
             animationProfile: (p) => {
                 const lut = LogoEngine.PRECALCULATED.EASING_LUT_INT;
-                const floatIndex = p * 255;
+                const floatIndex = p * 255; 
                 const index1 = floatIndex | 0; // Fast floor
                 const fraction = floatIndex - index1;
 
@@ -106,7 +109,6 @@
                 const value1 = lut[index1];
                 const value2 = lut[index1 + 1];
                 
-                // Linearly interpolate to get a smooth value between LUT points.
                 return value1 + (value2 - value1) * fraction;
             },
             
@@ -164,7 +166,7 @@
                 };
 
                 const scale = (effectiveViewBox.width > 0 && effectiveViewBox.height > 0)
-                    ? Math.min(containerRect.width / effectiveViewBox.width, containerRect.height / effectiveViewBox.height)
+                    ? (containerRect.width / effectiveViewBox.width < containerRect.height / effectiveViewBox.height ? containerRect.width / effectiveViewBox.width : containerRect.height / effectiveViewBox.height)
                     : 1;
 
                 const canvasWidth = effectiveViewBox.width * scale;
@@ -178,10 +180,10 @@
             
             _renderLoop: function() {
                 const { ctx, lookupTable, colorPalette, viewBox } = this.state;
-                const { ANIMATION_DURATION_MS } = this.PRECALCULATED;
+                const { INV_ANIMATION_DURATION_MS } = this.PRECALCULATED;
                 if (!ctx || !lookupTable) return;
 
-                const totalPoints = lookupTable.reduce((sum, stroke) => sum + Math.max(0, stroke.length - 1), 0);
+                const totalPoints = lookupTable.reduce((sum, stroke) => sum + (stroke.length > 0 ? stroke.length - 1 : 0), 0);
                 if (totalPoints === 0) return;
 
                 let startTime = null;
@@ -190,7 +192,7 @@
                 const animationFrame = (timestamp) => {
                     if (!startTime) startTime = timestamp;
                     const elapsedTime = timestamp - startTime;
-                    const drawingProgress = Math.min(elapsedTime / ANIMATION_DURATION_MS, 1);
+                    const drawingProgress = (elapsedTime * INV_ANIMATION_DURATION_MS < 1) ? elapsedTime * INV_ANIMATION_DURATION_MS : 1;
                     
                     const targetPointsToDraw = (drawingProgress * totalPoints) | 0;
 
@@ -264,7 +266,7 @@
                         ctx.restore();
                     }
 
-                    if (elapsedTime < ANIMATION_DURATION_MS + this.config.holdDurationMs) {
+                    if (elapsedTime < this.PRECALCULATED.ANIMATION_DURATION_MS + this.config.holdDurationMs) {
                          this.state.animationFrameId = requestAnimationFrame(animationFrame);
                     }
                 };
@@ -325,7 +327,7 @@
                 let colorsCopy = [...weightedColors];
                 
                 const totalWeight = colorsCopy.reduce((sum, wc) => sum + wc.weight, 0);
-                let rand = Math.random() * totalWeight;
+                let rand = this._lcg() * totalWeight;
                 let chosenIndex = colorsCopy.findIndex(wc => (rand -= wc.weight) <= 0);
                 if (chosenIndex === -1) chosenIndex = colorsCopy.length - 1;
                 centroids.push(colorsCopy.splice(chosenIndex, 1)[0].color);
@@ -342,7 +344,7 @@
                         return minDistanceSq * wc.weight;
                     });
                     const distSum = distances.reduce((sum, d) => sum + d, 0);
-                    rand = Math.random() * distSum;
+                    rand = this._lcg() * distSum;
                     chosenIndex = distances.findIndex(d => (rand -= d) <= 0);
                     if (chosenIndex === -1) chosenIndex = colorsCopy.length - 1;
                     centroids.push(colorsCopy.splice(chosenIndex, 1)[0].color);
@@ -374,9 +376,13 @@
                             b: acc.b + wc.color.b * wc.weight, a: acc.a + wc.color.a * wc.weight
                         }), {r:0, g:0, b:0, a:0});
                         
+                        const invClusterWeight = 1.0 / clusterWeight;
                         const newCentroid = {
-                            r: (totalColor.r / clusterWeight + 0.5) | 0, g: (totalColor.g / clusterWeight + 0.5) | 0,
-                            b: (totalColor.b / clusterWeight + 0.5) | 0, a: totalColor.a / clusterWeight
+                            // Bitwise round: (n + 0.5) | 0
+                            r: (totalColor.r * invClusterWeight + 0.5) | 0, 
+                            g: (totalColor.g * invClusterWeight + 0.5) | 0,
+                            b: (totalColor.b * invClusterWeight + 0.5) | 0, 
+                            a: totalColor.a * invClusterWeight
                         };
                         
                         if (!centroids[i] || newCentroid.r !== centroids[i].r || newCentroid.g !== centroids[i].g || newCentroid.b !== centroids[i].b) {
@@ -401,7 +407,11 @@
                     const length = path.getTotalLength();
                     if (length === 0) return;
 
-                    const samplingStep = Math.max(0.25, Math.min(1.0, length / 500));
+                    // Simplified sampling step calculation
+                    let samplingStep = length * 0.002;
+                    if (samplingStep > 1.0) samplingStep = 1.0;
+                    if (samplingStep < 0.25) samplingStep = 0.25;
+
                     const clipPath2D = pathData.clipPathId ? this.state.clipPathCache.get(pathData.clipPathId) : null;
                     
                     let currentSegment = [], lastPoint = null;
@@ -628,8 +638,9 @@
                         const x = +node.getAttribute('x') || 0, y = +node.getAttribute('y') || 0, w = +node.getAttribute('width') || 0, h = +node.getAttribute('height') || 0;
                         let rx = +node.getAttribute('rx') || 0;
                         let ry = +node.getAttribute('ry') || rx;
-                        rx = Math.min(rx, w * 0.5);
-                        ry = Math.min(ry, h * 0.5);
+                        // Faster min
+                        rx = rx < w * 0.5 ? rx : w * 0.5;
+                        ry = ry < h * 0.5 ? ry : h * 0.5;
                         if (rx > 0 || ry > 0) {
                             return `M${x + rx},${y} h${w - 2 * rx} a${rx},${ry} 0 0 1 ${rx},${ry} v${h - 2 * ry} a${rx},${ry} 0 0 1 ${-rx},${ry} h${-(w - 2 * rx)} a${rx},${ry} 0 0 1 ${-rx},${-ry} v${-(h - 2 * ry)} a${rx},${ry} 0 0 1 ${rx},${-ry} Z`;
                         }
@@ -744,6 +755,12 @@
                 });
                 return rules;
             },
+
+            // A simple Linear Congruential Generator for pseudo-random numbers.
+            _lcg: function() {
+                this.state._lcg_seed = (this.state._lcg_seed * 1664525 + 1013904223) | 0;
+                return (this.state._lcg_seed >>> 0) * (1.0 / 4294967296.0);
+            },
             
             _matrixHelper: {
                 identity: () => [1, 0, 0, 1, 0, 0],
@@ -756,9 +773,28 @@
                 transformPoint: (x, y, m) => ({ x: m[0] * x + m[2] * y + m[4], y: m[1] * x + m[3] * y + m[5] }),
                 translate: (tx, ty) => [1, 0, 0, 1, tx, ty],
                 scale: (sx, sy) => [sx, 0, 0, sy, 0, 0],
+                
+                // rotate function uses the integer SIN_LUT with fractional interpolation.
                 rotate: function(angle, cx = 0, cy = 0) {
-                    const rad = angle * LogoEngine.PRECALCULATED.DEG_TO_RAD;
-                    const cos = Math.cos(rad), sin = Math.sin(rad);
+                    const lut = LogoEngine.PRECALCULATED.SIN_LUT_INT;
+                    // The scale is half, as we are mapping [-1, 1] to a signed integer range.
+                    const inv_scale = 1.0 / ((LogoEngine.PRECALCULATED.SIN_LUT_SCALE -1) * 0.5);
+
+                    // Interpolation function for a given angle
+                    const getTrigValue = (angleInDegrees) => {
+                        const floatIndex = (angleInDegrees % 360 + 360) % 360;
+                        const index1 = floatIndex | 0; // Fast floor
+                        const fraction = floatIndex - index1;
+                        
+                        const value1 = lut[index1];
+                        const value2 = lut[(index1 + 1) % 360];
+                        
+                        return (value1 + (value2 - value1) * fraction) * inv_scale;
+                    };
+                    
+                    const sin = getTrigValue(angle);
+                    const cos = getTrigValue(angle + 90); // Get cosine by looking 90 degrees ahead
+
                     const m = [cos, sin, -sin, cos, 0, 0];
                     if (cx !== 0 || cy !== 0) {
                         const m1 = this.translate(cx, cy);
@@ -799,13 +835,13 @@
                 if (len === 0) return '';
                 
                 // OPTIMIZATION: A fast, local function to round to 2 decimal places.
-                const _f2 = (n) => Math.round(n * 100) / 100;
+                const _f2 = (n) => ((n * 100 + 0.5) | 0) * 0.01;
 
                 const p0 = path.getPointAtLength(0);
                 const transformedP0 = this._matrixHelper.transformPoint(p0.x, p0.y, matrix);
                 let newPath = `M${_f2(transformedP0.x)} ${_f2(transformedP0.y)}`;
                 
-                const step = Math.max(0.5, len / 200);
+                const step = (0.5 > len * 0.005) ? 0.5 : len * 0.005;
                 for (let i = step; i <= len; i += step) {
                     const p = path.getPointAtLength(i);
                     const transformedP = this._matrixHelper.transformPoint(p.x, p.y, matrix);
@@ -834,7 +870,7 @@
                     ctx.fillStyle = colorStr;
                     ctx.fillRect(0, 0, 1, 1);
                     const [r, g, b, a_255] = ctx.getImageData(0, 0, 1, 1).data;
-                    return { r, g, b, a: (a_255 / 255) * opacity };
+                    return { r, g, b, a: (a_255 * (1.0/255.0)) * opacity };
                 },
                 colorDistanceSq(c1, c2) {
                     const dr = c1.r - c2.r, dg = c1.g - c2.g, db = c1.b - c2.b, da = (c1.a - c2.a) * 255;
@@ -850,8 +886,9 @@
                 
                 const points = [];
                 const sampleCount = 100;
+                const invSampleCount = 1.0 / sampleCount;
                 for (let i = 0; i < sampleCount; i++) {
-                    points.push(path.getPointAtLength(i / sampleCount * perimeter));
+                    points.push(path.getPointAtLength(i * invSampleCount * perimeter));
                 }
                 if (points.length === 0) return { perimeter, area: 0 };
                 points.push(points[0]);
@@ -860,8 +897,10 @@
                 for (let i = 0; i < points.length - 1; i++) {
                     area += points[i].x * points[i+1].y - points[i+1].x * points[i].y;
                 }
-                // OPTIMIZATION: Use multiplication by 0.5 instead of division by 2.
-                return { perimeter, area: Math.abs(area) * 0.5 };
+                // Bitwise absolute value: (n ^ (n >> 31)) - (n >> 31)
+                // This is faster than Math.abs() for 32-bit integers.
+                const absArea = (area ^ (area >> 31)) - (area >> 31);
+                return { perimeter, area: absArea * 0.5 };
             },
 
             _convertAbsoluteToDelta: function(abs) {
