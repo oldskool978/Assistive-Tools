@@ -1,0 +1,891 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full bg-white">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SVG Animator</title>
+    <!-- Load Inter font from Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap" rel="stylesheet">
+    <style>
+        /* Basic styling for a full-screen canvas */
+        html, body {
+            height: 100%;
+            width: 100%;
+            margin: 0;
+            padding: 0;
+            overflow: hidden; /* Prevent scrollbars */
+            font-family: 'Inter', sans-serif;
+        }
+        body {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background-color: #ffffff;
+        }
+        #logo-container {
+            position: relative;
+            width: 90vw;
+            height: 90vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        #logo-canvas {
+            max-width: 100%;
+            max-height: 100%;
+            display: block;
+        }
+    </style>
+</head>
+<body class="antialiased">
+
+    <!-- Canvas container -->
+    <div id="logo-container">
+        <canvas id="logo-canvas"></canvas>
+    </div>
+
+    <!-- Hidden file input for SVG uploads -->
+    <input type="file" id="svg-uploader" accept=".svg" style="display: none;">
+
+    <script>
+        /**
+         * LogoEngine: A comprehensive SVG rendering engine and Look-Up Table (LUT) compiler.
+         * This version is simplified to remove all GUI elements and focus solely on rendering an SVG.
+         * It allows uploading a new SVG by pressing the 'b' key.
+         */
+        const LogoEngine = {
+            // --- Configuration & State ---
+            config: {
+                canvasId: 'logo-canvas',
+                // This is the new, hand-optimized SVG markup.
+                defaultSvgMarkup: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="180 250 750 570"><path d="M 396 258 C 275 295, 190 350, 190 450 C 190 560, 250 600, 278 640 C 210 660, 210 700, 256 730 C 350 750, 550 800, 600 810 C 675 790, 800 750, 885 725 C 920 710, 915 690, 866 668 C 830 675, 700 650, 668 617 C 675 550, 680 400, 650 327 C 625 310, 500 300, 456 302 M 396 267 C 390 400, 390 550, 398 603 C 420 610, 670 610, 677 603 C 690 570, 680 450, 668 330 C 650 300, 550 305, 451 307" fill="none" stroke="#000000" stroke-width="2"/></svg>`,
+                fallbackStrokeColor: '#0d1a26',
+                maxStrokeWidth: 8.5,
+                maxPaletteSize: 16,
+                animationDurationSeconds: 4,
+                holdDurationMs: 500,
+            },
+
+            state: {
+                canvas: null, ctx: null, lookupTable: null, animationFrameId: null,
+                viewBox: { x: 0, y: 0, width: 400, height: 225 },
+                colorPalette: [], cssRules: new Map(), drawnPointsCount: 0,
+                currentStrokeIndex: 0, currentPointInStrokeIndex: 0,
+                clipPathCache: new Map(), reusablePathForSampling: null,
+                maxGeometricStrokeWidth: 0, animationDurationMs: 4000,
+                currentSvgText: '',
+            },
+
+            // --- Constants & Animation Profiles ---
+            CONSTANTS: {
+                PI: 3.141592653589793,
+                DEG_TO_RAD: 0.017453292519943295, // PI / 180 - pre-calculated for performance
+                SINE_LOOKUP_TABLE: null
+            },
+            
+            // Uses a bitwise OR `| 0` for a fast float-to-integer conversion.
+            animationProfile: (p) => LogoEngine.CONSTANTS.SINE_LOOKUP_TABLE[(p * 255) | 0],
+            
+            // --- Core Methods: The Compiler & Renderer ---
+            
+            reloadWithNewArt: function(svgText) {
+                this.state.currentSvgText = svgText;
+                this._resetAnimationState();
+
+                const parser = new DOMParser();
+                const svgDoc = parser.parseFromString(svgText, "image/svg+xml");
+                const svgElement = svgDoc.querySelector('svg');
+                if (!svgElement || svgDoc.querySelector('parsererror')) {
+                    return;
+                }
+
+                this._extractSVGMetadata(svgElement);
+                const { animatablePaths, compoundPathMeta } = this._extractAndConvertPathsFromSVG(svgElement);
+                const { finalPalette, mappedStrokes, maxStroke } = this._buildPaletteAndMapPaths(animatablePaths);
+                this.state.colorPalette = finalPalette;
+                this.state.maxGeometricStrokeWidth = maxStroke;
+                
+                let draftLut = this._generateLookupTable(mappedStrokes);
+                this.state.lookupTable = this._resolveCompoundPaths(draftLut, compoundPathMeta);
+                
+                this.startAnimation();
+            },
+
+            startAnimation: function() {
+                if (!this.state.canvas || !this.state.ctx) return;
+                this._resetAnimationState();
+                
+                const container = document.getElementById('logo-container');
+                if (!container) return;
+
+                const containerRect = container.getBoundingClientRect();
+                if (containerRect.width === 0 || containerRect.height === 0) {
+                    requestAnimationFrame(() => this.startAnimation());
+                    return;
+                }
+                this._setupCanvas(containerRect);
+                this._renderLoop();
+            },
+            
+            // --- Rendering and Animation ---
+
+            _setupCanvas: function(containerRect) {
+                const { canvas, viewBox } = this.state;
+                const dpr = window.devicePixelRatio || 1;
+                
+                const padding = (this.state.maxGeometricStrokeWidth / 2) + this.config.maxStrokeWidth;
+                const effectiveViewBox = {
+                    width: viewBox.width + padding * 2,
+                    height: viewBox.height + padding * 2
+                };
+
+                // **SAFETY CHECK:** Prevent division by zero if SVG has no width or height.
+                const scale = (effectiveViewBox.width > 0 && effectiveViewBox.height > 0)
+                    ? Math.min(containerRect.width / effectiveViewBox.width, containerRect.height / effectiveViewBox.height)
+                    : 1;
+
+                const canvasWidth = effectiveViewBox.width * scale;
+                const canvasHeight = effectiveViewBox.height * scale;
+
+                canvas.width = canvasWidth * dpr;
+                canvas.height = canvasHeight * dpr;
+                canvas.style.width = `${canvasWidth}px`;
+                canvas.style.height = `${canvasHeight}px`;
+            },
+            
+            _renderLoop: function() {
+                const { ctx, lookupTable, colorPalette, viewBox, animationDurationMs } = this.state;
+                if (!ctx || !lookupTable) return;
+
+                const totalPoints = lookupTable.reduce((sum, stroke) => sum + Math.max(0, stroke.length - 1), 0);
+                if (totalPoints === 0) return;
+
+                let startTime = null;
+                let currentPos = {x: 0, y: 0};
+
+                const animationFrame = (timestamp) => {
+                    if (!startTime) startTime = timestamp;
+                    const elapsedTime = timestamp - startTime;
+                    const drawingProgress = Math.min(elapsedTime / animationDurationMs, 1);
+                    
+                    // Use bitwise OR for fast float-to-int conversion
+                    const targetPointsToDraw = (drawingProgress * totalPoints) | 0;
+
+                    if(targetPointsToDraw > this.state.drawnPointsCount) {
+                        ctx.save();
+                        const dpr = window.devicePixelRatio || 1;
+                        const padding = (this.state.maxGeometricStrokeWidth / 2) + this.config.maxStrokeWidth;
+                        const effectiveWidth = viewBox.width + padding * 2;
+                        const effectiveHeight = viewBox.height + padding * 2;
+                        
+                        // **SAFETY CHECK:** Prevent division by zero if SVG has no dimensions.
+                        const scaleX = effectiveWidth > 0 ? (ctx.canvas.width / dpr) / effectiveWidth : 1;
+                        const scaleY = effectiveHeight > 0 ? (ctx.canvas.height / dpr) / effectiveHeight : 1;
+                        
+                        const translateX = (-viewBox.x + padding) * scaleX * dpr;
+                        const translateY = (-viewBox.y + padding) * scaleY * dpr;
+
+                        ctx.setTransform(scaleX * dpr, 0, 0, scaleY * dpr, translateX, translateY);
+                        ctx.lineCap = 'round';
+                        ctx.lineJoin = 'round';
+
+                        while (this.state.drawnPointsCount < targetPointsToDraw) {
+                            if (this.state.currentStrokeIndex >= lookupTable.length) break;
+                            const currentStroke = lookupTable[this.state.currentStrokeIndex];
+                            
+                            if (this.state.currentPointInStrokeIndex === 0) {
+                                if (!currentStroke[0] || typeof currentStroke[0].x === 'undefined') {
+                                    this.state.currentStrokeIndex++;
+                                    continue;
+                                }
+                                currentPos.x = currentStroke[0].x;
+                                currentPos.y = currentStroke[0].y;
+                                this.state.currentPointInStrokeIndex = 1;
+                            }
+
+                            if (this.state.currentPointInStrokeIndex >= currentStroke.length) {
+                                this.state.currentPointInStrokeIndex = 0;
+                                this.state.currentStrokeIndex++;
+                                continue;
+                            }
+
+                            const prevPos = { ...currentPos };
+                            const deltaPoint = currentStroke[this.state.currentPointInStrokeIndex];
+                            
+                            currentPos.x += deltaPoint.dx;
+                            currentPos.y += deltaPoint.dy;
+
+                            const colorData = colorPalette[deltaPoint.colorIndex] || {r:0,g:0,b:0,a:1};
+                            const colorStr = `rgba(${colorData.r},${colorData.g},${colorData.b},${colorData.a})`;
+                            if (ctx.strokeStyle !== colorStr) ctx.strokeStyle = colorStr;
+                            
+                            ctx.beginPath();
+                            ctx.lineWidth = deltaPoint.width;
+                            ctx.moveTo(prevPos.x, prevPos.y);
+                            ctx.lineTo(currentPos.x, currentPos.y);
+                            ctx.stroke();
+
+                            this.state.drawnPointsCount++;
+                            this.state.currentPointInStrokeIndex++;
+                        }
+                        ctx.restore();
+                    }
+
+                    if (elapsedTime < animationDurationMs + this.config.holdDurationMs) {
+                         this.state.animationFrameId = requestAnimationFrame(animationFrame);
+                    }
+                };
+                this.state.animationFrameId = requestAnimationFrame(animationFrame);
+            },
+            
+            // --- LUT Generation & Color Quantization ---
+            
+            _buildPaletteAndMapPaths: function(animatablePaths) {
+                if (!animatablePaths || animatablePaths.length === 0) {
+                    return { finalPalette: [this._colorUtils.parseColor(this.config.fallbackStrokeColor, 1)], mappedStrokes: [], maxStroke: 0 };
+                }
+                const colorWeights = new Map();
+                let maxStroke = 0;
+                animatablePaths.forEach(p => {
+                    const rgba = this._colorUtils.parseColor(p.color, p.opacity);
+                    if (rgba.a > 0) {
+                        const colorKey = `${rgba.r},${rgba.g},${rgba.b},${rgba.a}`;
+                        const metrics = this._getPathMetrics(p.path);
+                        const weight = p.type === 'fill' ? metrics.area : metrics.perimeter * p.strokeWidth;
+                        if (colorWeights.has(colorKey)) {
+                            colorWeights.get(colorKey).weight += weight;
+                        } else {
+                            colorWeights.set(colorKey, { color: rgba, weight });
+                        }
+                    }
+                    if (p.strokeWidth > maxStroke) maxStroke = p.strokeWidth;
+                });
+
+                const weightedColors = Array.from(colorWeights.values());
+                let finalPalette;
+                if (weightedColors.length <= this.config.maxPaletteSize) {
+                    finalPalette = weightedColors.map(item => item.color);
+                } else {
+                    finalPalette = this._quantizeWithWeightedKMeans(weightedColors, this.config.maxPaletteSize);
+                }
+                if (finalPalette.length === 0) finalPalette.push(this._colorUtils.parseColor(this.config.fallbackStrokeColor, 1));
+                
+                const mappedStrokes = animatablePaths.map(stroke => {
+                    const strokeRgba = this._colorUtils.parseColor(stroke.color, stroke.opacity);
+                    if (strokeRgba.a === 0) return null;
+                    let bestMatchIndex = 0, minDistance = Infinity;
+                    finalPalette.forEach((paletteRgba, index) => {
+                        const distance = this._colorUtils.colorDistanceSq(strokeRgba, paletteRgba);
+                        if (distance < minDistance) {
+                            minDistance = distance;
+                            bestMatchIndex = index;
+                        }
+                    });
+                    return { ...stroke, colorIndex: bestMatchIndex };
+                }).filter(Boolean);
+                return { finalPalette, mappedStrokes, maxStroke };
+            },
+
+            _quantizeWithWeightedKMeans(weightedColors, k) {
+                if (weightedColors.length <= k) return weightedColors.map(wc => wc.color);
+                let centroids = [];
+                let colorsCopy = [...weightedColors];
+                
+                const totalWeight = colorsCopy.reduce((sum, wc) => sum + wc.weight, 0);
+                let rand = Math.random() * totalWeight;
+                let chosenIndex = colorsCopy.findIndex(wc => (rand -= wc.weight) <= 0);
+                if (chosenIndex === -1) chosenIndex = colorsCopy.length - 1;
+                centroids.push(colorsCopy.splice(chosenIndex, 1)[0].color);
+                
+                while (centroids.length < k && colorsCopy.length > 0) {
+                    let distances = colorsCopy.map(wc => {
+                        let minDistanceSq = Math.min(...centroids.map(c => this._colorUtils.colorDistanceSq(wc.color, c)));
+                        return minDistanceSq * wc.weight;
+                    });
+                    const distSum = distances.reduce((sum, d) => sum + d, 0);
+                    rand = Math.random() * distSum;
+                    chosenIndex = distances.findIndex(d => (rand -= d) <= 0);
+                    if (chosenIndex === -1) chosenIndex = colorsCopy.length - 1;
+                    centroids.push(colorsCopy.splice(chosenIndex, 1)[0].color);
+                }
+
+                for (let iter = 0; iter < 20; iter++) {
+                    const clusters = Array.from({ length: k }, () => []);
+                    weightedColors.forEach(wc => {
+                        let closestCentroidIndex = centroids.reduce((closestIdx, centroid, idx, arr) => {
+                            const dist = this._colorUtils.colorDistanceSq(wc.color, centroid);
+                            const closestDist = this._colorUtils.colorDistanceSq(wc.color, arr[closestIdx]);
+                            return dist < closestDist ? idx : closestIdx;
+                        }, 0);
+                        clusters[closestCentroidIndex].push(wc);
+                    });
+                    
+                    let hasChanged = false;
+                    const newCentroids = clusters.map((cluster, i) => {
+                        if (cluster.length === 0) return centroids[i];
+                        const clusterWeight = cluster.reduce((sum, wc) => sum + wc.weight, 0);
+                        // **SAFETY CHECK:** Ensure clusterWeight is not zero before division.
+                        if (clusterWeight === 0) return centroids[i];
+                        
+                        const totalColor = cluster.reduce((acc, wc) => ({
+                            r: acc.r + wc.color.r * wc.weight, g: acc.g + wc.color.g * wc.weight,
+                            b: acc.b + wc.color.b * wc.weight, a: acc.a + wc.color.a * wc.weight
+                        }), {r:0, g:0, b:0, a:0});
+                        
+                        const newCentroid = {
+                            r: (totalColor.r / clusterWeight + 0.5) | 0, g: (totalColor.g / clusterWeight + 0.5) | 0,
+                            b: (totalColor.b / clusterWeight + 0.5) | 0, a: totalColor.a / clusterWeight
+                        };
+                        
+                        if (!centroids[i] || newCentroid.r !== centroids[i].r || newCentroid.g !== centroids[i].g || newCentroid.b !== centroids[i].b) {
+                            hasChanged = true;
+                        }
+                        return newCentroid;
+                    });
+                    centroids = newCentroids;
+                    if (!hasChanged) break;
+                }
+                return centroids;
+            },
+
+            _generateLookupTable: function(animatablePaths) {
+                if (!animatablePaths || animatablePaths.length === 0) return [];
+                const draftLut = [];
+                const checkCtx = document.createElement('canvas').getContext('2d');
+                
+                animatablePaths.forEach((pathData) => {
+                    const path = this.state.reusablePathForSampling;
+                    path.setAttribute('d', pathData.path);
+                    const length = path.getTotalLength();
+                    // **SAFETY CHECK:** Prevent division by zero if a path has no length.
+                    if (length === 0) return;
+
+                    const samplingStep = Math.max(0.25, Math.min(1.0, length / 500));
+                    const clipPath2D = pathData.clipPathId ? this.state.clipPathCache.get(pathData.clipPathId) : null;
+                    
+                    let currentSegment = [], lastPoint = null;
+                    for (let i = 0; i < length; i += samplingStep) {
+                        const point = path.getPointAtLength(i);
+                        if (!clipPath2D || checkCtx.isPointInPath(clipPath2D, point.x, point.y)) {
+                            let width;
+                            const isDefaultSvg = this.state.currentSvgText === this.config.defaultSvgMarkup;
+
+                            if (isDefaultSvg) {
+                                // Logic for the default SVG: Animate strokes based on their original width.
+                                const swellFactor = this.animationProfile(i / length);
+                                const dynamicWidth = swellFactor * (this.config.maxStrokeWidth - pathData.strokeWidth);
+                                width = pathData.strokeWidth + dynamicWidth;
+                            } else {
+                                // Logic for uploaded SVGs: Animate fills, draw strokes solid.
+                                if (pathData.type === 'fill') {
+                                    const swellFactor = this.animationProfile(i / length);
+                                    const animatedBaseWidth = 2;
+                                    const dynamicWidth = swellFactor * (this.config.maxStrokeWidth - animatedBaseWidth);
+                                    width = animatedBaseWidth + dynamicWidth;
+                                } else { // 'stroke'
+                                    width = this.config.maxStrokeWidth;
+                                }
+                            }
+                            
+                            const pointData = { width, colorIndex: pathData.colorIndex, type: pathData.type, compoundId: pathData.compoundId };
+                            
+                            if (!lastPoint) {
+                                currentSegment.push({ x: point.x, y: point.y, ...pointData });
+                            } else {
+                                currentSegment.push({ dx: point.x - lastPoint.x, dy: point.y - lastPoint.y, ...pointData });
+                            }
+                            lastPoint = point;
+                        } else {
+                            if (currentSegment.length > 1) draftLut.push(currentSegment);
+                            currentSegment = [];
+                            lastPoint = null;
+                        }
+                    }
+                    if (currentSegment.length > 1) draftLut.push(currentSegment);
+                });
+                return draftLut;
+            },
+
+            _resolveCompoundPaths: function(draftLut, compoundPathMeta) {
+                if (compoundPathMeta.size === 0) return draftLut;
+                const cleanedLut = [];
+                const checkCtx = document.createElement('canvas').getContext('2d');
+                const holeGeometries = new Map();
+                for (const [id, meta] of compoundPathMeta.entries()) {
+                    holeGeometries.set(id, new Path2D(meta.erasePathData));
+                }
+
+                draftLut.forEach(segment => {
+                    const firstPoint = segment[0];
+                    if (firstPoint.type !== 'fill' || !holeGeometries.has(firstPoint.compoundId)) {
+                        cleanedLut.push(segment);
+                        return;
+                    }
+
+                    const hole = holeGeometries.get(firstPoint.compoundId);
+                    const absolutePoints = this._convertDeltaToAbsolute(segment);
+                    let currentCleanSegment = [];
+                    absolutePoints.forEach(absPoint => {
+                        if (!checkCtx.isPointInPath(hole, absPoint.absX, absPoint.absY, 'evenodd')) {
+                            currentCleanSegment.push(absPoint);
+                        } else {
+                            if (currentCleanSegment.length > 1) cleanedLut.push(this._convertAbsoluteToDelta(currentCleanSegment));
+                            currentCleanSegment = [];
+                        }
+                    });
+                    if (currentCleanSegment.length > 1) cleanedLut.push(this._convertAbsoluteToDelta(currentCleanSegment));
+                });
+                return cleanedLut;
+            },
+            
+            // --- SVG Parsing and Traversal ---
+
+            _extractAndConvertPathsFromSVG: function(svgNode) {
+                const allFoundPaths = [], compoundPathMeta = new Map();
+                let compoundPathCounter = 0;
+                
+                const traverse = (node, inheritedProps) => {
+                    if (node.nodeType !== 1 || ['defs', 'mask', 'style', 'title', 'metadata', 'clippath'].includes(node.tagName.toLowerCase())) return;
+                    
+                    const props = this._getInheritedProps(node, inheritedProps);
+                    
+                    if (node.tagName.toLowerCase() === 'use') {
+                        const href = node.getAttribute('href') || node.getAttribute('xlink:href');
+                        if (href?.startsWith('#')) {
+                            const referencedNode = svgNode.getRootNode().getElementById(href.substring(1));
+                            if (referencedNode) {
+                                const useX = +node.getAttribute('x') || 0;
+                                const useY = +node.getAttribute('y') || 0;
+                                const finalProps = { ...props };
+                                if (useX !== 0 || useY !== 0) {
+                                    finalProps.transform = this._matrixHelper.multiply(props.transform, this._matrixHelper.translate(useX, useY));
+                                }
+                                traverse(referencedNode, finalProps);
+                            }
+                        }
+                        return;
+                    }
+                    this._processPathNode(node, props, allFoundPaths, compoundPathMeta, ++compoundPathCounter);
+                    node.childNodes.forEach(child => traverse(child, props));
+                };
+
+                const initialProps = {
+                    transform: this._matrixHelper.identity(), fill: 'black', 'fill-opacity': 1,
+                    stroke: 'none', 'stroke-opacity': 1, 'stroke-width': 1,
+                    clipPath: null, fillRule: 'nonzero'
+                };
+                traverse(svgNode, initialProps);
+
+                const animatablePaths = [];
+                const hasStrokesInCollection = allFoundPaths.some(p => p.type === 'stroke');
+                const hasFillsInCollection = allFoundPaths.some(p => p.type === 'fill');
+
+                animatablePaths.push(...allFoundPaths.filter(p => p.type === 'fill'));
+
+                if (hasStrokesInCollection) {
+                    animatablePaths.push(...allFoundPaths.filter(p => p.type === 'stroke'));
+                } else if (hasFillsInCollection) {
+                    const strokesFromFills = allFoundPaths
+                        .filter(p => p.type === 'fill')
+                        .map(p => ({ 
+                            ...p, 
+                            type: 'stroke', 
+                            strokeWidth: 2, 
+                            color: p.color, 
+                            opacity: p.opacity 
+                        }));
+                    animatablePaths.push(...strokesFromFills);
+                }
+
+                return { animatablePaths, compoundPathMeta };
+            },
+
+            _processPathNode: function(node, props, allFoundPaths, compoundPathMeta, compoundId) {
+                let pathData = this._getPathDataFromNode(node);
+                if (!pathData) return;
+
+                const isSolid = (c) => c && c !== 'none' && !c.includes('url(');
+                const hasVisibleFill = isSolid(props.fill) && props['fill-opacity'] > 0;
+                const hasVisibleStroke = isSolid(props.stroke) && props['stroke-width'] > 0 && props['stroke-opacity'] > 0;
+
+                const subPaths = pathData.trim().split(/(?=M|m)/g).filter(s => s.trim());
+                const isCompound = props.fillRule === 'evenodd' && subPaths.length > 1;
+
+                if (hasVisibleFill) {
+                    const processFill = (pData, cId) => {
+                        const transformedPath = this._applyTransformBySampling(pData, props.transform);
+                        allFoundPaths.push({
+                            path: transformedPath, clipPathId: props.clipPath, compoundId: cId,
+                            type: 'fill', strokeWidth: this.config.maxStrokeWidth,
+                            color: props.fill, opacity: props['fill-opacity']
+                        });
+                    };
+                    if (isCompound) {
+                        processFill(subPaths[0], compoundId);
+                        const holePathsData = subPaths.slice(1).join(' ');
+                        const transformedHolePath = this._applyTransformBySampling(holePathsData, props.transform);
+                        compoundPathMeta.set(compoundId, { erasePathData: transformedHolePath });
+                    } else {
+                        subPaths.forEach(subPathData => processFill(subPathData, null));
+                    }
+                }
+
+                if (hasVisibleStroke) {
+                    subPaths.forEach(subPathData => {
+                        const transformedPath = this._applyTransformBySampling(subPathData, props.transform);
+                        allFoundPaths.push({
+                            path: transformedPath, clipPathId: props.clipPath, compoundId: null,
+                            type: 'stroke', strokeWidth: props['stroke-width'],
+                            color: props.stroke, opacity: props['stroke-opacity']
+                        });
+                    });
+                }
+            },
+
+            _getInheritedProps: function(node, inheritedProps) {
+                const props = { ...inheritedProps };
+                const styleAttr = node.getAttribute('style');
+                const classAttr = node.getAttribute('class');
+                if (classAttr) {
+                    classAttr.split(' ').forEach(cls => {
+                        const rule = this.state.cssRules.get(`.${cls}`);
+                        if (rule) Object.assign(props, rule);
+                    });
+                }
+                if (node.id && this.state.cssRules.has(`#${node.id}`)) {
+                    Object.assign(props, this.state.cssRules.get(`#${node.id}`));
+                }
+                if (styleAttr) Object.assign(props, this._parseStyleAttribute(styleAttr));
+                
+                const directAttrs = {
+                    fill: node.getAttribute('fill'), 'fill-opacity': node.getAttribute('fill-opacity'),
+                    'fill-rule': node.getAttribute('fill-rule'), stroke: node.getAttribute('stroke'),
+                    'stroke-width': node.getAttribute('stroke-width'), 'stroke-opacity': node.getAttribute('stroke-opacity'),
+                    'clip-path': node.getAttribute('clip-path'),
+                };
+                for (const [key, value] of Object.entries(directAttrs)) {
+                    if (value !== null) props[key] = value;
+                }
+                
+                const transformAttr = node.getAttribute('transform');
+                props.transform = inheritedProps.transform;
+                if (transformAttr) {
+                    props.transform = this._matrixHelper.multiply(inheritedProps.transform, this._parseTransform(transformAttr));
+                }
+                
+                props['stroke-width'] = +props['stroke-width'];
+                props['stroke-opacity'] = +props['stroke-opacity'];
+                props['fill-opacity'] = +props['fill-opacity'];
+                if (props['clip-path']) props.clipPath = props['clip-path'].replace(/url\(#|\)/g, '');
+                return props;
+            },
+            
+            _getPathDataFromNode: function(node) {
+                const tagName = node.tagName.toLowerCase();
+                // Use unary '+' for faster string-to-number conversion than parseFloat()
+                switch(tagName) {
+                    case 'path': return node.getAttribute('d');
+                    case 'rect': {
+                        const x = +node.getAttribute('x') || 0, y = +node.getAttribute('y') || 0, w = +node.getAttribute('width') || 0, h = +node.getAttribute('height') || 0;
+                        let rx = +node.getAttribute('rx') || 0;
+                        let ry = +node.getAttribute('ry') || rx;
+                        rx = Math.min(rx, w / 2);
+                        ry = Math.min(ry, h / 2);
+                        if (rx > 0 || ry > 0) {
+                            return `M${x + rx},${y} h${w - 2 * rx} a${rx},${ry} 0 0 1 ${rx},${ry} v${h - 2 * ry} a${rx},${ry} 0 0 1 ${-rx},${ry} h${-(w - 2 * rx)} a${rx},${ry} 0 0 1 ${-rx},${-ry} v${-(h - 2 * ry)} a${rx},${ry} 0 0 1 ${rx},${-ry} Z`;
+                        }
+                        return `M${x},${y} h${w} v${h} h${-w} Z`;
+                    }
+                    case 'circle': {
+                        const cx = +node.getAttribute('cx') || 0, cy = +node.getAttribute('cy') || 0, r = +node.getAttribute('r') || 0;
+                        return `M ${cx - r},${cy} a ${r},${r} 0 1,0 ${r * 2},0 a ${r},${r} 0 1,0 -${r * 2},0`;
+                    }
+                    case 'ellipse': {
+                        const cx = +node.getAttribute('cx') || 0, cy = +node.getAttribute('cy') || 0, rx = +node.getAttribute('rx') || 0, ry = +node.getAttribute('ry') || 0;
+                        return `M ${cx - rx},${cy} a ${rx},${ry} 0 1,0 ${rx * 2},0 a ${rx},${ry} 0 1,0 -${rx * 2},0`;
+                    }
+                    case 'line': {
+                        const x1 = +node.getAttribute('x1') || 0, y1 = +node.getAttribute('y1') || 0, x2 = +node.getAttribute('x2') || 0, y2 = +node.getAttribute('y2') || 0;
+                        return `M ${x1} ${y1} L ${x2} ${y2}`;
+                    }
+                    case 'polyline': case 'polygon': {
+                        const points = (node.getAttribute('points')||'').trim().split(/[\s,]+/).map(p => +p || 0);
+                        if (points.length < 2) return '';
+                        let d = `M ${points[0]} ${points[1]}`;
+                        for(let i=2; i<points.length; i+=2) d += ` L ${points[i]} ${points[i+1]}`;
+                        if (tagName === 'polygon') d += ' Z';
+                        return d;
+                    }
+                    default: return '';
+                }
+            },
+
+            _extractSVGMetadata: function(svgElement) {
+                const viewBoxAttr = svgElement.getAttribute('viewBox');
+                if (viewBoxAttr) {
+                    const vb = viewBoxAttr.split(/[\s,]+/).map(Number);
+                    if (vb.length === 4 && !vb.some(isNaN)) this.state.viewBox = { x: vb[0], y: vb[1], width: vb[2], height: vb[3] };
+                } else {
+                    const w = +svgElement.getAttribute('width'), h = +svgElement.getAttribute('height');
+                    this.state.viewBox = { x: 0, y: 0, width: (isNaN(w) ? 400 : w), height: (isNaN(h) ? 225 : h) };
+                }
+                this.state.cssRules = this._parseStyleSheets(svgElement);
+                this.state.clipPathCache.clear();
+                this._compileClipPaths(svgElement);
+            },
+
+            _compileClipPaths: function(svgNode) {
+                svgNode.querySelectorAll('clipPath').forEach(clipNode => {
+                    const clipId = clipNode.getAttribute('id');
+                    if (!clipId) return;
+                    const combinedPath2D = new Path2D();
+                    const traverseClipPath = (node, inheritedTransform) => {
+                        if (node.nodeType !== 1) return;
+                        let currentTransform = inheritedTransform;
+                        const transformAttr = node.getAttribute('transform');
+                        if (transformAttr) currentTransform = this._matrixHelper.multiply(inheritedTransform, this._parseTransform(transformAttr));
+                        
+                        if (node.tagName.toLowerCase() === 'use') {
+                            const href = node.getAttribute('href') || node.getAttribute('xlink:href');
+                            if (href?.startsWith('#')) {
+                                const ref = svgNode.getRootNode().getElementById(href.substring(1));
+                                if (ref) {
+                                    const useX = +node.getAttribute('x')||0, useY = +node.getAttribute('y')||0;
+                                    let finalTransform = currentTransform;
+                                    if (useX !== 0 || useY !== 0) finalTransform = this._matrixHelper.multiply(currentTransform, this._matrixHelper.translate(useX, useY));
+                                    traverseClipPath(ref, finalTransform);
+                                }
+                            }
+                        } else {
+                            const pathData = this._getPathDataFromNode(node);
+                            if (pathData) {
+                                const transformedPath = this._applyTransformBySampling(pathData, currentTransform);
+                                combinedPath2D.addPath(new Path2D(transformedPath));
+                            }
+                        }
+                        node.childNodes.forEach(child => traverseClipPath(child, currentTransform));
+                    };
+                    traverseClipPath(clipNode, this._matrixHelper.identity());
+                    this.state.clipPathCache.set(clipId, combinedPath2D);
+                });
+            },
+            
+            // --- Utility Functions ---
+
+            _resetAnimationState: function() {
+                cancelAnimationFrame(this.state.animationFrameId);
+                this.state.drawnPointsCount = 0;
+                this.state.currentStrokeIndex = 0;
+                this.state.currentPointInStrokeIndex = 0;
+                if (this.state.ctx && this.state.canvas) {
+                    this.state.ctx.reset();
+                }
+            },
+
+            _parseStyleAttribute: function(s) {
+                return s.split(';').reduce((styles, p) => {
+                    const parts = p.split(':');
+                    if (parts.length === 2) styles[parts[0].trim()] = parts[1].trim();
+                    return styles;
+                }, {});
+            },
+
+            _parseStyleSheets: function(svgNode) {
+                const rules = new Map();
+                svgNode.querySelectorAll('style').forEach(style => {
+                    const ruleRegex = /([^{]+)\s*\{([^}]+)\}/g;
+                    let match;
+                    while ((match = ruleRegex.exec(style.textContent)) !== null) {
+                        const selector = match[1].trim();
+                        const properties = this._parseStyleAttribute(match[2].trim());
+                        rules.set(selector, properties);
+                    }
+                });
+                return rules;
+            },
+            
+            _matrixHelper: {
+                identity: () => [1, 0, 0, 1, 0, 0],
+                isIdentity: (m) => m.every((val, i) => val === (i === 0 || i === 3 ? 1 : 0)),
+                multiply: (m1, m2) => [
+                    m1[0] * m2[0] + m1[2] * m2[1], m1[1] * m2[0] + m1[3] * m2[1],
+                    m1[0] * m2[2] + m1[2] * m2[3], m1[1] * m2[2] + m1[3] * m2[3],
+                    m1[0] * m2[4] + m1[2] * m2[5] + m1[4], m1[1] * m2[4] + m1[3] * m2[5] + m1[5]
+                ],
+                transformPoint: (x, y, m) => ({ x: m[0] * x + m[2] * y + m[4], y: m[1] * x + m[3] * y + m[5] }),
+                translate: (tx, ty) => [1, 0, 0, 1, tx, ty],
+                scale: (sx, sy) => [sx, 0, 0, sy, 0, 0],
+                rotate: function(angle, cx = 0, cy = 0) {
+                    const rad = angle * LogoEngine.CONSTANTS.DEG_TO_RAD;
+                    const cos = Math.cos(rad), sin = Math.sin(rad);
+                    const m = [cos, sin, -sin, cos, 0, 0];
+                    if (cx !== 0 || cy !== 0) {
+                        const m1 = this.translate(cx, cy);
+                        const m2 = this.translate(-cx, -cy);
+                        return this.multiply(m1, this.multiply(m, m2));
+                    }
+                    return m;
+                }
+            },
+
+            _parseTransform: function(transformString) {
+                let matrix = this._matrixHelper.identity();
+                if (!transformString) return matrix;
+                const regex = /(\w+)\s*\(([^)]+)\)/g;
+                let match;
+                while ((match = regex.exec(transformString)) !== null) {
+                    const [_, type, valueStr] = match;
+                    const values = valueStr.trim().split(/[\s,]+/).map(v => +v.trim());
+                    if (values.some(isNaN)) continue;
+                    let transformMatrix;
+                    switch (type) {
+                        case 'translate': transformMatrix = this._matrixHelper.translate(values[0], values[1] || 0); break;
+                        case 'scale': transformMatrix = this._matrixHelper.scale(values[0], values[1] ?? values[0]); break;
+                        case 'rotate': transformMatrix = this._matrixHelper.rotate(values[0], values[1] || 0, values[2] || 0); break;
+                        case 'matrix': transformMatrix = values.length === 6 ? values : this._matrixHelper.identity(); break;
+                        default: transformMatrix = this._matrixHelper.identity();
+                    }
+                    matrix = this._matrixHelper.multiply(matrix, transformMatrix);
+                }
+                return matrix;
+            },
+            
+            _applyTransformBySampling: function(pathData, matrix) {
+                if (!matrix || this._matrixHelper.isIdentity(matrix)) return pathData;
+                const path = this.state.reusablePathForSampling;
+                path.setAttribute('d', pathData);
+                const len = path.getTotalLength();
+                if (len === 0) return '';
+                
+                const p0 = path.getPointAtLength(0);
+                const transformedP0 = this._matrixHelper.transformPoint(p0.x, p0.y, matrix);
+                let newPath = `M${transformedP0.x.toFixed(2)} ${transformedP0.y.toFixed(2)}`;
+                
+                const step = Math.max(0.5, len / 200);
+                for (let i = step; i <= len; i += step) {
+                    const p = path.getPointAtLength(i);
+                    const transformedP = this._matrixHelper.transformPoint(p.x, p.y, matrix);
+                    newPath += ` L${transformedP.x.toFixed(2)} ${transformedP.y.toFixed(2)}`;
+                }
+                if (pathData.trim().toUpperCase().endsWith('Z')) newPath += ' Z';
+                return newPath;
+            },
+            
+            _colorUtils: {
+                _colorCanvasCtx: null,
+                _initColorCanvas() {
+                    if (!this._colorCanvasCtx) {
+                        const canvas = document.createElement('canvas');
+                        canvas.width = 1; canvas.height = 1;
+                        this._colorCanvasCtx = canvas.getContext('2d', { willReadFrequently: true });
+                    }
+                    return this._colorCanvasCtx;
+                },
+                parseColor(colorStr, opacity = 1) {
+                    if (!colorStr || typeof colorStr !== 'string' || colorStr.toLowerCase() === 'none') {
+                        return { r: 0, g: 0, b: 0, a: 0 };
+                    }
+                    const ctx = this._initColorCanvas();
+                    ctx.clearRect(0, 0, 1, 1);
+                    ctx.fillStyle = colorStr;
+                    ctx.fillRect(0, 0, 1, 1);
+                    const [r, g, b, a_255] = ctx.getImageData(0, 0, 1, 1).data;
+                    return { r, g, b, a: (a_255 / 255) * opacity };
+                },
+                colorDistanceSq(c1, c2) {
+                    const dr = c1.r - c2.r, dg = c1.g - c2.g, db = c1.b - c2.b, da = (c1.a - c2.a) * 255;
+                    return dr*dr + dg*dg + db*db + da*da;
+                }
+            },
+
+            _getPathMetrics: function(pathData) {
+                const path = this.state.reusablePathForSampling;
+                path.setAttribute('d', pathData);
+                const perimeter = path.getTotalLength();
+                if (perimeter < 1) return { perimeter: 0, area: 0 };
+                
+                const points = [];
+                const sampleCount = 100;
+                for (let i = 0; i < sampleCount; i++) {
+                    points.push(path.getPointAtLength(i / sampleCount * perimeter));
+                }
+                if (points.length === 0) return { perimeter, area: 0 };
+                points.push(points[0]);
+                
+                let area = 0;
+                for (let i = 0; i < points.length - 1; i++) {
+                    area += points[i].x * points[i+1].y - points[i+1].x * points[i].y;
+                }
+                return { perimeter, area: Math.abs(area) / 2 };
+            },
+
+            _convertAbsoluteToDelta: function(abs) {
+                if (abs.length < 2) return [];
+                const first = abs[0];
+                const delta = [{ x: first.absX, y: first.absY, ...first }];
+                delete delta[0].absX; delete delta[0].absY;
+                for (let i = 1; i < abs.length; i++) {
+                    const curr = abs[i], prev = abs[i-1];
+                    const p = { dx: curr.absX - prev.absX, dy: curr.absY - prev.absY, ...curr };
+                    delete p.absX; delete p.absY;
+                    delta.push(p);
+                }
+                return delta;
+            },
+
+            _convertDeltaToAbsolute: function(delta) {
+                const abs = [];
+                let curr = { x: 0, y: 0 };
+                delta.forEach((p, i) => {
+                    if (i === 0) curr = { x: p.x, y: p.y };
+                    else { curr.x += p.dx; curr.y += p.dy; }
+                    abs.push({ ...p, absX: curr.x, absY: curr.y });
+                });
+                return abs;
+            },
+
+            // --- Initialization and Event Handlers ---
+            init: function() {
+                this.CONSTANTS.SINE_LOOKUP_TABLE = Array.from({ length: 256 }, (_, i) => Math.sin((i / 255) * this.CONSTANTS.PI));
+                
+                this.state.canvas = document.getElementById(this.config.canvasId);
+                if (!this.state.canvas) return;
+                this.state.ctx = this.state.canvas.getContext('2d', { willReadFrequently: true });
+                
+                this.state.reusablePathForSampling = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+                this.state.animationDurationMs = this.config.animationDurationSeconds * 1000;
+                
+                const uploader = document.getElementById('svg-uploader');
+                
+                window.addEventListener('keydown', (e) => {
+                    if (e.key.toLowerCase() === 'b') {
+                        uploader.click();
+                    }
+                });
+
+                uploader.addEventListener('change', (e) => {
+                    const file = e.target.files[0];
+                    if (!file) return;
+                    const reader = new FileReader();
+                    reader.onload = (event) => this.reloadWithNewArt(event.target.result);
+                    reader.readAsText(file);
+                    e.target.value = ''; // Reset for re-uploading the same file.
+                });
+
+                let resizeTimeout;
+                window.addEventListener('resize', () => {
+                    clearTimeout(resizeTimeout);
+                    resizeTimeout = setTimeout(() => this.reloadWithNewArt(this.state.currentSvgText), 150);
+                });
+
+                // Kick off the process with the default SVG.
+                requestAnimationFrame(() => { this.reloadWithNewArt(this.config.defaultSvgMarkup); });
+            }
+        };
+
+        document.addEventListener('DOMContentLoaded', () => LogoEngine.init());
+    </script>
+</body>
+</html>
