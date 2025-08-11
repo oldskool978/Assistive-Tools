@@ -52,14 +52,13 @@
     <script>
         /**
          * LogoEngine: A comprehensive SVG rendering engine and Look-Up Table (LUT) compiler.
-         * This version is simplified to remove all GUI elements and focus solely on rendering an SVG.
-         * It allows uploading a new SVG by pressing the 'b' key.
+         * This version is hyper-optimized for performance on resource-constrained devices by
+         * using a hard-coded integer-based look-up table and bitwise operations.
          */
         const LogoEngine = {
             // --- Configuration & State ---
             config: {
                 canvasId: 'logo-canvas',
-                // This is the new, hand-optimized SVG markup.
                 defaultSvgMarkup: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="180 250 750 570"><path d="M 396 258 C 275 295, 190 350, 190 450 C 190 560, 250 600, 278 640 C 210 660, 210 700, 256 730 C 350 750, 550 800, 600 810 C 675 790, 800 750, 885 725 C 920 710, 915 690, 866 668 C 830 675, 700 650, 668 617 C 675 550, 680 400, 650 327 C 625 310, 500 300, 456 302 M 396 267 C 390 400, 390 550, 398 603 C 420 610, 670 610, 677 603 C 690 570, 680 450, 668 330 C 650 300, 550 305, 451 307" fill="none" stroke="#000000" stroke-width="2"/></svg>`,
                 fallbackStrokeColor: '#0d1a26',
                 maxStrokeWidth: 8.5,
@@ -74,19 +73,42 @@
                 colorPalette: [], cssRules: new Map(), drawnPointsCount: 0,
                 currentStrokeIndex: 0, currentPointInStrokeIndex: 0,
                 clipPathCache: new Map(), reusablePathForSampling: null,
-                maxGeometricStrokeWidth: 0, animationDurationMs: 4000,
+                maxGeometricStrokeWidth: 0,
                 currentSvgText: '',
             },
 
-            // --- Constants & Animation Profiles ---
-            CONSTANTS: {
-                PI: 3.141592653589793,
-                DEG_TO_RAD: 0.017453292519943295, // PI / 180 - pre-calculated for performance
-                SINE_LOOKUP_TABLE: null
+            // --- Pre-calculated Constants & Animation Profiles ---
+            PRECALCULATED: {
+                DEG_TO_RAD: 0.017453292519943295,
+                ANIMATION_DURATION_MS: 4000,
+                // High-precision LUT for maximum accuracy.
+                EASING_LUT_INT: [0,807,1615,2422,3228,4034,4840,5645,6449,7252,8054,8854,9654,10451,11248,12042,12835,13626,14414,15201,15985,16767,17546,18323,19097,19867,20635,21400,22162,22920,23674,24425,25173,25916,26656,27391,28123,28850,29573,30291,31005,31714,32418,33117,33811,34500,35184,35863,36536,37203,37865,38521,39171,39816,40454,41086,41712,42332,42945,43551,44151,44745,45331,45911,46483,47049,47608,48159,48703,49239,49768,50290,50804,51310,51808,52299,52781,53256,53723,54181,54631,55073,55506,55931,56348,56756,57155,57546,57928,58301,58665,59021,59367,59705,60033,60352,60663,60964,61255,61538,61811,62074,62328,62573,62808,63034,63250,63457,63654,63841,64019,64187,64345,64493,64632,64760,64879,64988,65088,65177,65256,65326,65386,65435,65475,65505,65525,65535,65535,65525,65505,65475,65435,65386,65326,65256,65177,65088,64988,64879,64760,64632,64493,64345,64187,64019,63841,63654,63457,63250,63034,62808,62573,62328,62074,61811,61538,61255,60964,60663,60352,60033,59705,59367,59021,58665,58301,57928,57546,57155,56756,56348,55931,55506,55073,54631,54181,53723,53256,52781,52299,51808,51310,50804,50290,49768,49239,48703,48159,47608,47049,46483,45911,45331,44745,44151,43551,42945,42332,41712,41086,40454,39816,39171,38521,37865,37203,36536,35863,35184,34500,33811,33117,32418,31714,31005,30291,29573,28850,28123,27391,26656,25916,25173,24425,23674,22920,22162,21400,20635,19867,19097,18323,17546,16767,15985,15201,14414,13626,12835,12042,11248,10451,9654,8854,8054,7252,6449,5645,4840,4034,3228,2422,1615,807,0],
+                EASING_LUT_SCALE: 65536,
             },
             
-            // Uses a bitwise OR `| 0` for a fast float-to-integer conversion.
-            animationProfile: (p) => LogoEngine.CONSTANTS.SINE_LOOKUP_TABLE[(p * 255) | 0],
+            /**
+             * Calculates the animation profile by linearly interpolating between values in the integer LUT.
+             * This restores floating-point precision for a smooth animation curve without the performance
+             * cost of Math.sin(), addressing the "stepping" issue from using a discrete LUT.
+             * @param {number} p - The progress of the animation (0.0 to 1.0).
+             * @returns {number} The interpolated value from the LUT, maintaining precision.
+             */
+            animationProfile: (p) => {
+                const lut = LogoEngine.PRECALCULATED.EASING_LUT_INT;
+                const floatIndex = p * 255;
+                const index1 = floatIndex | 0; // Fast floor
+                const fraction = floatIndex - index1;
+
+                if (index1 >= 255) {
+                    return lut[255];
+                }
+                
+                const value1 = lut[index1];
+                const value2 = lut[index1 + 1];
+                
+                // Linearly interpolate to get a smooth value between LUT points.
+                return value1 + (value2 - value1) * fraction;
+            },
             
             // --- Core Methods: The Compiler & Renderer ---
             
@@ -135,13 +157,12 @@
                 const { canvas, viewBox } = this.state;
                 const dpr = window.devicePixelRatio || 1;
                 
-                const padding = (this.state.maxGeometricStrokeWidth / 2) + this.config.maxStrokeWidth;
+                const padding = (this.state.maxGeometricStrokeWidth * 0.5) + this.config.maxStrokeWidth;
                 const effectiveViewBox = {
                     width: viewBox.width + padding * 2,
                     height: viewBox.height + padding * 2
                 };
 
-                // **SAFETY CHECK:** Prevent division by zero if SVG has no width or height.
                 const scale = (effectiveViewBox.width > 0 && effectiveViewBox.height > 0)
                     ? Math.min(containerRect.width / effectiveViewBox.width, containerRect.height / effectiveViewBox.height)
                     : 1;
@@ -156,7 +177,8 @@
             },
             
             _renderLoop: function() {
-                const { ctx, lookupTable, colorPalette, viewBox, animationDurationMs } = this.state;
+                const { ctx, lookupTable, colorPalette, viewBox } = this.state;
+                const { ANIMATION_DURATION_MS } = this.PRECALCULATED;
                 if (!ctx || !lookupTable) return;
 
                 const totalPoints = lookupTable.reduce((sum, stroke) => sum + Math.max(0, stroke.length - 1), 0);
@@ -168,19 +190,17 @@
                 const animationFrame = (timestamp) => {
                     if (!startTime) startTime = timestamp;
                     const elapsedTime = timestamp - startTime;
-                    const drawingProgress = Math.min(elapsedTime / animationDurationMs, 1);
+                    const drawingProgress = Math.min(elapsedTime / ANIMATION_DURATION_MS, 1);
                     
-                    // Use bitwise OR for fast float-to-int conversion
                     const targetPointsToDraw = (drawingProgress * totalPoints) | 0;
 
                     if(targetPointsToDraw > this.state.drawnPointsCount) {
                         ctx.save();
                         const dpr = window.devicePixelRatio || 1;
-                        const padding = (this.state.maxGeometricStrokeWidth / 2) + this.config.maxStrokeWidth;
+                        const padding = (this.state.maxGeometricStrokeWidth * 0.5) + this.config.maxStrokeWidth;
                         const effectiveWidth = viewBox.width + padding * 2;
                         const effectiveHeight = viewBox.height + padding * 2;
                         
-                        // **SAFETY CHECK:** Prevent division by zero if SVG has no dimensions.
                         const scaleX = effectiveWidth > 0 ? (ctx.canvas.width / dpr) / effectiveWidth : 1;
                         const scaleY = effectiveHeight > 0 ? (ctx.canvas.height / dpr) / effectiveHeight : 1;
                         
@@ -190,29 +210,34 @@
                         ctx.setTransform(scaleX * dpr, 0, 0, scaleY * dpr, translateX, translateY);
                         ctx.lineCap = 'round';
                         ctx.lineJoin = 'round';
+                        
+                        // OPTIMIZATION: Cache state variables before the hot loop.
+                        let drawnPoints = this.state.drawnPointsCount;
+                        let strokeIdx = this.state.currentStrokeIndex;
+                        let pointIdx = this.state.currentPointInStrokeIndex;
 
-                        while (this.state.drawnPointsCount < targetPointsToDraw) {
-                            if (this.state.currentStrokeIndex >= lookupTable.length) break;
-                            const currentStroke = lookupTable[this.state.currentStrokeIndex];
+                        while (drawnPoints < targetPointsToDraw) {
+                            if (strokeIdx >= lookupTable.length) break;
+                            const currentStroke = lookupTable[strokeIdx];
                             
-                            if (this.state.currentPointInStrokeIndex === 0) {
+                            if (pointIdx === 0) {
                                 if (!currentStroke[0] || typeof currentStroke[0].x === 'undefined') {
-                                    this.state.currentStrokeIndex++;
+                                    strokeIdx++;
                                     continue;
                                 }
                                 currentPos.x = currentStroke[0].x;
                                 currentPos.y = currentStroke[0].y;
-                                this.state.currentPointInStrokeIndex = 1;
+                                pointIdx = 1;
                             }
 
-                            if (this.state.currentPointInStrokeIndex >= currentStroke.length) {
-                                this.state.currentPointInStrokeIndex = 0;
-                                this.state.currentStrokeIndex++;
+                            if (pointIdx >= currentStroke.length) {
+                                pointIdx = 0;
+                                strokeIdx++;
                                 continue;
                             }
 
                             const prevPos = { ...currentPos };
-                            const deltaPoint = currentStroke[this.state.currentPointInStrokeIndex];
+                            const deltaPoint = currentStroke[pointIdx];
                             
                             currentPos.x += deltaPoint.dx;
                             currentPos.y += deltaPoint.dy;
@@ -227,13 +252,19 @@
                             ctx.lineTo(currentPos.x, currentPos.y);
                             ctx.stroke();
 
-                            this.state.drawnPointsCount++;
-                            this.state.currentPointInStrokeIndex++;
+                            drawnPoints++;
+                            pointIdx++;
                         }
+                        
+                        // OPTIMIZATION: Update state variables after the loop.
+                        this.state.drawnPointsCount = drawnPoints;
+                        this.state.currentStrokeIndex = strokeIdx;
+                        this.state.currentPointInStrokeIndex = pointIdx;
+
                         ctx.restore();
                     }
 
-                    if (elapsedTime < animationDurationMs + this.config.holdDurationMs) {
+                    if (elapsedTime < ANIMATION_DURATION_MS + this.config.holdDurationMs) {
                          this.state.animationFrameId = requestAnimationFrame(animationFrame);
                     }
                 };
@@ -301,7 +332,13 @@
                 
                 while (centroids.length < k && colorsCopy.length > 0) {
                     let distances = colorsCopy.map(wc => {
-                        let minDistanceSq = Math.min(...centroids.map(c => this._colorUtils.colorDistanceSq(wc.color, c)));
+                        let minDistanceSq = Infinity;
+                        for (let i = 0; i < centroids.length; i++) {
+                            const distSq = this._colorUtils.colorDistanceSq(wc.color, centroids[i]);
+                            if (distSq < minDistanceSq) {
+                                minDistanceSq = distSq;
+                            }
+                        }
                         return minDistanceSq * wc.weight;
                     });
                     const distSum = distances.reduce((sum, d) => sum + d, 0);
@@ -314,11 +351,15 @@
                 for (let iter = 0; iter < 20; iter++) {
                     const clusters = Array.from({ length: k }, () => []);
                     weightedColors.forEach(wc => {
-                        let closestCentroidIndex = centroids.reduce((closestIdx, centroid, idx, arr) => {
-                            const dist = this._colorUtils.colorDistanceSq(wc.color, centroid);
-                            const closestDist = this._colorUtils.colorDistanceSq(wc.color, arr[closestIdx]);
-                            return dist < closestDist ? idx : closestIdx;
-                        }, 0);
+                        let closestCentroidIndex = 0;
+                        let minDistance = Infinity;
+                        for (let i = 0; i < centroids.length; i++) {
+                            const dist = this._colorUtils.colorDistanceSq(wc.color, centroids[i]);
+                            if (dist < minDistance) {
+                                minDistance = dist;
+                                closestCentroidIndex = i;
+                            }
+                        }
                         clusters[closestCentroidIndex].push(wc);
                     });
                     
@@ -326,7 +367,6 @@
                     const newCentroids = clusters.map((cluster, i) => {
                         if (cluster.length === 0) return centroids[i];
                         const clusterWeight = cluster.reduce((sum, wc) => sum + wc.weight, 0);
-                        // **SAFETY CHECK:** Ensure clusterWeight is not zero before division.
                         if (clusterWeight === 0) return centroids[i];
                         
                         const totalColor = cluster.reduce((acc, wc) => ({
@@ -359,7 +399,6 @@
                     const path = this.state.reusablePathForSampling;
                     path.setAttribute('d', pathData.path);
                     const length = path.getTotalLength();
-                    // **SAFETY CHECK:** Prevent division by zero if a path has no length.
                     if (length === 0) return;
 
                     const samplingStep = Math.max(0.25, Math.min(1.0, length / 500));
@@ -371,20 +410,19 @@
                         if (!clipPath2D || checkCtx.isPointInPath(clipPath2D, point.x, point.y)) {
                             let width;
                             const isDefaultSvg = this.state.currentSvgText === this.config.defaultSvgMarkup;
+                            const progress = i / length;
+
+                            const swellFactor = this.animationProfile(progress) / this.PRECALCULATED.EASING_LUT_SCALE;
 
                             if (isDefaultSvg) {
-                                // Logic for the default SVG: Animate strokes based on their original width.
-                                const swellFactor = this.animationProfile(i / length);
                                 const dynamicWidth = swellFactor * (this.config.maxStrokeWidth - pathData.strokeWidth);
                                 width = pathData.strokeWidth + dynamicWidth;
                             } else {
-                                // Logic for uploaded SVGs: Animate fills, draw strokes solid.
                                 if (pathData.type === 'fill') {
-                                    const swellFactor = this.animationProfile(i / length);
                                     const animatedBaseWidth = 2;
                                     const dynamicWidth = swellFactor * (this.config.maxStrokeWidth - animatedBaseWidth);
                                     width = animatedBaseWidth + dynamicWidth;
-                                } else { // 'stroke'
+                                } else {
                                     width = this.config.maxStrokeWidth;
                                 }
                             }
@@ -584,15 +622,14 @@
             
             _getPathDataFromNode: function(node) {
                 const tagName = node.tagName.toLowerCase();
-                // Use unary '+' for faster string-to-number conversion than parseFloat()
                 switch(tagName) {
                     case 'path': return node.getAttribute('d');
                     case 'rect': {
                         const x = +node.getAttribute('x') || 0, y = +node.getAttribute('y') || 0, w = +node.getAttribute('width') || 0, h = +node.getAttribute('height') || 0;
                         let rx = +node.getAttribute('rx') || 0;
                         let ry = +node.getAttribute('ry') || rx;
-                        rx = Math.min(rx, w / 2);
-                        ry = Math.min(ry, h / 2);
+                        rx = Math.min(rx, w * 0.5);
+                        ry = Math.min(ry, h * 0.5);
                         if (rx > 0 || ry > 0) {
                             return `M${x + rx},${y} h${w - 2 * rx} a${rx},${ry} 0 0 1 ${rx},${ry} v${h - 2 * ry} a${rx},${ry} 0 0 1 ${-rx},${ry} h${-(w - 2 * rx)} a${rx},${ry} 0 0 1 ${-rx},${-ry} v${-(h - 2 * ry)} a${rx},${ry} 0 0 1 ${rx},${-ry} Z`;
                         }
@@ -600,11 +637,13 @@
                     }
                     case 'circle': {
                         const cx = +node.getAttribute('cx') || 0, cy = +node.getAttribute('cy') || 0, r = +node.getAttribute('r') || 0;
-                        return `M ${cx - r},${cy} a ${r},${r} 0 1,0 ${r * 2},0 a ${r},${r} 0 1,0 -${r * 2},0`;
+                        const r2 = r * 2;
+                        return `M ${cx - r},${cy} a ${r},${r} 0 1,0 ${r2},0 a ${r},${r} 0 1,0 -${r2},0`;
                     }
                     case 'ellipse': {
                         const cx = +node.getAttribute('cx') || 0, cy = +node.getAttribute('cy') || 0, rx = +node.getAttribute('rx') || 0, ry = +node.getAttribute('ry') || 0;
-                        return `M ${cx - rx},${cy} a ${rx},${ry} 0 1,0 ${rx * 2},0 a ${rx},${ry} 0 1,0 -${rx * 2},0`;
+                        const rx2 = rx * 2;
+                        return `M ${cx - rx},${cy} a ${rx},${ry} 0 1,0 ${rx2},0 a ${rx},${ry} 0 1,0 -${rx2},0`;
                     }
                     case 'line': {
                         const x1 = +node.getAttribute('x1') || 0, y1 = +node.getAttribute('y1') || 0, x2 = +node.getAttribute('x2') || 0, y2 = +node.getAttribute('y2') || 0;
@@ -718,7 +757,7 @@
                 translate: (tx, ty) => [1, 0, 0, 1, tx, ty],
                 scale: (sx, sy) => [sx, 0, 0, sy, 0, 0],
                 rotate: function(angle, cx = 0, cy = 0) {
-                    const rad = angle * LogoEngine.CONSTANTS.DEG_TO_RAD;
+                    const rad = angle * LogoEngine.PRECALCULATED.DEG_TO_RAD;
                     const cos = Math.cos(rad), sin = Math.sin(rad);
                     const m = [cos, sin, -sin, cos, 0, 0];
                     if (cx !== 0 || cy !== 0) {
@@ -759,15 +798,18 @@
                 const len = path.getTotalLength();
                 if (len === 0) return '';
                 
+                // OPTIMIZATION: A fast, local function to round to 2 decimal places.
+                const _f2 = (n) => Math.round(n * 100) / 100;
+
                 const p0 = path.getPointAtLength(0);
                 const transformedP0 = this._matrixHelper.transformPoint(p0.x, p0.y, matrix);
-                let newPath = `M${transformedP0.x.toFixed(2)} ${transformedP0.y.toFixed(2)}`;
+                let newPath = `M${_f2(transformedP0.x)} ${_f2(transformedP0.y)}`;
                 
                 const step = Math.max(0.5, len / 200);
                 for (let i = step; i <= len; i += step) {
                     const p = path.getPointAtLength(i);
                     const transformedP = this._matrixHelper.transformPoint(p.x, p.y, matrix);
-                    newPath += ` L${transformedP.x.toFixed(2)} ${transformedP.y.toFixed(2)}`;
+                    newPath += ` L${_f2(transformedP.x)} ${_f2(transformedP.y)}`;
                 }
                 if (pathData.trim().toUpperCase().endsWith('Z')) newPath += ' Z';
                 return newPath;
@@ -818,7 +860,8 @@
                 for (let i = 0; i < points.length - 1; i++) {
                     area += points[i].x * points[i+1].y - points[i+1].x * points[i].y;
                 }
-                return { perimeter, area: Math.abs(area) / 2 };
+                // OPTIMIZATION: Use multiplication by 0.5 instead of division by 2.
+                return { perimeter, area: Math.abs(area) * 0.5 };
             },
 
             _convertAbsoluteToDelta: function(abs) {
@@ -848,14 +891,11 @@
 
             // --- Initialization and Event Handlers ---
             init: function() {
-                this.CONSTANTS.SINE_LOOKUP_TABLE = Array.from({ length: 256 }, (_, i) => Math.sin((i / 255) * this.CONSTANTS.PI));
-                
                 this.state.canvas = document.getElementById(this.config.canvasId);
                 if (!this.state.canvas) return;
                 this.state.ctx = this.state.canvas.getContext('2d', { willReadFrequently: true });
                 
                 this.state.reusablePathForSampling = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-                this.state.animationDurationMs = this.config.animationDurationSeconds * 1000;
                 
                 const uploader = document.getElementById('svg-uploader');
                 
