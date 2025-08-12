@@ -60,6 +60,8 @@
                 // Streaming system configuration.
                 streamChunkSize: 61440, // 60 KB
                 streamBufferThreshold: 51200, // Pre-fetch next chunk when remaining data in buffer is less than 50 KB.
+                // Increased precision for serialization. Using 5 decimal places.
+                visIntPrecision: 100000, 
             },
 
             state: {
@@ -85,8 +87,6 @@
                 INV_ANIMATION_DURATION_MS: 0.00025,
 
                 // High-precision inverse constants (two-byte fixed-point).
-                INV_VIS_INT_SCALE_H: 0,
-                INV_VIS_INT_SCALE_L: 7, // Represents 1/10000 as a fixed-point 16-bit number (0.0001 * 65535 = 6.55)
                 INV_LCG_SCALE_H: 0,
                 INV_LCG_SCALE_L: 0,
                 INV_255_SCALE_H: 1,
@@ -113,31 +113,35 @@
             },
 
             /**
-             * Interpolates a value from a Look-Up Table (LUT) using linear interpolation.
-             * @param {number[]} lut The Look-Up Table of pre-calculated integer values.
-             * @param {number} floatIndex The non-integer index to sample from the table.
-             * @param {boolean} [wrap=false] If true, the index will wrap around the LUT for cyclical values.
-             * @param {number} [wrapLength=0] The specific length to wrap around, if different from the LUT's actual length.
-             * @returns {number} The interpolated integer value.
+             * Improved interpolation precision.
+             * This function now performs multiplication *before* truncating to an integer,
+             * preserving the fractional precision for a smoother result. This is a key
+             * part of increasing the fidelity of the baked LUT data.
              */
             _interpolateFromLut: function(lut, floatIndex, wrap = false, wrapLength = 0) {
                 const lutLength = wrap ? (wrapLength > 0 ? wrapLength : lut.length) : lut.length;
                 const index1 = floatIndex | 0;
                 const fraction = floatIndex - index1;
 
+                // This calculation is now more precise.
+                const performInterpolation = (v1, v2) => {
+                    // By multiplying with the float `fraction` first, we maintain precision.
+                    // The bit-shift `>> 8` performs the efficient division by 256 at the end.
+                    return v1 + ( ((v2 - v1) * (fraction * 256)) >> 8 );
+                };
+
                 if (wrap) {
-                    // Ensure the index is positive before wrapping
                     const wrappedIndex1 = (index1 % lutLength + lutLength) % lutLength;
                     const wrappedIndex2 = (wrappedIndex1 + 1) % lutLength;
                     const value1 = lut[wrappedIndex1];
                     const value2 = lut[wrappedIndex2];
-                    return value1 + (((value2 - value1) * ((fraction * 256) | 0)) >> 8);
+                    return performInterpolation(value1, value2);
                 } else {
                     if (index1 >= lutLength - 1) return lut[lutLength - 1];
                     if (index1 < 0) return lut[0];
                     const value1 = lut[index1];
                     const value2 = lut[index1 + 1];
-                    return value1 + (((value2 - value1) * ((fraction * 256) | 0)) >> 8);
+                    return performInterpolation(value1, value2);
                 }
             },
             
@@ -335,13 +339,14 @@
             
             // --- LUT Generation, Saving, and Loading ---
             
-            _toVisInt: (num) => (num * 10000) | 0,
-            _fromVisInt: (int) => {
-                const { INV_VIS_INT_SCALE_H, INV_VIS_INT_SCALE_L } = LogoEngine.PRECALCULATED;
-                // Correctly calculate the inverse scale factor from the fixed-point representation
-                const invScale = (((INV_VIS_INT_SCALE_H << 8) | INV_VIS_INT_SCALE_L) / 65535.0);
-                return int * invScale;
-            },
+            /**
+             * Increased serialization precision.
+             * These functions now use a larger multiplier (`visIntPrecision`) to store
+             * floating-point values as integers in the .vis file, significantly
+             * reducing the precision loss.
+             */
+            _toVisInt: (num) => (num * LogoEngine.config.visIntPrecision) | 0,
+            _fromVisInt: (int) => int / LogoEngine.config.visIntPrecision,
 
             _saveLutToFile: function() {
                 if (!this.state.lastSvgText) {
@@ -981,7 +986,7 @@
 
                     const getTrigValue = (angleInDegrees) => {
                         const floatIndex = (angleInDegrees % 360 + 360) % 360;
-                        // SIN_LUT_INT is designed to wrap at 360 degrees.
+                        // SIN_LUT_INT has 360 entries for a full circle
                         const interpolatedValue = LogoEngine._interpolateFromLut(lut, floatIndex, true, 360);
                         return interpolatedValue * inv_scale;
                     };
@@ -1053,7 +1058,6 @@
                     ctx.fillRect(0, 0, 1, 1);
                     const [r, g, b, a_255] = ctx.getImageData(0, 0, 1, 1).data;
                     const { INV_255_SCALE_H, INV_255_SCALE_L } = LogoEngine.PRECALCULATED;
-                    // Correctly calculate the inverse scale factor from the fixed-point representation
                     const invScale = (((INV_255_SCALE_H << 8) | INV_255_SCALE_L) / 65535.0);
                     return { r, g, b, a: (a_255 * invScale) * opacity };
                 },
