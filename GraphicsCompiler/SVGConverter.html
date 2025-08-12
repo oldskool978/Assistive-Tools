@@ -57,6 +57,9 @@
                 maxStrokeWidth: 8.5,
                 minCurveWidth: 1.5,
                 maxPaletteSize: 16,
+                // Configuration for the streaming system
+                streamChunkSize: 262144, // 256 KB
+                streamBufferThreshold: 20, // Fetch next chunk when fewer than this many strokes are left in the buffer
             },
 
             state: {
@@ -69,6 +72,12 @@
                 maxGeometricStrokeWidth: 0,
                 _lcg_seed: 1,
                 lastSvgText: '', // Cache the last loaded SVG for saving
+                
+                // State for the streaming system
+                isStreaming: false,
+                isEndOfStream: false,
+                streamReader: null, 
+                dataBuffer: [], // In-memory buffer for strokes
             },
             
             PRECALCULATED: {
@@ -111,6 +120,7 @@
             
             reloadWithNewArt: function(svgText, isLut) {
                 this._resetAnimationState();
+                this.state.isStreaming = false;
                 this.state.lastSvgText = isLut ? '' : svgText;
                 
                 let pointsToPace = 0;
@@ -188,11 +198,11 @@
             },
             
             _renderLoop: function(pointsForPacing) {
-                const lookupTable = this.state.lookupTable;
+                const dataSource = this.state.isStreaming ? this.state.dataBuffer : this.state.lookupTable;
                 const { ctx, colorPalette, viewBox } = this.state;
                 const { INV_ANIMATION_DURATION_MS } = this.PRECALCULATED;
 
-                if (!ctx || !lookupTable) return;
+                if (!ctx || !dataSource) return;
 
                 const pacingTotalPoints = (pointsForPacing > 0) ? pointsForPacing : this.state.totalPointsInLut;
                 if (pacingTotalPoints === 0 && this.state.totalPointsInLut === 0) return;
@@ -202,6 +212,10 @@
                 let dynamicRate = 10;
 
                 const animationFrame = (timestamp) => {
+                    if (this.state.isStreaming) {
+                        this.Streamer._manageBuffer();
+                    }
+
                     if (!startTime) startTime = timestamp;
                     let elapsedTime = timestamp - startTime;
 
@@ -236,11 +250,11 @@
                             let pointIdx = this.state.currentPointInStrokeIndex;
 
                             while (drawnPoints < targetPointsToDraw && drawnPoints < this.state.totalPointsInLut) {
-                                if (strokeIdx >= lookupTable.length) break;
-                                const currentStroke = lookupTable[strokeIdx];
+                                if (strokeIdx >= dataSource.length) break;
+                                const currentStroke = dataSource[strokeIdx];
                                 
                                 if (pointIdx === 0) {
-                                    if (!currentStroke[0] || typeof currentStroke[0].x === 'undefined') {
+                                    if (!currentStroke || currentStroke.length < 2 || typeof currentStroke[0].x === 'undefined') {
                                         strokeIdx++;
                                         continue;
                                     }
@@ -339,88 +353,8 @@
                 URL.revokeObjectURL(url);
             },
 
-            _loadLutFromText: function(jsonText) {
-                this._resetAnimationState();
-                try {
-                    const parts = jsonText.split('|');
-                    let pointsForPacing = 0;
-                    const newLut = [];
-
-                    parts.forEach(part => {
-                        if (!part) return;
-                        const token = part[0];
-                        const data = part.substring(1);
-                        switch(token) {
-                            case 'v':
-                                const vb = data.split(',').map(v => this._fromVisInt(parseInt(v, 10)));
-                                if (vb.length === 4) this.state.viewBox = { x: vb[0], y: vb[1], width: vb[2], height: vb[3] };
-                                break;
-                            case 'm':
-                                this.state.maxGeometricStrokeWidth = this._fromVisInt(parseInt(data, 10));
-                                break;
-                            case 'p':
-                                this.state.colorPalette = JSON.parse(data);
-                                break;
-                            case 'i':
-                                const info = data.split(',').map(v => parseInt(v, 10));
-                                if (info[0] === 1) { // isCalculated
-                                    pointsForPacing = info[1];
-                                    this.state.totalPointsInLut = info[1];
-                                }
-                                break;
-                            case 't':
-                                const strokes = data.split('S');
-                                strokes.forEach(strokeStr => {
-                                    if (!strokeStr) return;
-                                    const stroke = [];
-                                    const regex = /([xycdw])([\-0-9,]+)/g;
-                                    let match;
-                                    let currentPoint = {};
-                                    let isStart = true;
-                                    
-                                    while ((match = regex.exec(strokeStr)) !== null) {
-                                        const type = match[1];
-                                        const values = match[2];
-                                        
-                                        if (isStart) {
-                                            if (type === 'x') currentPoint.x = this._fromVisInt(parseInt(values, 10));
-                                            if (type === 'y') {
-                                                currentPoint.y = this._fromVisInt(parseInt(values, 10));
-                                                stroke.push(currentPoint);
-                                                currentPoint = {};
-                                                isStart = false;
-                                            }
-                                        } else {
-                                            if (type === 'd') {
-                                                const [dx, dy] = values.split(',').map(v => this._fromVisInt(parseInt(v, 10)));
-                                                currentPoint.dx = dx;
-                                                currentPoint.dy = dy;
-                                            }
-                                            if (type === 'c') currentPoint.colorIndex = parseInt(values, 10);
-                                            if (type === 'w') {
-                                                currentPoint.width = this._fromVisInt(parseInt(values, 10));
-                                                stroke.push(currentPoint);
-                                                currentPoint = {};
-                                            }
-                                        }
-                                    }
-                                    newLut.push(stroke);
-                                });
-                                break;
-                        }
-                    });
-
-                    this.state.lookupTable = newLut;
-                    if (pointsForPacing === 0) { // Fallback for old/uncalculated format
-                       this.state.totalPointsInLut = newLut.reduce((sum, stroke) => sum + (stroke.length > 0 ? stroke.length - 1 : 0), 0);
-                       pointsForPacing = this.state.totalPointsInLut;
-                    }
-                    
-                    this.startAnimation(pointsForPacing);
-
-                } catch (e) {
-                    console.error("Failed to parse .vis file:", e);
-                }
+            _loadLutFromFile: function(file) {
+                this.Streamer.init(file);
             },
             
             // --- Initialization and Event Handlers ---
@@ -430,6 +364,7 @@
                 this.state.ctx = this.state.canvas.getContext('2d', { willReadFrequently: true });
                 
                 this.state.reusablePathForSampling = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+                this.Streamer.parent = this; // Give streamer a reference to the main engine
 
                 const svgUploader = document.getElementById('svg-uploader');
                 const lutUploader = document.getElementById('lut-uploader');
@@ -454,13 +389,12 @@
                 lutUploader.addEventListener('change', (e) => {
                     const file = e.target.files[0];
                     if (!file) return;
-                    const reader = new FileReader();
-                    reader.onload = (event) => this._loadLutFromText(event.target.result);
-                    reader.readAsText(file);
+                    this._loadLutFromFile(file);
                     e.target.value = '';
                 });
 
                 window.addEventListener('resize', () => {
+                    // Re-start might need adjustment for streaming context
                     this.startAnimation(this.state.totalPointsInLut);
                 });
 
@@ -975,6 +909,10 @@
                 this.state.currentPointInStrokeIndex = 0;
                 this.state.totalPointsInLut = 0;
                 this.state.lookupTable = [];
+                this.state.streamReader = null;
+                this.state.isStreaming = false;
+                this.state.isEndOfStream = false;
+                this.state.dataBuffer = [];
                 if (this.state.ctx && this.state.canvas) {
                     this.state.ctx.reset();
                 }
@@ -1165,6 +1103,170 @@
                 });
                 return abs;
             },
+        };
+
+        LogoEngine.Streamer = {
+            parent: null, // Will be set to LogoEngine on init
+            partialStrokeData: "", // Holds data from a stroke split between chunks
+
+            init: function(file) {
+                this.parent._resetAnimationState();
+                this.parent.state.isStreaming = true;
+                this.parent.state.streamReader = {
+                    file: file,
+                    readPosition: 0,
+                    isReading: false,
+                };
+                this.partialStrokeData = "";
+
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    const text = e.target.result;
+                    const headerEndIndex = text.indexOf('|t');
+                    if (headerEndIndex === -1) {
+                        console.error("Invalid .vis file: table data not found.");
+                        return;
+                    }
+
+                    const headerText = text.substring(0, headerEndIndex);
+                    this.parent.state.streamReader.readPosition = headerEndIndex + 2; // Start after '|t'
+
+                    let pointsForPacing = this._parseHeader(headerText);
+                    
+                    this._fetchNextChunk().then(() => {
+                        this.parent.startAnimation(pointsForPacing);
+                    });
+                };
+                reader.readAsText(file);
+            },
+
+            _parseHeader: function(headerText) {
+                const parts = headerText.split('|');
+                let pointsForPacing = 0;
+                parts.forEach(part => {
+                    if (!part) return;
+                    const token = part[0];
+                    const data = part.substring(1);
+                    switch(token) {
+                        case 'v':
+                            const vb = data.split(',').map(v => this.parent._fromVisInt(parseInt(v, 10)));
+                            if (vb.length === 4) this.parent.state.viewBox = { x: vb[0], y: vb[1], width: vb[2], height: vb[3] };
+                            break;
+                        case 'm':
+                            this.parent.state.maxGeometricStrokeWidth = this.parent._fromVisInt(parseInt(data, 10));
+                            break;
+                        case 'p':
+                            this.parent.state.colorPalette = JSON.parse(data);
+                            break;
+                        case 'i':
+                            const info = data.split(',').map(v => parseInt(v, 10));
+                            if (info[0] === 1) {
+                                pointsForPacing = info[1];
+                                this.parent.state.totalPointsInLut = info[1];
+                            }
+                            break;
+                    }
+                });
+                return pointsForPacing;
+            },
+
+            _manageBuffer: function() {
+                const { streamReader, dataBuffer, isEndOfStream, currentStrokeIndex } = this.parent.state;
+                if (!streamReader || streamReader.isReading || isEndOfStream) {
+                    return;
+                }
+                
+                const remainingStrokes = dataBuffer.length - currentStrokeIndex;
+                
+                if (remainingStrokes < this.parent.config.streamBufferThreshold) {
+                    this._fetchNextChunk();
+                }
+            },
+
+            _fetchNextChunk: async function() {
+                const { streamReader } = this.parent.state;
+                if (!streamReader || streamReader.isReading) return;
+
+                streamReader.isReading = true;
+                const file = streamReader.file;
+                const start = streamReader.readPosition;
+                
+                if (start >= file.size) {
+                    this.parent.state.isEndOfStream = true;
+                    streamReader.isReading = false;
+                    if (this.partialStrokeData) {
+                        this._parseChunk(this.partialStrokeData);
+                        this.partialStrokeData = "";
+                    }
+                    return;
+                }
+                
+                const end = start + this.parent.config.streamChunkSize;
+                const blob = file.slice(start, end);
+                const textChunk = await blob.text();
+                
+                const combinedText = this.partialStrokeData + textChunk;
+                const lastStrokeSeparator = combinedText.lastIndexOf('S');
+                
+                let chunkToParse;
+                
+                if (lastStrokeSeparator === -1) {
+                    this.partialStrokeData = combinedText;
+                    chunkToParse = "";
+                } else {
+                    chunkToParse = combinedText.substring(0, lastStrokeSeparator);
+                    this.partialStrokeData = combinedText.substring(lastStrokeSeparator + 1);
+                }
+                
+                const bytesConsumed = new Blob([chunkToParse]).size - new Blob([this.partialStrokeData]).size + (lastStrokeSeparator !== -1 ? 1 : 0);
+                streamReader.readPosition = start + (new Blob([textChunk]).size);
+
+                this._parseChunk(chunkToParse);
+                streamReader.isReading = false;
+            },
+
+            _parseChunk: function(chunkText) {
+                if (!chunkText) return;
+                const strokes = chunkText.split('S').filter(s => s);
+                strokes.forEach(strokeStr => {
+                     if (!strokeStr) return;
+                     const stroke = [];
+                     const regex = /([xycdw])([\-0-9,]+)/g;
+                     let match;
+                     let currentPoint = {};
+                     let isStart = true;
+
+                     while ((match = regex.exec(strokeStr)) !== null) {
+                         const type = match[1];
+                         const values = match[2];
+                         
+                         if (isStart) {
+                             if (type === 'x') currentPoint.x = this.parent._fromVisInt(parseInt(values, 10));
+                             if (type === 'y') {
+                                 currentPoint.y = this.parent._fromVisInt(parseInt(values, 10));
+                                 stroke.push(currentPoint);
+                                 currentPoint = {};
+                                 isStart = false;
+                             }
+                         } else {
+                             if (type === 'd') {
+                                 const [dx, dy] = values.split(',').map(v => this.parent._fromVisInt(parseInt(v, 10)));
+                                 currentPoint.dx = dx;
+                                 currentPoint.dy = dy;
+                             }
+                             if (type === 'c') currentPoint.colorIndex = parseInt(values, 10);
+                             if (type === 'w') {
+                                 currentPoint.width = this.parent._fromVisInt(parseInt(values, 10));
+                                 stroke.push(currentPoint);
+                                 currentPoint = {};
+                             }
+                         }
+                     }
+                     if(stroke.length > 1) { // Only add valid strokes
+                        this.parent.state.dataBuffer.push(stroke);
+                     }
+                });
+            }
         };
 
         document.addEventListener('DOMContentLoaded', () => LogoEngine.init());
