@@ -48,7 +48,7 @@
          * EdgeLUT: A bespoke SVG animation engine and Look-Up Table (LUT) compiler.
          * Optimized for resource-constrained devices via integer-based LUTs and bitwise operations.
          * Includes a predictive solver to estimate workload for un-calculated assets.
-         * VERSION: 2.2 (Cleanup)
+         * VERSION: 3.6 (Cleanup & Optimization)
          */
         const LogoEngine = {
             // --- Configuration & State ---
@@ -72,10 +72,8 @@
                 _lcg_seed: 1,
                 lastSvgText: '', // Cache the last loaded SVG for saving
             },
-
-            // --- Pre-calculated Constants & Animation Profiles ---
+            
             PRECALCULATED: {
-                ANIMATION_DURATION_MS: 4000,
                 INV_ANIMATION_DURATION_MS: 0.00025,
                 EASING_LUT_INT: [0,0,0,0,1,1,1,2,2,3,4,5,6,6,8,9,10,11,12,14,15,17,18,20,22,23,25,27,29,31,33,35,38,40,42,45,47,49,52,54,57,60,62,65,68,71,73,76,79,82,85,88,91,94,97,100,103,106,109,113,116,119,122,125,128,131,135,138,141,144,147,150,153,156,159,162,165,168,171,174,177,180,183,186,189,191,194,197,199,202,204,207,209,212,214,216,218,221,223,225,227,229,231,232,234,236,238,239,241,242,243,245,246,247,248,249,250,251,252,252,253,253,254,254,255,255,255,255,255,255,255,255,254,254,253,253,252,252,251,250,249,248,247,246,245,243,242,241,239,238,236,234,232,231,229,227,225,223,221,218,216,214,212,209,207,204,202,199,197,194,191,189,186,183,180,177,174,171,168,165,162,159,156,153,150,147,144,141,138,135,131,128,125,122,119,116,113,109,106,103,100,97,94,91,88,85,82,79,76,73,71,68,65,62,60,57,54,52,49,47,45,42,40,38,35,33,31,29,27,25,23,22,20,18,17,15,14,12,11,10,9,8,6,6,5,4,3,2,2,1,1,1,0,0,0,0],
                 EASING_LUT_SCALE: 255.0,
@@ -83,12 +81,13 @@
                 CURVATURE_LUT_SCALE: 255.0,
                 VELOCITY_LUT_INT: [154,153,153,153,153,152,152,152,152,151,151,151,151,150,150,150,149,149,149,149,148,148,148,148,147,147,147,146,146,146,146,145,145,145,144,144,144,143,143,143,143,142,142,142,141,141,141,140,140,140,139,139,139,138,138,138,137,137,137,136,136,136,135,135,135,134,134,134,133,133,132,132,132,131,131,131,130,130,129,129,129,128,128,127,127,126,126,126,125,125,124,124,123,123,122,122,121,121,120,120,119,119,118,117,117,116,116,115,114,114,113,112,112,111,110,109,108,108,107,106,105,104,102,101,99,98,95,90],
                 VELOCITY_LUT_SCALE: 128.0,
-                SIN_LUT_INT: [0,572,1144,1715,2286,2856,3425,3993,4560,5126,5690,6252,6813,7371,7927,8481,9032,9580,10126,10668,11207,11743,12275,12803,13328,13848,14364,14876,15383,15886,16384,16877,17364,17846,18323,18795,19260,19720,20174,20621,21063,21497,21926,22347,22762,23170,23571,23965,24351,24730,25101,25465,25821,26169,26509,26842,27165,27481,27788,28087,28377,28659,28932,29196,29451,29697,29935,30163,30381,30591,30791,30982,31164,31336,31498,31651,31794,31928,32051,32165,32270,32364,32449,32523,32588,32643,32688,32723,32748,32763,32768,32763,32748,32723,32688,32643,32588,32523,32449,32364,32270,32165,32051,31928,31794,31651,31498,31336,31164,30982,30791,30591,30381,30163,29935,29697,29451,29196,28932,28659,28377,28087,27788,27481,27165,26842,26509,26169,25821,25465,25101,24730,24351,23965,23571,23170,22762,22347,21926,21497,21063,20621,20174,19720,19260,18795,18323,17846,17364,16877,16384,15886,15383,14876,14364,13848,13328,12803,12275,11743,11207,10668,10126,9580,9032,8481,7927,7371,6813,6252,5690,5126,4560,3993,3425,2856,2286,1715,1144,572,0,-572,-1144,-1715,-2286,-2856,-3425,-3993,-4560,-5126,-5690,-6252,-6813,-7371,-7927,-8481,-9032,-9580,-10126,-10668,-11207,-11743,-12275,-12803,-13328,-13848,-14364,-14876,-15383,-15886,-16384,-16877,-17364,-17846,-18323,-18795,-19260,-19720,-20174,-20621,-21063,-21497,-21926,-22347,-22762,-23170,-23571,-23965,-24351,-24730,-25101,-25465,-25821,-26169,-26509,-26842,-27165,-27481,-27788,-28087,-28377,-28659,-28932,-29196,-29451,-29697,-29935,-30163,-30381,-30591,-30791,-30982,-31164,-31336,-31498,-31651,-31794,-31928,-32051,-32165,-32270,-32364,-32449,-32523,-32588,-32643,-32688,-32723,-32748,-32763,-32767,-32763,-32748,-32723,-32688,-32643,-32588,-32523,-32449,-32364,-32270,-32165,-32051,-31928,-31794,-31651,-31498,-31336,-31164,-30982,-30791,-30591,-30381,-30163,-29935,-29697,-29451,-29196,-28932,-28659,-28377,-28087,-27788,-27481,-27165,-26842,-26509,-26169,-25821,-25465,-25101,-24730,-24351,-23965,-23571,-23170,-22762,-22347,-21926,-21497,-21063,-20621,-20174,-19720,-19260,-18795,-18323,-17846,-17364,-16877,-16384,-15886,-15383,-14876,-14364,-13848,-13328,-12803,-12275,-11743,-11207,-10668,-10126,-9580,-9032,-8481,-7927,-7371,-6813,-6252,-5690,-5126,-4560,-3993,-3425,-2856,-2286,-1715,-1144,-572],
-                SIN_LUT_SCALE: 65535,
+                SIN_LUT_INT: new Int16Array([0,572,1144,1715,2286,2856,3425,3993,4560,5126,5690,6252,6813,7371,7927,8481,9032,9580,10126,10668,11207,11743,12275,12803,13328,13848,14364,14876,15383,15886,16384,16877,17364,17846,18323,18795,19260,19720,20174,20621,21063,21497,21926,22347,22762,23170,23571,23965,24351,24730,25101,25465,25821,26169,26509,26842,27165,27481,27788,28087,28377,28659,28932,29196,29451,29697,29935,30163,30381,30591,30791,30982,31164,31336,31498,31651,31794,31928,32051,32165,32270,32364,32449,32523,32588,32643,32688,32723,32748,32763,32768,32763,32748,32723,32688,32643,32588,32523,32449,32364,32270,32165,32051,31928,31794,31651,31498,31336,31164,30982,30791,30591,30381,30163,29935,29697,29451,29196,28932,28659,28377,28087,27788,27481,27165,26842,26509,26169,25821,25465,25101,24730,24351,23965,23571,23170,22762,22347,21926,21497,21063,20621,20174,19720,19260,18795,18323,17846,17364,16877,16384,15886,15383,14876,14364,13848,13328,12803,12275,11743,11207,10668,10126,9580,9032,8481,7927,7371,6813,6252,5690,5126,4560,3993,3425,2856,2286,1715,1144,572,0,-572,-1144,-1715,-2286,-2856,-3425,-3993,-4560,-5126,-5690,-6252,-6813,-7371,-7927,-8481,-9032,-9580,-10126,-10668,-11207,-11743,-12275,-12803,-13328,-13848,-14364,-14876,-15383,-15886,-16384,-16877,-17364,-17846,-18323,-18795,-19260,-19720,-20174,-20621,-21063,-21497,-21926,-22347,-22762,-23170,-23571,-23965,-24351,-24730,-25101,-25465,-25821,-26169,-26509,-26842,-27165,-27481,-27788,-28087,-28377,-28659,-28932,-29196,-29451,-29697,-29935,-30163,-30381,-30591,-30791,-30982,-31164,-31336,-31498,-31651,-31794,-31928,-32051,-32165,-32270,-32364,-32449,-32523,-32588,-32643,-32688,-32723,-32748,-32763,-32767,-32763,-32748,-32723,-32688,-32643,-32588,-32523,-32449,-32364,-32270,-32165,-32051,-31928,-31794,-31651,-31498,-31336,-31164,-30982,-30791,-30591,-30381,-30163,-29935,-29697,-29451,-29196,-28932,-28659,-28377,-28087,-27788,-27481,-27165,-26842,-26509,-26169,-25821,-25465,-25101,-24730,-24351,-23965,-23571,-23170,-22762,-22347,-21926,-21497,-21063,-20621,-20174,-19720,-19260,-18795,-18323,-17846,-17364,-16877,-16384,-15886,-15383,-14876,-14364,-13848,-13328,-12803,-12275,-11743,-11207,-10668,-10126,-9580,-9032,-8481,-7927,-7371,-6813,-6252,-5690,-5126,-4560,-3993,-3425,-2856,-2286,-1715,-1144,-572]),
+                
                 SOLVER_LUT_SCALE: 16,
-                SOLVER_LUT_INT: [0,415,830,1245,1660,2076,2491,2906,3321,3736,4152,4567,4982,5397,5812,6228,6643,7058,7473,7888,8304,8719,9134,9549,9965,10380,10795,11210,11625,12041,12456,12871,13286,13701,14117,14532,14947,15362,15777,16193,16608,17023,17438,17853,18269,18684,19099,19514,19930,20345,20760,21175,21590,22006,22421,22836,23251,23666,24082,24497,24912,25327,25742,26158,26573,26988,27403,27818,28234,28649,29064,29479,29895,30310,30725,31140,31555,31971,32386,32801,33216,33631,34047,34462,34877,35292,35707,36123,36538,36953,37368,37784,38199,38614,39029,39444,39860,40275,40690,41105,41520,41936,42351,42766,43181,43596,44012,44427,44842,45257,45672,46088,46503,46918,47333,47749,48164,48579,48994,49409,49825,50240,50655,51070,51485,51901,52316,52731,53146,53561,53977,54392,54807,55222,55637,56053,56468,56883,57298,57714,58129,58544,58959,59374,59790,60205,60620,61035,61450,61866,62281,62696,63111,63526,63942,64357,64772,65187,65602,66018,66433,66848,67263,67679,68094,68509,68924,69339,69755,70170,70585,71000,71415,71831,72246,72661,73076,73491,73907,74322,74737,75152,75568,75983,76398,76813,77228,77644,78059,78474,78889,79304,79720,80135,80550,80965,81380,81796,82211,82626,83041,83456,83872,84287,84702,85117,85533,85948,86363,86778,87193,87609,88024,88439,88854,89269,89685,90100,90515,90930,91345,91761,92176,92591,93006,93421,93837,94252,94667,95082,95498,95913,96328,96743,97158,97574,97989,98404,98819,99234,99650,100065,100480,100895,101310,101726,102141,102556,102971,103386,103802,104217,104632,105047,105463,105878,106293,106708,107123,107539,107954,108369,108784,109199,109615,110030,110445,110860,111275,111691,112106,112521,112936,113352,113767,114182,114597,115012,115428,115843,116258,116673,117088,117504,117919,118334,118749,119164,119580,119995,120410,120825,121240,121656,122071,122486,122901,123317,123732,124147,124562,124977,125393,125808,126223,126638,127053,127469,127884,128299,128714,129129,129545,129960,130375,130790,131205,131621,132036,132451,132866,133282,133697,134112,134527,134942,135358,135773,136188,136603,137018,137434,137849,138264,138679,139094,139510,139925,140340,140755,141170,141586,142001,142416,142831,143247,143662,144077,144492,144907,145323,145738,146153,146568,146983,147399,147814,148229,148644,149059,149475,149890,150305,150720,151136,151551,151966,152381,152796,153212,153627,154042,154457,154872,155288,155703,156118,156533,156948,157364,157779,158194,158609,159024,159440,159855,160270,160685,161101,161516,161931,162346,162761,163177,163592,164007,164422,164837,165253,165668,166083,166498,166913,167329,167744,168159,168574,168989,169405,169820,170235,170650,171066,171481,171896,172311,172726,173142,173557,173972,174387,174802,175218,175633,176048,176463,176878,177294,177709,178124,178539,178955,179370,179785,180200,180615,181031,181446,181861,182276,182691,183107,183522,183937,184352,184767,185183,185598,186013,186428,186843,187259,187674,188089,188504,188920,189335,189750,190165,190580,190996,191411,191826,192241,192656,193072,193487,193902,194317,194732,195148,195563,195978,196393,196808,197224,197639,198054,198469,198885,199300,199715,200130,200545,200961,201376,201791,202206,202621,203037,203452,203867,204282,204697,205113,205528,205943,206358,206773,207189,207604,208019,208434,208850,209265,209680,210095,210510,210926,211341,211756,212171,212586]
+                SOLVER_LUT_INT: [0,415,830,1245,1660,2076,2491,2906,3321,3736,4152,4567,4982,5397,5812,6228,6643,7058,7473,7888,8304,8719,9134,9549,9965,10380,10795,11210,11625,12041,12456,12871,13286,13701,14117,14532,14947,15362,15777,16193,16608,17023,17438,17853,18269,18684,19099,19514,19930,20345,20760,21175,21590,22006,22421,22836,23251,23666,24082,24497,24912,25327,25742,26158,26573,26988,27403,27818,28234,28649,29064,29479,29895,30310,30725,31140,31555,31971,32386,32801,33216,33631,34047,34462,34877,35292,35707,36123,36538,36953,37368,37784,38199,38614,39029,39444,39860,40275,40690,41105,41520,41936,42351,42766,43181,43596,44012,44427,44842,45257,45672,46088,46503,46918,47333,47749,48164,48579,48994,49409,49825,50240,50655,51070,51485,51901,52316,52731,53146,53561,53977,54392,54807,55222,55637,56053,56468,56883,57298,57714,58129,58544,58959,59374,59790,60205,60620,61035,61450,61866,62281,62696,63111,63526,63942,64357,64772,65187,65602,66018,66433,66848,67263,67679,68094,68509,68924,69339,69755,70170,70585,71000,71415,71831,72246,72661,73076,73491,73907,74322,74737,75152,75568,75983,76398,76813,77228,77644,78059,78474,78889,79304,79720,80135,80550,80965,81380,81796,82211,82626,83041,83456,83872,84287,84702,85117,85533,85948,86363,86778,87193,87609,88024,88439,88854,89269,89685,90100,90515,90930,91345,91761,92176,92591,93006,93421,93837,94252,94667,95082,95498,95913,96328,96743,97158,97574,97989,98404,98819,99234,99650,100065,100480,100895,101310,101726,102141,102556,102971,103386,103802,104217,104632,105047,105463,105878,106293,106708,107123,107539,107954,108369,108784,109199,109615,110030,110445,110860,111275,111691,112106,112521,112936,113352,113767,114182,114597,115012,115428,115843,116258,116673,117088,117504,117919,118334,118749,119164,119580,119995,120410,120825,121240,121656,122071,122486,122901,123317,123732,124147,124562,124977,125393,125808,126223,126638,127053,127469,127884,128299,128714,129129,129545,129960,130375,130790,131205,131621,132036,132451,132866,133282,133697,134112,134527,134942,135358,135773,136188,136603,137018,137434,137849,138264,138679,139094,139510,139925,140340,140755,141170,141586,142001,142416,142831,143247,143662,144077,144492,144907,145323,145738,146153,146568,146983,147399,147814,148229,148644,149059,149475,149890,150305,150720,151136,151551,151966,152381,152796,153212,153627,154042,154457,154872,155288,155703,156118,156533,156948,157364,157779,158194,158609,159024,159440,159855,160270,160685,161101,161516,161931,162346,162761,163177,163592,164007,164422,164837,165253,165668,166083,166498,166913,167329,167744,168159,168574,168989,169405,169820,170235,170650,171066,171481,171896,172311,172726,173142,173557,173972,174387,174802,175218,175633,176048,176463,176878,177294,177709,178124,178539,178955,179370,179785,180200,180615,181031,181446,181861,182276,182691,183107,183522,183937,184352,184767,185183,185598,186013,186428,186843,187259,187674,188089,188504,188920,189335,189750,190165,190580,190996,191411,191826,192241,192656,193072,193487,193902,194317,194732,195148,195563,195978,196393,196808,197224,197639,198054,198469,198885,199300,199715,200130,200545,200961,201376,201791,202206,202621,203037,203452,203867,204282,204697,205113,205528,205943,206358,206773,207189,207604,208019,208434,208850,209265,209680,210095,210510,210926,211341,211756,212171,212586],
             },
-            
+
+            // --- Animation & Math Helpers ---
             animationProfile: (p) => {
                 const lut = LogoEngine.PRECALCULATED.EASING_LUT_INT;
                 const floatIndex = p * (lut.length - 1); 
@@ -96,7 +95,7 @@
                 const fraction = floatIndex - index1;
                 if (index1 >= lut.length - 1) return lut[lut.length - 1];
                 const value1 = lut[index1], value2 = lut[index1 + 1];
-                return value1 + (value2 - value1) * fraction;
+                return value1 + (((value2 - value1) * ((fraction * 256) | 0)) >> 8);
             },
             
             // --- Core Methods: The Compiler & Renderer ---
@@ -109,7 +108,7 @@
 
                 if (!isLut) {
                     const estimatedPoints = this._solver(svgText);
-                    pointsToPace = estimatedPoints; // Use the solver's prediction for pacing
+                    pointsToPace = estimatedPoints; 
                     console.log(`[SOLVER] Estimated total points for pacing: ${estimatedPoints}`);
                 }
 
@@ -127,14 +126,11 @@
                 
                 const { lut } = this._generateLookupTable(mappedStrokes);
                 
-                // The *actual* total points are calculated after compilation
                 this.state.totalPointsInLut = lut.reduce((sum, stroke) => sum + (stroke.length > 0 ? stroke.length - 1 : 0), 0);
                 
                 const drawableLut = this._resolveCompoundPaths(lut, compoundPathMeta);
                 this.state.lookupTable = drawableLut;
                 
-                // If this wasn't a pre-compiled LUT, we use the solver's guess.
-                // Otherwise, we'll get the point count from the loaded LUT data.
                 this.startAnimation(isLut ? this.state.totalPointsInLut : pointsToPace);
             },
 
@@ -183,7 +179,8 @@
             _renderLoop: function(pointsForPacing) {
                 const lookupTable = this.state.lookupTable;
                 const { ctx, colorPalette, viewBox } = this.state;
-                const { INV_ANIMATION_DURATION_MS, ANIMATION_DURATION_MS } = this.PRECALCULATED;
+                const { INV_ANIMATION_DURATION_MS } = this.PRECALCULATED;
+
                 if (!ctx || !lookupTable) return;
 
                 const pacingTotalPoints = (pointsForPacing > 0) ? pointsForPacing : this.state.totalPointsInLut;
@@ -191,19 +188,17 @@
 
                 let startTime = null;
                 let currentPos = {x: 0, y: 0};
-                let dynamicRate = 10; // Pacing safeguard, integer representing 1.0x
+                let dynamicRate = 10;
 
                 const animationFrame = (timestamp) => {
                     if (!startTime) startTime = timestamp;
                     let elapsedTime = timestamp - startTime;
 
                     if (this.state.drawnPointsCount < this.state.totalPointsInLut) {
-                        // --- PACING SAFEGUARD (Integer Math) ---
                         if (elapsedTime > 200 && this.state.drawnPointsCount < 50 && this.state.totalPointsInLut > 100) {
-                            dynamicRate = Math.min(50, dynamicRate + 1); // Max 5.0x speed
+                            dynamicRate = Math.min(50, dynamicRate + 1);
                         }
-                        elapsedTime = (elapsedTime * dynamicRate) / 10; // Apply the rate
-                        // --- END SAFEGUARD ---
+                        elapsedTime = (elapsedTime * dynamicRate) / 10;
 
                         const pacingProgress = elapsedTime * INV_ANIMATION_DURATION_MS;
                         const targetPointsToDraw = (pacingProgress * pacingTotalPoints) | 0;
@@ -283,20 +278,15 @@
             
             // --- LUT Generation, Saving, and Loading ---
             
-            // BUG FIX: Increased precision from 100 (2 decimal places) to 10000 (4 decimal places).
-            // This prevents the loss of floating point data during the save/load process,
-            // which was causing visual artifacts like over-curving and incorrect path rendering.
             _toVisInt: (num) => (num * 10000) | 0,
             _fromVisInt: (int) => int / 10000.0,
 
             _saveLutToFile: function() {
-                // To save, we must first fully compile the last loaded SVG.
                 if (!this.state.lastSvgText) {
                     console.error("No SVG data loaded to generate a LUT from.");
                     return;
                 }
                 
-                // Perform a full, synchronous compilation
                 const parser = new DOMParser();
                 const svgDoc = parser.parseFromString(this.state.lastSvgText, "image/svg+xml");
                 const svgElement = svgDoc.querySelector('svg');
@@ -512,7 +502,7 @@
             },
 
             // ===================================================================
-            // ALL OTHER HELPER FUNCTIONS (UNCHANGED FROM ORIGINAL)
+            // ALL OTHER HELPER FUNCTIONS
             // ===================================================================
             _buildPaletteAndMapPaths: function(animatablePaths) {
                 if (!animatablePaths || animatablePaths.length === 0) {
@@ -632,20 +622,20 @@
                 const pointCollectorCallback = (segment) => {
                     draftLut.push(segment);
                 };
-                const metrics = this._streamProcessSVG(animatablePaths, pointCollectorCallback);
-                return { lut: draftLut, velocityMetrics: metrics };
+                this._streamProcessSVG(animatablePaths, pointCollectorCallback);
+                return { lut: draftLut };
             },
             _streamProcessSVG: function(animatablePaths, pointCallback) {
                 const checkCtx = document.createElement('canvas').getContext('2d');
-                let velocitySum = 0;
-                let velocityCount = 0;
-                let maxVelocity = 0;
+                
+                const { EASING_LUT_SCALE, CURVATURE_LUT_SCALE, VELOCITY_LUT_SCALE } = this.PRECALCULATED;
 
                 animatablePaths.forEach((pathData) => {
                     const path = this.state.reusablePathForSampling;
                     path.setAttribute('d', pathData.path);
                     const length = path.getTotalLength();
                     if (length === 0) return;
+                    const inv_length = 1.0 / length;
 
                     let samplingStep = Math.max(0.25, Math.min(1.0, length * 0.002));
                     const clipPath2D = pathData.clipPathId ? this.state.clipPathCache.get(pathData.clipPathId) : null;
@@ -658,20 +648,17 @@
 
                         if (lastPoint) {
                             const dx = point.x - lastPoint.x, dy = point.y - lastPoint.y;
-                            const distance = Math.sqrt(dx*dx + dy*dy);
-                            let normalizedDistance = Math.min(1.0, distance / 5.0);
+                            let n = dx * dx + dy * dy;
+                            n = (n + 1) * 0.5;
+                            const distance = n - (n*n- (dx*dx+dy*dy)) / (2*n);
+
+                            let normalizedDistance = distance * 0.2 > 1.0 ? 1.0 : distance * 0.2;
                             const lut = this.PRECALCULATED.VELOCITY_LUT_INT;
                             const floatIndex = normalizedDistance * (lut.length - 1);
                             const index1 = floatIndex | 0;
                             const fraction = floatIndex - index1;
-                            let lutValue = (index1 >= lut.length - 1) ? lut[lut.length - 1] : lut[index1] + (lut[index1 + 1] - lut[index1]) * fraction;
-                            velocityFactor = lutValue / this.PRECALCULATED.VELOCITY_LUT_SCALE;
-                            
-                            velocitySum += velocityFactor;
-                            velocityCount++;
-                            if (velocityFactor > maxVelocity) {
-                                maxVelocity = velocityFactor;
-                            }
+                            let lutValue = (index1 >= lut.length - 1) ? lut[lut.length - 1] : lut[index1] + (((lut[index1 + 1] - lut[index1]) * ((fraction * 256) | 0)) >> 8);
+                            velocityFactor = lutValue / VELOCITY_LUT_SCALE;
                         }
 
                         if (pathData.isOriginalStroke) {
@@ -685,24 +672,27 @@
                                 const dot = v1_x * v2_x + v1_y * v2_y;
                                 const denominator = samplingStep * samplingStep;
                                 if (denominator > 0.001) {
-                                    let cosTheta = Math.max(-1.0, Math.min(1.0, dot / denominator));
+                                    let cosTheta = dot / denominator;
+                                    if (cosTheta > 1.0) cosTheta = 1.0;
+                                    else if (cosTheta < -1.0) cosTheta = -1.0;
+                                    
                                     const lut = this.PRECALCULATED.CURVATURE_LUT_INT;
                                     const floatIndex = (cosTheta + 1.0) * 0.5 * (lut.length - 1);
                                     const index1 = floatIndex | 0;
                                     const fraction = floatIndex - index1;
-                                    let lutValue = (index1 >= lut.length - 1) ? lut[lut.length - 1] : lut[index1] + (lut[index1 + 1] - lut[index1]) * fraction;
-                                    curvatureFactor = lutValue / this.PRECALCULATED.CURVATURE_LUT_SCALE;
+                                    let lutValue = (index1 >= lut.length - 1) ? lut[lut.length - 1] : lut[index1] + (((lut[index1 + 1] - lut[index1]) * ((fraction * 256) | 0)) >> 8);
+                                    curvatureFactor = lutValue / CURVATURE_LUT_SCALE;
                                 }
                             }
-                            const progress = i / length;
-                            const swellFactor = this.animationProfile(progress) / this.PRECALCULATED.EASING_LUT_SCALE;
-                            let animatedBaseWidth = Math.max(1.0, pathData.strokeWidth);
+                            const progress = i * inv_length;
+                            const swellFactor = this.animationProfile(progress) / EASING_LUT_SCALE;
+                            let animatedBaseWidth = pathData.strokeWidth > 1.0 ? pathData.strokeWidth : 1.0;
                             const baseWidth = animatedBaseWidth + swellFactor * (this.config.maxStrokeWidth - animatedBaseWidth);
                             width = this.config.minCurveWidth + (baseWidth - this.config.minCurveWidth) * curvatureFactor;
                             width *= velocityFactor;
                         } else {
-                            const progress = i / length;
-                            const swellFactor = this.animationProfile(progress) / this.PRECALCULATED.EASING_LUT_SCALE;
+                            const progress = i * inv_length;
+                            const swellFactor = this.animationProfile(progress) / EASING_LUT_SCALE;
                             if (pathData.type === 'fill') {
                                 const animatedBaseWidth = 2.0;
                                 width = animatedBaseWidth + swellFactor * (this.config.maxStrokeWidth - animatedBaseWidth);
@@ -712,7 +702,9 @@
                         }
 
                         if (!clipPath2D || checkCtx.isPointInPath(clipPath2D, point.x, point.y)) {
-                            width = Math.max(0.5, Math.min(width, this.config.maxStrokeWidth * 1.5));
+                            let tempWidth = width > this.config.maxStrokeWidth * 1.5 ? this.config.maxStrokeWidth * 1.5 : width;
+                            width = tempWidth < 0.5 ? 0.5 : tempWidth;
+
                             const pointData = { width, colorIndex: pathData.colorIndex, type: pathData.type, compoundId: pathData.compoundId };
                             if (!lastPoint) {
                                 currentSegment.push({ x: point.x, y: point.y, ...pointData });
@@ -728,11 +720,6 @@
                     }
                     if (currentSegment.length > 1) pointCallback(currentSegment);
                 });
-                
-                return {
-                    avgVelocityFactor: velocityCount > 0 ? (velocitySum / velocityCount) : 0,
-                    maxVelocityFactor: maxVelocity
-                };
             },
             _resolveCompoundPaths: function(draftLut, compoundPathMeta) {
                 if (compoundPathMeta.size === 0) return draftLut;
@@ -895,7 +882,8 @@
                         if (w <= 0 || h <= 0) return '';
                         const x = +node.getAttribute('x') || 0, y = +node.getAttribute('y') || 0;
                         let rx = +node.getAttribute('rx') || 0, ry = +node.getAttribute('ry') || rx;
-                        rx = Math.min(rx, w * 0.5); ry = Math.min(ry, h * 0.5);
+                        rx = rx < w * 0.5 ? rx : w * 0.5;
+                        ry = ry < h * 0.5 ? ry : h * 0.5;
                         if (rx > 0 || ry > 0) return `M${x + rx},${y} h${w - 2 * rx} a${rx},${ry} 0 0 1 ${rx},${ry} v${h - 2 * ry} a${rx},${ry} 0 0 1 ${-rx},${ry} h${-(w - 2 * rx)} a${rx},${ry} 0 0 1 ${-rx},${-ry} v${-(h - 2 * ry)} a${rx},${ry} 0 0 1 ${rx},${-ry} Z`;
                         return `M${x},${y} h${w} v${h} h${-w} Z`;
                     }
@@ -1020,13 +1008,14 @@
                 scale: (sx, sy) => [sx, 0, 0, sy, 0, 0],
                 rotate: function(angle, cx = 0, cy = 0) {
                     const lut = LogoEngine.PRECALCULATED.SIN_LUT_INT;
-                    const inv_scale = 1.0 / ((LogoEngine.PRECALCULATED.SIN_LUT_SCALE -1) * 0.5);
+                    const inv_scale = 1.0 / 32767.0;
+
                     const getTrigValue = (angleInDegrees) => {
                         const floatIndex = (angleInDegrees % 360 + 360) % 360;
                         const index1 = floatIndex | 0;
                         const fraction = floatIndex - index1;
                         const value1 = lut[index1], value2 = lut[(index1 + 1) % 360];
-                        return (value1 + (value2 - value1) * fraction) * inv_scale;
+                        return (value1 + (((value2 - value1) * ((fraction * 256) | 0)) >> 8)) * inv_scale;
                     };
                     const sin = getTrigValue(angle), cos = getTrigValue(angle + 90);
                     const m = [cos, sin, -sin, cos, 0, 0];
@@ -1109,8 +1098,10 @@
                 if (perimeter < 1) return { perimeter: 0, area: 0 };
                 const points = [];
                 const sampleCount = 100;
+                const INV_SAMPLE_COUNT = 0.01;
+
                 for (let i = 0; i < sampleCount; i++) {
-                    points.push(path.getPointAtLength(i / sampleCount * perimeter));
+                    points.push(path.getPointAtLength(i * INV_SAMPLE_COUNT * perimeter));
                 }
                 if (points.length === 0) return { perimeter, area: 0 };
                 points.push(points[0]);
@@ -1118,7 +1109,7 @@
                 for (let i = 0; i < points.length - 1; i++) {
                     area += points[i].x * points[i+1].y - points[i+1].x * points[i].y;
                 }
-                return { perimeter, area: Math.abs(area) * 0.5 };
+                return { perimeter, area: (area < 0 ? -area : area) * 0.5 };
             },
             _convertAbsoluteToDelta: function(abs) {
                 if (abs.length < 2) return [];
