@@ -62,6 +62,7 @@
                 defaultSvgMarkup: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="180 250 750 570"><path d="M 396 258 C 275 295, 190 350, 190 450 C 190 560, 250 600, 278 640 C 210 660, 210 700, 256 730 C 350 750, 550 800, 600 810 C 675 790, 800 750, 885 725 C 920 710, 915 690, 866 668 C 830 675, 700 650, 668 617 C 675 550, 680 400, 650 327 C 625 310, 500 300, 456 302 M 396 267 C 390 400, 390 550, 398 603 C 420 610, 670 610, 677 603 C 690 570, 680 450, 668 330 C 650 300, 550 305, 451 307" fill="none" stroke="#000000" stroke-width="2"/></svg>`,
                 fallbackStrokeColor: '#0d1a26',
                 maxStrokeWidth: 8.5,
+                minCurveWidth: 1.5, // The minimum width a line can have on a sharp curve.
                 maxPaletteSize: 16,
                 holdDurationMs: 500,
             },
@@ -82,10 +83,12 @@
             PRECALCULATED: {
                 ANIMATION_DURATION_MS: 4000,
                 INV_ANIMATION_DURATION_MS: 0.00025,
-                // High-precision 256-entry byte-sized LUT for smooth "ink swell" easing.
                 EASING_LUT_INT: [0,0,0,0,1,1,1,2,2,3,4,5,6,6,8,9,10,11,12,14,15,17,18,20,22,23,25,27,29,31,33,35,38,40,42,45,47,49,52,54,57,60,62,65,68,71,73,76,79,82,85,88,91,94,97,100,103,106,109,113,116,119,122,125,128,131,135,138,141,144,147,150,153,156,159,162,165,168,171,174,177,180,183,186,189,191,194,197,199,202,204,207,209,212,214,216,218,221,223,225,227,229,231,232,234,236,238,239,241,242,243,245,246,247,248,249,250,251,252,252,253,253,254,254,255,255,255,255,255,255,255,255,254,254,253,253,252,252,251,250,249,248,247,246,245,243,242,241,239,238,236,234,232,231,229,227,225,223,221,218,216,214,212,209,207,204,202,199,197,194,191,189,186,183,180,177,174,171,168,165,162,159,156,153,150,147,144,141,138,135,131,128,125,122,119,116,113,109,106,103,100,97,94,91,88,85,82,79,76,73,71,68,65,62,60,57,54,52,49,47,45,42,40,38,35,33,31,29,27,25,23,22,20,18,17,15,14,12,11,10,9,8,6,6,5,4,3,2,2,1,1,1,0,0,0,0],
-                EASING_LUT_SCALE: 256,
-                // High-precision integer-based SIN_LUT.
+                EASING_LUT_SCALE: 255.0,
+                CURVATURE_LUT_INT: [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,2,2,2,2,2,3,3,3,4,4,4,5,5,6,6,7,7,8,9,9,10,11,11,12,13,14,15,16,17,18,19,20,21,22,23,24,26,27,28,30,31,33,34,36,37,39,41,43,45,46,48,50,53,55,57,59,61,64,66,69,71,74,76,79,82,85,88,91,94,97,100,103,107,110,114,117,121,124,128,132,136,140,144,148,153,157,161,166,170,175,180,184,189,194,199,205,210,215,221,226,232,237,243,249,255],
+                CURVATURE_LUT_SCALE: 255.0,
+                VELOCITY_LUT_INT: [154,153,153,153,153,152,152,152,152,151,151,151,151,150,150,150,149,149,149,149,148,148,148,148,147,147,147,146,146,146,146,145,145,145,144,144,144,143,143,143,143,142,142,142,141,141,141,140,140,140,139,139,139,138,138,138,137,137,137,136,136,136,135,135,135,134,134,134,133,133,132,132,132,131,131,131,130,130,129,129,129,128,128,127,127,126,126,126,125,125,124,124,123,123,122,122,121,121,120,120,119,119,118,117,117,116,116,115,114,114,113,112,112,111,110,109,108,108,107,106,105,104,102,101,99,98,95,90],
+                VELOCITY_LUT_SCALE: 128.0,
                 SIN_LUT_INT: [0,572,1144,1715,2286,2856,3425,3993,4560,5126,5690,6252,6813,7371,7927,8481,9032,9580,10126,10668,11207,11743,12275,12803,13328,13848,14364,14876,15383,15886,16384,16877,17364,17846,18323,18795,19260,19720,20174,20621,21063,21497,21926,22347,22762,23170,23571,23965,24351,24730,25101,25465,25821,26169,26509,26842,27165,27481,27788,28087,28377,28659,28932,29196,29451,29697,29935,30163,30381,30591,30791,30982,31164,31336,31498,31651,31794,31928,32051,32165,32270,32364,32449,32523,32588,32643,32688,32723,32748,32763,32768,32763,32748,32723,32688,32643,32588,32523,32449,32364,32270,32165,32051,31928,31794,31651,31498,31336,31164,30982,30791,30591,30381,30163,29935,29697,29451,29196,28932,28659,28377,28087,27788,27481,27165,26842,26509,26169,25821,25465,25101,24730,24351,23965,23571,23170,22762,22347,21926,21497,21063,20621,20174,19720,19260,18795,18323,17846,17364,16877,16384,15886,15383,14876,14364,13848,13328,12803,12275,11743,11207,10668,10126,9580,9032,8481,7927,7371,6813,6252,5690,5126,4560,3993,3425,2856,2286,1715,1144,572,0,-572,-1144,-1715,-2286,-2856,-3425,-3993,-4560,-5126,-5690,-6252,-6813,-7371,-7927,-8481,-9032,-9580,-10126,-10668,-11207,-11743,-12275,-12803,-13328,-13848,-14364,-14876,-15383,-15886,-16384,-16877,-17364,-17846,-18323,-18795,-19260,-19720,-20174,-20621,-21063,-21497,-21926,-22347,-22762,-23170,-23571,-23965,-24351,-24730,-25101,-25465,-25821,-26169,-26509,-26842,-27165,-27481,-27788,-28087,-28377,-28659,-28932,-29196,-29451,-29697,-29935,-30163,-30381,-30591,-30791,-30982,-31164,-31336,-31498,-31651,-31794,-31928,-32051,-32165,-32270,-32364,-32449,-32523,-32588,-32643,-32688,-32723,-32748,-32763,-32767,-32763,-32748,-32723,-32688,-32643,-32588,-32523,-32449,-32364,-32270,-32165,-32051,-31928,-31794,-31651,-31498,-31336,-31164,-30982,-30791,-30591,-30381,-30163,-29935,-29697,-29451,-29196,-28932,-28659,-28377,-28087,-27788,-27481,-27165,-26842,-26509,-26169,-25821,-25465,-25101,-24730,-24351,-23965,-23571,-23170,-22762,-22347,-21926,-21497,-21063,-20621,-20174,-19720,-19260,-18795,-18323,-17846,-17364,-16877,-16384,-15886,-15383,-14876,-14364,-13848,-13328,-12803,-12275,-11743,-11207,-10668,-10126,-9580,-9032,-8481,-7927,-7371,-6813,-6252,-5690,-5126,-4560,-3993,-3425,-2856,-2286,-1715,-1144,-572],
                 SIN_LUT_SCALE: 65535,
             },
@@ -98,12 +101,12 @@
              */
             animationProfile: (p) => {
                 const lut = LogoEngine.PRECALCULATED.EASING_LUT_INT;
-                const floatIndex = p * 255; 
+                const floatIndex = p * (lut.length - 1); 
                 const index1 = floatIndex | 0; // Fast floor
                 const fraction = floatIndex - index1;
 
-                if (index1 >= 255) {
-                    return lut[255];
+                if (index1 >= lut.length - 1) {
+                    return lut[lut.length - 1];
                 }
                 
                 const value1 = lut[index1];
@@ -407,7 +410,6 @@
                     const length = path.getTotalLength();
                     if (length === 0) return;
 
-                    // Simplified sampling step calculation
                     let samplingStep = length * 0.002;
                     if (samplingStep > 1.0) samplingStep = 1.0;
                     if (samplingStep < 0.25) samplingStep = 0.25;
@@ -417,25 +419,103 @@
                     let currentSegment = [], lastPoint = null;
                     for (let i = 0; i < length; i += samplingStep) {
                         const point = path.getPointAtLength(i);
-                        if (!clipPath2D || checkCtx.isPointInPath(clipPath2D, point.x, point.y)) {
-                            let width;
-                            const isDefaultSvg = this.state.currentSvgText === this.config.defaultSvgMarkup;
-                            const progress = i / length;
+                        let width;
 
-                            const swellFactor = this.animationProfile(progress) / this.PRECALCULATED.EASING_LUT_SCALE;
+                        // --- Check if the path is an original stroke to apply dynamic effects ---
+                        if (pathData.isOriginalStroke) {
+                            let curvatureFactor = 1.0;
+                            let velocityFactor = 1.0;
 
-                            if (isDefaultSvg) {
-                                const dynamicWidth = swellFactor * (this.config.maxStrokeWidth - pathData.strokeWidth);
-                                width = pathData.strokeWidth + dynamicWidth;
-                            } else {
-                                if (pathData.type === 'fill') {
-                                    const animatedBaseWidth = 2;
-                                    const dynamicWidth = swellFactor * (this.config.maxStrokeWidth - animatedBaseWidth);
-                                    width = animatedBaseWidth + dynamicWidth;
-                                } else {
-                                    width = this.config.maxStrokeWidth;
+                            // Curvature calculation
+                            if (i > 0 && i < length - samplingStep) {
+                                const p_prev = path.getPointAtLength(i - samplingStep);
+                                const p_curr = point;
+                                const p_next = path.getPointAtLength(i + samplingStep);
+
+                                const v1_x = p_curr.x - p_prev.x;
+                                const v1_y = p_curr.y - p_prev.y;
+                                const v2_x = p_next.x - p_curr.x;
+                                const v2_y = p_next.y - p_curr.y;
+
+                                const dot = v1_x * v2_x + v1_y * v2_y;
+                                const denominator = samplingStep * samplingStep;
+
+                                if (denominator > 0.001) {
+                                    let cosTheta = dot / denominator;
+                                    if (cosTheta > 1.0) cosTheta = 1.0;
+                                    if (cosTheta < -1.0) cosTheta = -1.0;
+
+                                    const lut = this.PRECALCULATED.CURVATURE_LUT_INT;
+                                    const floatIndex = (cosTheta + 1.0) * 0.5 * (lut.length - 1);
+                                    const index1 = floatIndex | 0;
+                                    const fraction = floatIndex - index1;
+
+                                    let lutValue;
+                                    if (index1 >= lut.length - 1) {
+                                        lutValue = lut[lut.length - 1];
+                                    } else {
+                                        const v1 = lut[index1];
+                                        const v2 = lut[index1 + 1];
+                                        lutValue = v1 + (v2 - v1) * fraction;
+                                    }
+                                    curvatureFactor = lutValue / this.PRECALCULATED.CURVATURE_LUT_SCALE;
                                 }
                             }
+
+                            // Velocity calculation
+                            if (lastPoint) {
+                                const dx = point.x - lastPoint.x;
+                                const dy = point.y - lastPoint.y;
+                                const distance = Math.sqrt(dx*dx + dy*dy);
+                                
+                                const maxDistance = 5.0; // Must match the generator's maxDistance
+                                let normalizedDistance = distance / maxDistance;
+                                if (normalizedDistance > 1.0) normalizedDistance = 1.0;
+
+                                const lut = this.PRECALCULATED.VELOCITY_LUT_INT;
+                                const floatIndex = normalizedDistance * (lut.length - 1);
+                                const index1 = floatIndex | 0;
+                                const fraction = floatIndex - index1;
+
+                                let lutValue;
+                                if (index1 >= lut.length - 1) {
+                                    lutValue = lut[lut.length - 1];
+                                } else {
+                                    const v1 = lut[index1];
+                                    const v2 = lut[index1 + 1];
+                                    lutValue = v1 + (v2 - v1) * fraction;
+                                }
+                                velocityFactor = lutValue / this.PRECALCULATED.VELOCITY_LUT_SCALE;
+                            }
+
+                            const progress = i / length;
+                            const swellFactor = this.animationProfile(progress) / this.PRECALCULATED.EASING_LUT_SCALE;
+                            let animatedBaseWidth = pathData.strokeWidth;
+                            if (animatedBaseWidth < 1.0) animatedBaseWidth = 1.0;
+                            const baseWidth = animatedBaseWidth + swellFactor * (this.config.maxStrokeWidth - animatedBaseWidth);
+                            
+                            width = this.config.minCurveWidth + (baseWidth - this.config.minCurveWidth) * curvatureFactor;
+                            width *= velocityFactor;
+
+                        } else {
+                            // --- Logic for Fills and generated strokes (replicates original code) ---
+                            const progress = i / length;
+                            const swellFactor = this.animationProfile(progress) / this.PRECALCULATED.EASING_LUT_SCALE;
+                            
+                            if (pathData.type === 'fill') {
+                                const animatedBaseWidth = 2.0;
+                                const dynamicWidth = swellFactor * (this.config.maxStrokeWidth - animatedBaseWidth);
+                                width = animatedBaseWidth + dynamicWidth;
+                            } else { // This handles strokes generated from fills
+                                width = this.config.maxStrokeWidth;
+                            }
+                        }
+
+
+                        if (!clipPath2D || checkCtx.isPointInPath(clipPath2D, point.x, point.y)) {
+                             // Clamp the final width to prevent extreme values
+                            if (width < 0.5) width = 0.5;
+                            if (width > this.config.maxStrokeWidth * 1.5) width = this.config.maxStrokeWidth * 1.5;
                             
                             const pointData = { width, colorIndex: pathData.colorIndex, type: pathData.type, compoundId: pathData.compoundId };
                             
@@ -522,12 +602,12 @@
                 const initialProps = {
                     transform: this._matrixHelper.identity(), fill: 'black', 'fill-opacity': 1,
                     stroke: 'none', 'stroke-opacity': 1, 'stroke-width': 1,
-                    clipPath: null, fillRule: 'nonzero'
+                    clipPath: null, fillRule: 'nonzero', color: '#000'
                 };
                 traverse(svgNode, initialProps);
 
                 const animatablePaths = [];
-                const hasStrokesInCollection = allFoundPaths.some(p => p.type === 'stroke');
+                const hasStrokesInCollection = allFoundPaths.some(p => p.isOriginalStroke);
                 const hasFillsInCollection = allFoundPaths.some(p => p.type === 'fill');
 
                 animatablePaths.push(...allFoundPaths.filter(p => p.type === 'fill'));
@@ -542,7 +622,8 @@
                             type: 'stroke', 
                             strokeWidth: 2, 
                             color: p.color, 
-                            opacity: p.opacity 
+                            opacity: p.opacity,
+                            isOriginalStroke: false // Explicitly mark these as not original
                         }));
                     animatablePaths.push(...strokesFromFills);
                 }
@@ -567,7 +648,8 @@
                         allFoundPaths.push({
                             path: transformedPath, clipPathId: props.clipPath, compoundId: cId,
                             type: 'fill', strokeWidth: this.config.maxStrokeWidth,
-                            color: props.fill, opacity: props['fill-opacity']
+                            color: props.fill, opacity: props['fill-opacity'],
+                            isOriginalStroke: false // Fills are not original strokes
                         });
                     };
                     if (isCompound) {
@@ -586,7 +668,8 @@
                         allFoundPaths.push({
                             path: transformedPath, clipPathId: props.clipPath, compoundId: null,
                             type: 'stroke', strokeWidth: props['stroke-width'],
-                            color: props.stroke, opacity: props['stroke-opacity']
+                            color: props.stroke, opacity: props['stroke-opacity'],
+                            isOriginalStroke: true // Mark this as an original stroke
                         });
                     });
                 }
@@ -594,34 +677,41 @@
 
             _getInheritedProps: function(node, inheritedProps) {
                 const props = { ...inheritedProps };
+                const styleProps = {};
+
                 const styleAttr = node.getAttribute('style');
                 const classAttr = node.getAttribute('class');
                 if (classAttr) {
                     classAttr.split(' ').forEach(cls => {
                         const rule = this.state.cssRules.get(`.${cls}`);
-                        if (rule) Object.assign(props, rule);
+                        if (rule) Object.assign(styleProps, rule);
                     });
                 }
                 if (node.id && this.state.cssRules.has(`#${node.id}`)) {
-                    Object.assign(props, this.state.cssRules.get(`#${node.id}`));
+                    Object.assign(styleProps, this.state.cssRules.get(`#${node.id}`));
                 }
-                if (styleAttr) Object.assign(props, this._parseStyleAttribute(styleAttr));
+                if (styleAttr) Object.assign(styleProps, this._parseStyleAttribute(styleAttr));
                 
+                Object.assign(props, styleProps);
+
                 const directAttrs = {
                     fill: node.getAttribute('fill'), 'fill-opacity': node.getAttribute('fill-opacity'),
                     'fill-rule': node.getAttribute('fill-rule'), stroke: node.getAttribute('stroke'),
                     'stroke-width': node.getAttribute('stroke-width'), 'stroke-opacity': node.getAttribute('stroke-opacity'),
-                    'clip-path': node.getAttribute('clip-path'),
+                    'clip-path': node.getAttribute('clip-path'), color: node.getAttribute('color')
                 };
                 for (const [key, value] of Object.entries(directAttrs)) {
                     if (value !== null) props[key] = value;
                 }
-                
-                const transformAttr = node.getAttribute('transform');
-                props.transform = inheritedProps.transform;
-                if (transformAttr) {
-                    props.transform = this._matrixHelper.multiply(inheritedProps.transform, this._parseTransform(transformAttr));
-                }
+
+                if (props.fill === 'currentColor') props.fill = props.color;
+                if (props.stroke === 'currentColor') props.stroke = props.color;
+
+                let localTransform = this._matrixHelper.identity();
+                if (styleProps.transform) localTransform = this._parseTransform(styleProps.transform);
+                const attrTransform = node.getAttribute('transform');
+                if (attrTransform) localTransform = this._matrixHelper.multiply(localTransform, this._parseTransform(attrTransform));
+                props.transform = this._matrixHelper.multiply(inheritedProps.transform, localTransform);
                 
                 props['stroke-width'] = +props['stroke-width'];
                 props['stroke-opacity'] = +props['stroke-opacity'];
@@ -635,10 +725,11 @@
                 switch(tagName) {
                     case 'path': return node.getAttribute('d');
                     case 'rect': {
-                        const x = +node.getAttribute('x') || 0, y = +node.getAttribute('y') || 0, w = +node.getAttribute('width') || 0, h = +node.getAttribute('height') || 0;
+                        const w = +node.getAttribute('width') || 0, h = +node.getAttribute('height') || 0;
+                        if (w <= 0 || h <= 0) return '';
+                        const x = +node.getAttribute('x') || 0, y = +node.getAttribute('y') || 0;
                         let rx = +node.getAttribute('rx') || 0;
                         let ry = +node.getAttribute('ry') || rx;
-                        // Faster min
                         rx = rx < w * 0.5 ? rx : w * 0.5;
                         ry = ry < h * 0.5 ? ry : h * 0.5;
                         if (rx > 0 || ry > 0) {
@@ -647,12 +738,16 @@
                         return `M${x},${y} h${w} v${h} h${-w} Z`;
                     }
                     case 'circle': {
-                        const cx = +node.getAttribute('cx') || 0, cy = +node.getAttribute('cy') || 0, r = +node.getAttribute('r') || 0;
+                        const r = +node.getAttribute('r') || 0;
+                        if (r <= 0) return '';
+                        const cx = +node.getAttribute('cx') || 0, cy = +node.getAttribute('cy') || 0;
                         const r2 = r * 2;
                         return `M ${cx - r},${cy} a ${r},${r} 0 1,0 ${r2},0 a ${r},${r} 0 1,0 -${r2},0`;
                     }
                     case 'ellipse': {
-                        const cx = +node.getAttribute('cx') || 0, cy = +node.getAttribute('cy') || 0, rx = +node.getAttribute('rx') || 0, ry = +node.getAttribute('ry') || 0;
+                        const rx = +node.getAttribute('rx') || 0, ry = +node.getAttribute('ry') || 0;
+                        if (rx <= 0 || ry <= 0) return '';
+                        const cx = +node.getAttribute('cx') || 0, cy = +node.getAttribute('cy') || 0;
                         const rx2 = rx * 2;
                         return `M ${cx - rx},${cy} a ${rx},${ry} 0 1,0 ${rx2},0 a ${rx},${ry} 0 1,0 -${rx2},0`;
                     }
@@ -704,7 +799,7 @@
                                 if (ref) {
                                     const useX = +node.getAttribute('x')||0, useY = +node.getAttribute('y')||0;
                                     let finalTransform = currentTransform;
-                                    if (useX !== 0 || useY !== 0) finalTransform = this._matrixHelper.multiply(currentTransform, this._matrixHelper.translate(useX, useY));
+                                    if (useX !== 0 || useY !== 0) finalTransform = this._matrixHelper.multiply(currentTransform, this._translate(useX, useY));
                                     traverseClipPath(ref, finalTransform);
                                 }
                             }
@@ -777,13 +872,11 @@
                 // rotate function uses the integer SIN_LUT with fractional interpolation.
                 rotate: function(angle, cx = 0, cy = 0) {
                     const lut = LogoEngine.PRECALCULATED.SIN_LUT_INT;
-                    // The scale is half, as we are mapping [-1, 1] to a signed integer range.
                     const inv_scale = 1.0 / ((LogoEngine.PRECALCULATED.SIN_LUT_SCALE -1) * 0.5);
 
-                    // Interpolation function for a given angle
                     const getTrigValue = (angleInDegrees) => {
                         const floatIndex = (angleInDegrees % 360 + 360) % 360;
-                        const index1 = floatIndex | 0; // Fast floor
+                        const index1 = floatIndex | 0;
                         const fraction = floatIndex - index1;
                         
                         const value1 = lut[index1];
@@ -793,7 +886,7 @@
                     };
                     
                     const sin = getTrigValue(angle);
-                    const cos = getTrigValue(angle + 90); // Get cosine by looking 90 degrees ahead
+                    const cos = getTrigValue(angle + 90);
 
                     const m = [cos, sin, -sin, cos, 0, 0];
                     if (cx !== 0 || cy !== 0) {
@@ -834,7 +927,6 @@
                 const len = path.getTotalLength();
                 if (len === 0) return '';
                 
-                // OPTIMIZATION: A fast, local function to round to 2 decimal places.
                 const _f2 = (n) => ((n * 100 + 0.5) | 0) * 0.01;
 
                 const p0 = path.getPointAtLength(0);
@@ -897,8 +989,6 @@
                 for (let i = 0; i < points.length - 1; i++) {
                     area += points[i].x * points[i+1].y - points[i+1].x * points[i].y;
                 }
-                // Bitwise absolute value: (n ^ (n >> 31)) - (n >> 31)
-                // This is faster than Math.abs() for 32-bit integers.
                 const absArea = (area ^ (area >> 31)) - (area >> 31);
                 return { perimeter, area: absArea * 0.5 };
             },
