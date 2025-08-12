@@ -57,9 +57,9 @@
                 maxStrokeWidth: 8.5,
                 minCurveWidth: 1.5,
                 maxPaletteSize: 16,
-                // Configuration for the streaming system
+                // Configuration for the streaming system based on memory profiling
                 streamChunkSize: 262144, // 256 KB
-                streamBufferThreshold: 20, // Fetch next chunk when fewer than this many strokes are left in the buffer
+                streamBufferThreshold: 131072, // Fetch next chunk when buffer has less than 128 KB of data left
             },
 
             state: {
@@ -77,7 +77,7 @@
                 isStreaming: false,
                 isEndOfStream: false,
                 streamReader: null, 
-                dataBuffer: [], // In-memory buffer for strokes
+                dataBuffer: [], // In-memory buffer for strokes { stroke: [], sizeInBits: 0 }
             },
             
             PRECALCULATED: {
@@ -108,12 +108,38 @@
             // --- Animation & Math Helpers ---
             animationProfile: (p) => {
                 const lut = LogoEngine.PRECALCULATED.EASING_LUT_INT;
-                const floatIndex = p * (lut.length - 1); 
+                const floatIndex = p * (lut.length - 1);
+                return LogoEngine._interpolateFromLut(lut, floatIndex);
+            },
+
+            /**
+             * Interpolates a value from a Look-Up Table (LUT) using linear interpolation.
+             * This is a core utility for animation curves, physics, and other calculations.
+             * @param {number[]} lut - The Look-Up Table of pre-calculated integer values.
+             * @param {number} floatIndex - The non-integer index to sample from the table.
+             * @param {boolean} [wrap=false] - If true, the index will wrap around the LUT for cyclical values (e.g., sine waves).
+             * @param {number} [wrapLength=0] - The specific length to wrap around, if different from the LUT's actual length.
+             * @returns {number} The interpolated integer value.
+             */
+            _interpolateFromLut: function(lut, floatIndex, wrap = false, wrapLength = 0) {
+                const lutLength = wrap ? (wrapLength > 0 ? wrapLength : lut.length) : lut.length;
                 const index1 = floatIndex | 0;
                 const fraction = floatIndex - index1;
-                if (index1 >= lut.length - 1) return lut[lut.length - 1];
-                const value1 = lut[index1], value2 = lut[index1 + 1];
-                return value1 + (((value2 - value1) * ((fraction * 256) | 0)) >> 8);
+
+                if (wrap) {
+                    // Ensure the index is positive before wrapping
+                    const wrappedIndex1 = (index1 % lutLength + lutLength) % lutLength;
+                    const wrappedIndex2 = (wrappedIndex1 + 1) % lutLength;
+                    const value1 = lut[wrappedIndex1];
+                    const value2 = lut[wrappedIndex2];
+                    return value1 + (((value2 - value1) * ((fraction * 256) | 0)) >> 8);
+                } else {
+                    if (index1 >= lutLength - 1) return lut[lutLength - 1];
+                    if (index1 < 0) return lut[0];
+                    const value1 = lut[index1];
+                    const value2 = lut[index1 + 1];
+                    return value1 + (((value2 - value1) * ((fraction * 256) | 0)) >> 8);
+                }
             },
             
             // --- Core Methods: The Compiler & Renderer ---
@@ -433,15 +459,7 @@
                 const scale = this.PRECALCULATED.SOLVER_LUT_SCALE;
 
                 const floatIndex = liveGeometricComplexity / scale;
-                const index1 = floatIndex | 0;
-                const fraction = floatIndex - index1;
-
-                const value1 = lut[index1];
-                const value2 = lut[index1 + 1];
-
-                const interpolatedValue = value1 + ((((value2 - value1) * ((fraction * 256) | 0)) | 0) >> 8);
-                
-                return interpolatedValue;
+                return this._interpolateFromLut(lut, floatIndex);
             },
 
             // --- Helper Functions ---
@@ -599,9 +617,7 @@
                             let normalizedDistance = distance * 0.2 > 1.0 ? 1.0 : distance * 0.2;
                             const lut = this.PRECALCULATED.VELOCITY_LUT_INT;
                             const floatIndex = normalizedDistance * (lut.length - 1);
-                            const index1 = floatIndex | 0;
-                            const fraction = floatIndex - index1;
-                            let lutValue = (index1 >= lut.length - 1) ? lut[lut.length - 1] : lut[index1] + (((lut[index1 + 1] - lut[index1]) * ((fraction * 256) | 0)) >> 8);
+                            let lutValue = this._interpolateFromLut(lut, floatIndex);
                             velocityFactor = lutValue / VELOCITY_LUT_SCALE;
                         }
 
@@ -621,9 +637,7 @@
                                     
                                     const lut = this.PRECALCULATED.CURVATURE_LUT_INT;
                                     const floatIndex = (cosTheta + 1.0) * 0.5 * (lut.length - 1);
-                                    const index1 = floatIndex | 0;
-                                    const fraction = floatIndex - index1;
-                                    let lutValue = (index1 >= lut.length - 1) ? lut[lut.length - 1] : lut[index1] + (((lut[index1 + 1] - lut[index1]) * ((fraction * 256) | 0)) >> 8);
+                                    let lutValue = this._interpolateFromLut(lut, floatIndex);
                                     curvatureFactor = lutValue / CURVATURE_LUT_SCALE;
                                 }
                             }
@@ -961,10 +975,9 @@
 
                     const getTrigValue = (angleInDegrees) => {
                         const floatIndex = (angleInDegrees % 360 + 360) % 360;
-                        const index1 = floatIndex | 0;
-                        const fraction = floatIndex - index1;
-                        const value1 = lut[index1], value2 = lut[(index1 + 1) % 360];
-                        return (value1 + (((value2 - value1) * ((fraction * 256) | 0)) >> 8)) * inv_scale;
+                        // The original code wraps at 360, so we pass that as the wrapLength.
+                        const interpolatedValue = LogoEngine._interpolateFromLut(lut, floatIndex, true, 360);
+                        return interpolatedValue * inv_scale;
                     };
                     const sin = getTrigValue(angle), cos = getTrigValue(angle + 90);
                     const m = [cos, sin, -sin, cos, 0, 0];
@@ -1211,18 +1224,16 @@
                 const lastStrokeSeparator = combinedText.lastIndexOf('S');
                 
                 let chunkToParse;
-                let consumedLength;
-
+                
                 if (lastStrokeSeparator === -1) {
                     this.partialStrokeData = combinedText;
                     chunkToParse = "";
-                    consumedLength = textChunk.length;
                 } else {
                     chunkToParse = combinedText.substring(0, lastStrokeSeparator);
                     this.partialStrokeData = combinedText.substring(lastStrokeSeparator + 1);
-                    consumedLength = new Blob([chunkToParse]).size - new Blob([this.partialStrokeData]).size + 1;
                 }
                 
+                const bytesConsumed = new Blob([chunkToParse]).size - new Blob([this.partialStrokeData]).size + (lastStrokeSeparator !== -1 ? 1 : 0);
                 streamReader.readPosition = start + (new Blob([textChunk]).size);
 
                 this._parseChunk(chunkToParse);
@@ -1233,42 +1244,42 @@
                 if (!chunkText) return;
                 const strokes = chunkText.split('S').filter(s => s);
                 strokes.forEach(strokeStr => {
-                     if (!strokeStr) return;
-                     const stroke = [];
-                     const regex = /([xycdw])([\-0-9,]+)/g;
-                     let match;
-                     let currentPoint = {};
-                     let isStart = true;
+                       if (!strokeStr) return;
+                       const stroke = [];
+                       const regex = /([xycdw])([\-0-9,]+)/g;
+                       let match;
+                       let currentPoint = {};
+                       let isStart = true;
 
-                     while ((match = regex.exec(strokeStr)) !== null) {
-                         const type = match[1];
-                         const values = match[2];
-                         
-                         if (isStart) {
-                             if (type === 'x') currentPoint.x = this.parent._fromVisInt(parseInt(values, 10));
-                             if (type === 'y') {
-                                 currentPoint.y = this.parent._fromVisInt(parseInt(values, 10));
-                                 stroke.push(currentPoint);
-                                 currentPoint = {};
-                                 isStart = false;
-                             }
-                         } else {
-                             if (type === 'd') {
-                                 const [dx, dy] = values.split(',').map(v => this.parent._fromVisInt(parseInt(v, 10)));
-                                 currentPoint.dx = dx;
-                                 currentPoint.dy = dy;
-                             }
-                             if (type === 'c') currentPoint.colorIndex = parseInt(values, 10);
-                             if (type === 'w') {
-                                 currentPoint.width = this.parent._fromVisInt(parseInt(values, 10));
-                                 stroke.push(currentPoint);
-                                 currentPoint = {};
-                             }
-                         }
-                     }
-                     if(stroke.length > 1) { // Only add valid strokes
-                        this.parent.state.dataBuffer.push(stroke);
-                     }
+                       while ((match = regex.exec(strokeStr)) !== null) {
+                           const type = match[1];
+                           const values = match[2];
+                           
+                           if (isStart) {
+                               if (type === 'x') currentPoint.x = this.parent._fromVisInt(parseInt(values, 10));
+                               if (type === 'y') {
+                                   currentPoint.y = this.parent._fromVisInt(parseInt(values, 10));
+                                   stroke.push(currentPoint);
+                                   currentPoint = {};
+                                   isStart = false;
+                               }
+                           } else {
+                               if (type === 'd') {
+                                   const [dx, dy] = values.split(',').map(v => this.parent._fromVisInt(parseInt(v, 10)));
+                                   currentPoint.dx = dx;
+                                   currentPoint.dy = dy;
+                               }
+                               if (type === 'c') currentPoint.colorIndex = parseInt(values, 10);
+                               if (type === 'w') {
+                                   currentPoint.width = this.parent._fromVisInt(parseInt(values, 10));
+                                   stroke.push(currentPoint);
+                                   currentPoint = {};
+                               }
+                           }
+                       }
+                       if(stroke.length > 1) { // Only add valid strokes
+                           this.parent.state.dataBuffer.push(stroke);
+                       }
                 });
             }
         };
