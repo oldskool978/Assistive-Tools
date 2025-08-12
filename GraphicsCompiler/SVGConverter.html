@@ -39,8 +39,9 @@
         <canvas id="logo-canvas"></canvas>
     </div>
 
-    <!-- Hidden file input for SVG uploads -->
+    <!-- Hidden file inputs -->
     <input type="file" id="svg-uploader" accept=".svg" style="display: none;">
+    <input type="file" id="lut-uploader" accept=".vis" style="display: none;">
 
     <script>
         /**
@@ -1007,6 +1008,74 @@
                 return abs;
             },
 
+            _saveLutToFile: function() {
+                if (!this.state.lookupTable || !this.state.colorPalette) {
+                    console.warn("No LUT data to save.");
+                    return;
+                }
+
+                const lutData = {
+                    palette: this.state.colorPalette,
+                    table: this.state.lookupTable
+                };
+
+                const jsonString = JSON.stringify(lutData);
+                const blob = new Blob([jsonString], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = 'animation.vis';
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+            },
+
+            _loadLutFromText: function(jsonText) {
+                try {
+                    const lutData = JSON.parse(jsonText);
+                    if (lutData && lutData.palette && lutData.table) {
+                        this._resetAnimationState();
+                        this.state.colorPalette = lutData.palette;
+                        this.state.lookupTable = lutData.table;
+                        this.state.viewBox = this._calculateViewBoxFromLut(lutData.table);
+                        // Since we don't know the original stroke widths, use a safe default for padding.
+                        this.state.maxGeometricStrokeWidth = this.config.maxStrokeWidth; 
+                        this.startAnimation();
+                    } else {
+                        console.error("Invalid .vis file format.");
+                    }
+                } catch (e) {
+                    console.error("Failed to parse .vis file:", e);
+                }
+            },
+
+            _calculateViewBoxFromLut: function(lut) {
+                if (!lut || lut.length === 0) return { x: 0, y: 0, width: 400, height: 225 };
+
+                let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+
+                lut.forEach(segment => {
+                    const absolutePoints = this._convertDeltaToAbsolute(segment);
+                    absolutePoints.forEach(p => {
+                        if (p.absX < minX) minX = p.absX;
+                        if (p.absY < minY) minY = p.absY;
+                        if (p.absX > maxX) maxX = p.absX;
+                        if (p.absY > maxY) maxY = p.absY;
+                    });
+                });
+
+                if (minX === Infinity) return { x: 0, y: 0, width: 400, height: 225 };
+                
+                return {
+                    x: minX,
+                    y: minY,
+                    width: maxX - minX,
+                    height: maxY - minY
+                };
+            },
+
             // --- Initialization and Event Handlers ---
             init: function() {
                 this.state.canvas = document.getElementById(this.config.canvasId);
@@ -1015,15 +1084,21 @@
                 
                 this.state.reusablePathForSampling = document.createElementNS('http://www.w3.org/2000/svg', 'path');
                 
-                const uploader = document.getElementById('svg-uploader');
+                const svgUploader = document.getElementById('svg-uploader');
+                const lutUploader = document.getElementById('lut-uploader');
                 
                 window.addEventListener('keydown', (e) => {
-                    if (e.key.toLowerCase() === 'b') {
-                        uploader.click();
+                    const key = e.key.toLowerCase();
+                    if (key === 'b') {
+                        svgUploader.click();
+                    } else if (key === 's') {
+                        this._saveLutToFile();
+                    } else if (key === 'l') {
+                        lutUploader.click();
                     }
                 });
 
-                uploader.addEventListener('change', (e) => {
+                svgUploader.addEventListener('change', (e) => {
                     const file = e.target.files[0];
                     if (!file) return;
                     const reader = new FileReader();
@@ -1032,10 +1107,22 @@
                     e.target.value = ''; // Reset for re-uploading the same file.
                 });
 
+                lutUploader.addEventListener('change', (e) => {
+                    const file = e.target.files[0];
+                    if (!file) return;
+                    const reader = new FileReader();
+                    reader.onload = (event) => this._loadLutFromText(event.target.result);
+                    reader.readAsText(file);
+                    e.target.value = ''; // Reset for re-uploading the same file.
+                });
+
                 let resizeTimeout;
                 window.addEventListener('resize', () => {
                     clearTimeout(resizeTimeout);
-                    resizeTimeout = setTimeout(() => this.reloadWithNewArt(this.state.currentSvgText), 150);
+                    // When resizing, we should re-trigger the last known process.
+                    // For now, we just restart the animation. A more robust solution
+                    // might re-parse the SVG or re-load the LUT if one was active.
+                    this.startAnimation();
                 });
 
                 // Kick off the process with the default SVG.
