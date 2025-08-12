@@ -45,13 +45,11 @@
 
     <script>
         /**
-         * EdgeLUT: A bespoke SVG animation engine and Look-Up Table (LUT) compiler.
-         * Optimized for resource-constrained devices via integer-based LUTs and bitwise operations.
-         * Includes a predictive solver to estimate workload for un-calculated assets.
-         * VERSION: 3.6 (Cleanup & Optimization)
+         * EdgeLUT: SVG animation engine and LUT compiler.
+         * Renders vector animations from pre-calculated data tables (LUTs).
+         * Optimized for low-compute environments via integer math and bitwise operations.
          */
         const LogoEngine = {
-            // --- Configuration & State ---
             config: {
                 canvasId: 'logo-canvas',
                 defaultSvgMarkup: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="180 250 750 570"><path d="M 396 258 C 275 295, 190 350, 190 450 C 190 560, 250 600, 278 640 C 210 660, 210 700, 256 730 C 350 750, 550 800, 600 810 C 675 790, 800 750, 885 725 C 920 710, 915 690, 866 668 C 830 675, 700 650, 668 617 C 675 550, 680 400, 650 327 C 625 310, 500 300, 456 302 M 396 267 C 390 400, 390 550, 398 603 C 420 610, 670 610, 677 603 C 690 570, 680 450, 668 330 C 650 300, 550 305, 451 307" fill="none" stroke="#000000" stroke-width="2"/></svg>`,
@@ -74,7 +72,18 @@
             },
             
             PRECALCULATED: {
+                // --- Core Animation & Timing ---
                 INV_ANIMATION_DURATION_MS: 0.00025,
+
+                // --- High-Precision Inverse Constants (Two-Byte Fixed-Point) ---
+                INV_VIS_INT_SCALE_H: 0,
+                INV_VIS_INT_SCALE_L: 7,
+                INV_LCG_SCALE_H: 0,
+                INV_LCG_SCALE_L: 0,
+                INV_255_SCALE_H: 1,
+                INV_255_SCALE_L: 1,
+
+                // --- Look-Up Tables & Scales ---
                 EASING_LUT_INT: [0,0,0,0,1,1,1,2,2,3,4,5,6,6,8,9,10,11,12,14,15,17,18,20,22,23,25,27,29,31,33,35,38,40,42,45,47,49,52,54,57,60,62,65,68,71,73,76,79,82,85,88,91,94,97,100,103,106,109,113,116,119,122,125,128,131,135,138,141,144,147,150,153,156,159,162,165,168,171,174,177,180,183,186,189,191,194,197,199,202,204,207,209,212,214,216,218,221,223,225,227,229,231,232,234,236,238,239,241,242,243,245,246,247,248,249,250,251,252,252,253,253,254,254,255,255,255,255,255,255,255,255,254,254,253,253,252,252,251,250,249,248,247,246,245,243,242,241,239,238,236,234,232,231,229,227,225,223,221,218,216,214,212,209,207,204,202,199,197,194,191,189,186,183,180,177,174,171,168,165,162,159,156,153,150,147,144,141,138,135,131,128,125,122,119,116,113,109,106,103,100,97,94,91,88,85,82,79,76,73,71,68,65,62,60,57,54,52,49,47,45,42,40,38,35,33,31,29,27,25,23,22,20,18,17,15,14,12,11,10,9,8,6,6,5,4,3,2,2,1,1,1,0,0,0,0],
                 EASING_LUT_SCALE: 255.0,
                 CURVATURE_LUT_INT: [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,2,2,2,2,2,3,3,3,4,4,4,5,5,6,6,7,7,8,9,9,10,11,11,12,13,14,15,16,17,18,19,20,21,22,23,24,26,27,28,30,31,33,34,36,37,39,41,43,45,46,48,50,53,55,57,59,61,64,66,69,71,74,76,79,82,85,88,91,94,97,100,103,107,110,114,117,121,124,128,132,136,140,144,148,153,157,161,166,170,175,180,184,189,194,199,205,210,215,221,226,232,237,243,249,255],
@@ -109,7 +118,6 @@
                 if (!isLut) {
                     const estimatedPoints = this._solver(svgText);
                     pointsToPace = estimatedPoints; 
-                    console.log(`[SOLVER] Estimated total points for pacing: ${estimatedPoints}`);
                 }
 
                 const parser = new DOMParser();
@@ -166,7 +174,10 @@
                     height: viewBox.height + padding * 2
                 };
 
-                const scale = Math.min(containerRect.width / effectiveViewBox.width, containerRect.height / effectiveViewBox.height);
+                const scaleX = containerRect.width / effectiveViewBox.width;
+                const scaleY = containerRect.height / effectiveViewBox.height;
+                const scale = scaleX < scaleY ? scaleX : scaleY;
+
                 const canvasWidth = effectiveViewBox.width * scale;
                 const canvasHeight = effectiveViewBox.height * scale;
 
@@ -196,7 +207,7 @@
 
                     if (this.state.drawnPointsCount < this.state.totalPointsInLut) {
                         if (elapsedTime > 200 && this.state.drawnPointsCount < 50 && this.state.totalPointsInLut > 100) {
-                            dynamicRate = Math.min(50, dynamicRate + 1);
+                            dynamicRate = dynamicRate < 49 ? dynamicRate + 1 : 50;
                         }
                         elapsedTime = (elapsedTime * dynamicRate) / 10;
 
@@ -279,7 +290,11 @@
             // --- LUT Generation, Saving, and Loading ---
             
             _toVisInt: (num) => (num * 10000) | 0,
-            _fromVisInt: (int) => int / 10000.0,
+            _fromVisInt: (int) => {
+                const { INV_VIS_INT_SCALE_H, INV_VIS_INT_SCALE_L } = LogoEngine.PRECALCULATED;
+                const invScale = (((INV_VIS_INT_SCALE_H << 8) | INV_VIS_INT_SCALE_L) / 65535.0) * 10000.0;
+                return int * invScale;
+            },
 
             _saveLutToFile: function() {
                 if (!this.state.lastSvgText) {
@@ -452,11 +467,7 @@
                 requestAnimationFrame(() => { this.reloadWithNewArt(this.config.defaultSvgMarkup, false); });
             },
 
-            // ===================================================================
-            // NEW: PREDICTIVE SOLVER
-            // ===================================================================
             _solver: function(svgText) {
-                // 1. Perform a lightweight "biopsy" of the new SVG.
                 const parser = new DOMParser();
                 const svgDoc = parser.parseFromString(svgText, "image/svg+xml");
                 const svgElement = svgDoc.querySelector('svg');
@@ -479,9 +490,7 @@
 
                 if (liveGeometricComplexity === 0) return 0;
                 
-                // 2. The Multi-Vector Formula (High-Precision LUT Interpolation)
                 if (liveGeometricComplexity >= 8191) {
-                    // Fallback for extreme outliers using pre-calculated integer ratio
                     return (liveGeometricComplexity * 26) | 0; 
                 }
 
@@ -495,15 +504,12 @@
                 const value1 = lut[index1];
                 const value2 = lut[index1 + 1];
 
-                // High-precision integer interpolation
                 const interpolatedValue = value1 + ((((value2 - value1) * ((fraction * 256) | 0)) | 0) >> 8);
                 
                 return interpolatedValue;
             },
 
-            // ===================================================================
-            // ALL OTHER HELPER FUNCTIONS
-            // ===================================================================
+            // --- Helper Functions ---
             _buildPaletteAndMapPaths: function(animatablePaths) {
                 if (!animatablePaths || animatablePaths.length === 0) {
                     return { finalPalette: [this._colorUtils.parseColor(this.config.fallbackStrokeColor, 1)], mappedStrokes: [], maxStroke: 0 };
@@ -637,7 +643,10 @@
                     if (length === 0) return;
                     const inv_length = 1.0 / length;
 
-                    let samplingStep = Math.max(0.25, Math.min(1.0, length * 0.002));
+                    let samplingStep = length * 0.002;
+                    samplingStep = samplingStep < 1.0 ? samplingStep : 1.0;
+                    samplingStep = samplingStep > 0.25 ? samplingStep : 0.25;
+
                     const clipPath2D = pathData.clipPathId ? this.state.clipPathCache.get(pathData.clipPathId) : null;
                     
                     let currentSegment = [], lastPoint = null;
@@ -673,8 +682,7 @@
                                 const denominator = samplingStep * samplingStep;
                                 if (denominator > 0.001) {
                                     let cosTheta = dot / denominator;
-                                    if (cosTheta > 1.0) cosTheta = 1.0;
-                                    else if (cosTheta < -1.0) cosTheta = -1.0;
+                                    cosTheta = cosTheta > 1.0 ? 1.0 : (cosTheta < -1.0 ? -1.0 : cosTheta);
                                     
                                     const lut = this.PRECALCULATED.CURVATURE_LUT_INT;
                                     const floatIndex = (cosTheta + 1.0) * 0.5 * (lut.length - 1);
@@ -992,8 +1000,10 @@
                 return rules;
             },
             _lcg: function() {
+                const { INV_LCG_SCALE_H, INV_LCG_SCALE_L } = this.PRECALCULATED;
+                const invScale = (((INV_LCG_SCALE_H << 8) | INV_LCG_SCALE_L) / 65535.0) * 4294967296.0;
                 this.state._lcg_seed = (this.state._lcg_seed * 1664525 + 1013904223) | 0;
-                return (this.state._lcg_seed >>> 0) / 4294967296.0;
+                return (this.state._lcg_seed >>> 0) * invScale;
             },
             _matrixHelper: {
                 identity: () => [1, 0, 0, 1, 0, 0],
@@ -1056,7 +1066,7 @@
                 const p0 = path.getPointAtLength(0);
                 const transformedP0 = this._matrixHelper.transformPoint(p0.x, p0.y, matrix);
                 let newPath = `M${transformedP0.x} ${transformedP0.y}`;
-                const step = Math.max(0.5, len * 0.005);
+                const step = len * 0.005 > 0.5 ? len * 0.005 : 0.5;
                 for (let i = step; i <= len; i += step) {
                     const p = path.getPointAtLength(i);
                     const transformedP = this._matrixHelper.transformPoint(p.x, p.y, matrix);
@@ -1084,7 +1094,9 @@
                     ctx.fillStyle = colorStr;
                     ctx.fillRect(0, 0, 1, 1);
                     const [r, g, b, a_255] = ctx.getImageData(0, 0, 1, 1).data;
-                    return { r, g, b, a: (a_255 / 255.0) * opacity };
+                    const { INV_255_SCALE_H, INV_255_SCALE_L } = LogoEngine.PRECALCULATED;
+                    const invScale = (((INV_255_SCALE_H << 8) | INV_255_SCALE_L) / 65535.0) * 255.0;
+                    return { r, g, b, a: (a_255 * invScale) * opacity };
                 },
                 colorDistanceSq(c1, c2) {
                     const dr = c1.r - c2.r, dg = c1.g - c2.g, db = c1.b - c2.b, da = (c1.a - c2.a) * 255;
@@ -1096,20 +1108,39 @@
                 path.setAttribute('d', pathData);
                 const perimeter = path.getTotalLength();
                 if (perimeter < 1) return { perimeter: 0, area: 0 };
+                
                 const points = [];
-                const sampleCount = 100;
-                const INV_SAMPLE_COUNT = 0.01;
+                
+                // Data-driven sample count based on profiling.
+                // This tiered approach provides more detail for paths of different sizes.
+                let sampleCount;
+                if (perimeter < 50) {
+                    sampleCount = 30; // Tiny paths
+                } else if (perimeter < 250) {
+                    sampleCount = 60; // Small paths
+                } else if (perimeter < 750) {
+                    sampleCount = 100; // Medium paths (around average)
+                } else if (perimeter < 1500) {
+                    sampleCount = 150; // Large paths
+                } else {
+                    sampleCount = 200; // Huge paths
+                }
+                
+                const invSampleCount = 1.0 / sampleCount;
 
                 for (let i = 0; i < sampleCount; i++) {
-                    points.push(path.getPointAtLength(i * INV_SAMPLE_COUNT * perimeter));
+                    points.push(path.getPointAtLength(i * invSampleCount * perimeter));
                 }
                 if (points.length === 0) return { perimeter, area: 0 };
+                
                 points.push(points[0]);
                 let area = 0;
                 for (let i = 0; i < points.length - 1; i++) {
                     area += points[i].x * points[i+1].y - points[i+1].x * points[i].y;
                 }
-                return { perimeter, area: (area < 0 ? -area : area) * 0.5 };
+                area = (area < 0 ? -area : area) * 0.5;
+
+                return { perimeter, area };
             },
             _convertAbsoluteToDelta: function(abs) {
                 if (abs.length < 2) return [];
