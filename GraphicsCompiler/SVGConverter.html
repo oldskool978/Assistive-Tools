@@ -1,13 +1,9 @@
 <!DOCTYPE html>
-<html lang="en" class="h-full bg-white">
+<html lang="en" class="h-full">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>SVG Animator</title>
-    <!-- Load Inter font from Google Fonts -->
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap" rel="stylesheet">
     <style>
         /* Basic styling for a full-screen canvas */
         html, body {
@@ -15,14 +11,11 @@
             width: 100%;
             margin: 0;
             padding: 0;
-            overflow: hidden; /* Prevent scrollbars */
-            font-family: 'Inter', sans-serif;
         }
         body {
             display: flex;
             align-items: center;
             justify-content: center;
-            background-color: #ffffff;
         }
         #logo-container {
             position: relative;
@@ -39,7 +32,7 @@
         }
     </style>
 </head>
-<body class="antialiased">
+<body>
 
     <!-- Canvas container -->
     <div id="logo-container">
@@ -51,9 +44,8 @@
 
     <script>
         /**
-         * LogoEngine: A comprehensive SVG rendering engine and Look-Up Table (LUT) compiler.
-         * This version is hyper-optimized for performance on resource-constrained devices by
-         * using a hard-coded integer-based look-up table and bitwise operations.
+         * An SVG rendering engine and Look-Up Table (LUT) compiler.
+         * Optimized for resource-constrained devices via integer-based LUTs and bitwise operations.
          */
         const LogoEngine = {
             // --- Configuration & State ---
@@ -94,10 +86,9 @@
             },
             
             /**
-             * Calculates the animation profile by linearly interpolating between values in the integer LUT.
-             * This restores floating-point precision for a smooth animation curve.
-             * @param {number} p - The progress of the animation (0.0 to 1.0).
-             * @returns {number} The interpolated value from the LUT, maintaining precision.
+             * Calculates an animation profile value by interpolating from the EASING_LUT_INT.
+             * @param {number} p - Animation progress from 0.0 to 1.0.
+             * @returns {number} The interpolated easing value.
              */
             animationProfile: (p) => {
                 const lut = LogoEngine.PRECALCULATED.EASING_LUT_INT;
@@ -216,7 +207,6 @@
                         ctx.lineCap = 'round';
                         ctx.lineJoin = 'round';
                         
-                        // OPTIMIZATION: Cache state variables before the hot loop.
                         let drawnPoints = this.state.drawnPointsCount;
                         let strokeIdx = this.state.currentStrokeIndex;
                         let pointIdx = this.state.currentPointInStrokeIndex;
@@ -261,7 +251,6 @@
                             pointIdx++;
                         }
                         
-                        // OPTIMIZATION: Update state variables after the loop.
                         this.state.drawnPointsCount = drawnPoints;
                         this.state.currentStrokeIndex = strokeIdx;
                         this.state.currentPointInStrokeIndex = pointIdx;
@@ -421,7 +410,7 @@
                         const point = path.getPointAtLength(i);
                         let width;
 
-                        // --- Check if the path is an original stroke to apply dynamic effects ---
+                        // Apply dynamic effects only to original strokes.
                         if (pathData.isOriginalStroke) {
                             let curvatureFactor = 1.0;
                             let velocityFactor = 1.0;
@@ -468,7 +457,7 @@
                                 const dy = point.y - lastPoint.y;
                                 const distance = Math.sqrt(dx*dx + dy*dy);
                                 
-                                const maxDistance = 5.0; // Must match the generator's maxDistance
+                                const maxDistance = 5.0; 
                                 let normalizedDistance = distance / maxDistance;
                                 if (normalizedDistance > 1.0) normalizedDistance = 1.0;
 
@@ -498,7 +487,7 @@
                             width *= velocityFactor;
 
                         } else {
-                            // --- Logic for Fills and generated strokes (replicates original code) ---
+                            // Logic for Fills and generated strokes (replicates original code)
                             const progress = i / length;
                             const swellFactor = this.animationProfile(progress) / this.PRECALCULATED.EASING_LUT_SCALE;
                             
@@ -930,7 +919,7 @@
                 const _f2 = (n) => ((n * 100 + 0.5) | 0) * 0.01;
 
                 const p0 = path.getPointAtLength(0);
-                const transformedP0 = this._matrixHelper.transformPoint(p0.x, p0.y, matrix);
+                const transformedP0 = this._matrixHelper.transformPoint(p0.x, p.y, matrix);
                 let newPath = `M${_f2(transformedP0.x)} ${_f2(transformedP0.y)}`;
                 
                 const step = (0.5 > len * 0.005) ? 0.5 : len * 0.005;
