@@ -919,7 +919,7 @@
                 const _f2 = (n) => ((n * 100 + 0.5) | 0) * 0.01;
 
                 const p0 = path.getPointAtLength(0);
-                const transformedP0 = this._matrixHelper.transformPoint(p0.x, p.y, matrix);
+                const transformedP0 = this._matrixHelper.transformPoint(p0.x, p0.y, matrix);
                 let newPath = `M${_f2(transformedP0.x)} ${_f2(transformedP0.y)}`;
                 
                 const step = (0.5 > len * 0.005) ? 0.5 : len * 0.005;
