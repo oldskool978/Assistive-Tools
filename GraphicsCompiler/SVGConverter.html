@@ -11,11 +11,13 @@
             width: 100%;
             margin: 0;
             padding: 0;
+            overflow: hidden; /* Prevent scrollbars */
         }
         body {
             display: flex;
             align-items: center;
             justify-content: center;
+            background-color: #fff;
         }
         #logo-container {
             position: relative;
@@ -46,8 +48,8 @@
     <script>
         /**
          * EdgeLUT: SVG animation engine and LUT compiler.
-         * Renders vector animations from pre-calculated data tables (LUTs).
-         * Optimized for low-compute environments via integer math and bitwise operations.
+         * V10: Implements all visual style fixes: "pen-up" bug, original fill/stroke logic,
+         * and meticulous point styling. Uses the ideal 4KB workspace for SVG processing.
          */
         const LogoEngine = {
             config: {
@@ -57,15 +59,15 @@
                 maxStrokeWidth: 8.5,
                 minCurveWidth: 1.5,
                 maxPaletteSize: 16,
-                // Streaming system configuration.
-                streamChunkSize: 61440, // 60 KB
-                streamBufferThreshold: 51200, // Pre-fetch next chunk when remaining data in buffer is less than 50 KB.
-                // Increased precision for serialization. Using 5 decimal places.
-                visIntPrecision: 100000, 
+                visStreamChunkSize: 61440, // 60 KB for robust .vis loading
+                streamBufferThreshold: 51200, 
+                visIntPrecision: 100000,
+                // Ideal workspace size for SVG conversion, based on analysis.
+                svgStreamChunkSize: 4096,
             },
 
             state: {
-                canvas: null, ctx: null, lookupTable: null, animationFrameId: null,
+                canvas: null, ctx: null, animationFrameId: null,
                 viewBox: { x: 0, y: 0, width: 400, height: 225 },
                 colorPalette: [], cssRules: new Map(), drawnPointsCount: 0,
                 totalPointsInLut: 0,
@@ -73,26 +75,20 @@
                 clipPathCache: new Map(), reusablePathForSampling: null,
                 maxGeometricStrokeWidth: 0,
                 _lcg_seed: 1,
-                lastSvgText: '', // Cache of the last loaded SVG for saving.
-                
-                // Streaming state variables.
+                lastSvgFile: null,
+
                 isStreaming: false,
                 isEndOfStream: false,
-                streamReader: null, 
-                dataBuffer: [], // In-memory buffer for strokes: { stroke: [], size: bytes }
+                streamReader: null,
+                dataBuffer: [], 
             },
-            
-            PRECALCULATED: {
-                // Core animation timing.
-                INV_ANIMATION_DURATION_MS: 0.00025,
 
-                // High-precision inverse constants (two-byte fixed-point).
+            PRECALCULATED: {
+                INV_ANIMATION_DURATION_MS: 0.00025,
                 INV_LCG_SCALE_H: 0,
                 INV_LCG_SCALE_L: 0,
                 INV_255_SCALE_H: 1,
-                INV_255_SCALE_L: 1, // Represents 1/255 as a fixed-point 16-bit number (1/255 * 65535 = 257)
-
-                // Look-up tables and scales.
+                INV_255_SCALE_L: 1,
                 EASING_LUT_INT: [0,0,0,0,1,1,1,2,2,3,4,5,6,6,8,9,10,11,12,14,15,17,18,20,22,23,25,27,29,31,33,35,38,40,42,45,47,49,52,54,57,60,62,65,68,71,73,76,79,82,85,88,91,94,97,100,103,106,109,113,116,119,122,125,128,131,135,138,141,144,147,150,153,156,159,162,165,168,171,174,177,180,183,186,189,191,194,197,199,202,204,207,209,212,214,216,218,221,223,225,227,229,231,232,234,236,238,239,241,242,243,245,246,247,248,249,250,251,252,252,253,253,254,254,255,255,255,255,255,255,255,255,254,254,253,253,252,252,251,250,249,248,247,246,245,243,242,241,239,238,236,234,232,231,229,227,225,223,221,218,216,214,212,209,207,204,202,199,197,194,191,189,186,183,180,177,174,171,168,165,162,159,156,153,150,147,144,141,138,135,131,128,125,122,119,116,113,109,106,103,100,97,94,91,88,85,82,79,76,73,71,68,65,62,60,57,54,52,49,47,45,42,40,38,35,33,31,29,27,25,23,22,20,18,17,15,14,12,11,10,9,8,6,6,5,4,3,2,2,1,1,1,0,0,0,0],
                 EASING_LUT_SCALE: 255.0,
                 CURVATURE_LUT_INT: [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,2,2,2,2,2,3,3,3,4,4,4,5,5,6,6,7,7,8,9,9,10,11,11,12,13,14,15,16,17,18,19,20,21,22,23,24,26,27,28,30,31,33,34,36,37,39,41,43,45,46,48,50,53,55,57,59,61,64,66,69,71,74,76,79,82,85,88,91,94,97,100,103,107,110,114,117,121,124,128,132,136,140,144,148,153,157,161,166,170,175,180,184,189,194,199,205,210,215,221,226,232,237,243,249,255],
@@ -100,7 +96,6 @@
                 VELOCITY_LUT_INT: [154,153,153,153,153,152,152,152,152,151,151,151,151,150,150,150,149,149,149,149,148,148,148,148,147,147,147,146,146,146,146,145,145,145,144,144,144,143,143,143,143,142,142,142,141,141,141,140,140,140,139,139,139,138,138,138,137,137,137,136,136,136,135,135,135,134,134,134,133,133,132,132,132,131,131,131,130,130,129,129,129,128,128,127,127,126,126,126,125,125,124,124,123,123,122,122,121,121,120,120,119,119,118,117,117,116,116,115,114,114,113,112,112,111,110,109,108,108,107,106,105,104,102,101,99,98,95,90],
                 VELOCITY_LUT_SCALE: 128.0,
                 SIN_LUT_INT: new Int16Array([0,572,1144,1715,2286,2856,3425,3993,4560,5126,5690,6252,6813,7371,7927,8481,9032,9580,10126,10668,11207,11743,12275,12803,13328,13848,14364,14876,15383,15886,16384,16877,17364,17846,18323,18795,19260,19720,20174,20621,21063,21497,21926,22347,22762,23170,23571,23965,24351,24730,25101,25465,25821,26169,26509,26842,27165,27481,27788,28087,28377,28659,28932,29196,29451,29697,29935,30163,30381,30591,30791,30982,31164,31336,31498,31651,31794,31928,32051,32165,32270,32364,32449,32523,32588,32643,32688,32723,32748,32763,32768,32763,32748,32723,32688,32643,32588,32523,32449,32364,32270,32165,32051,31928,31794,31651,31498,31336,31164,30982,30791,30591,30381,30163,29935,29697,29451,29196,28932,28659,28377,28087,27788,27481,27165,26842,26509,26169,25821,25465,25101,24730,24351,23965,23571,23170,22762,22347,21926,21497,21063,20621,20174,19720,19260,18795,18323,17846,17364,16877,16384,15886,15383,14876,14364,13848,13328,12803,12275,11743,11207,10668,10126,9580,9032,8481,7927,7371,6813,6252,5690,5126,4560,3993,3425,2856,2286,1715,1144,572,0,-572,-1144,-1715,-2286,-2856,-3425,-3993,-4560,-5126,-5690,-6252,-6813,-7371,-7927,-8481,-9032,-9580,-10126,-10668,-11207,-11743,-12275,-12803,-13328,-13848,-14364,-14876,-15383,-15886,-16384,-16877,-17364,-17846,-18323,-18795,-19260,-19720,-20174,-20621,-21063,-21497,-21926,-22347,-22762,-23170,-23571,-23965,-24351,-24730,-25101,-25465,-25821,-26169,-26509,-26842,-27165,-27481,-27788,-28087,-28377,-28659,-28932,-29196,-29451,-29697,-29935,-30163,-30381,-30591,-30791,-30982,-31164,-31336,-31498,-31651,-31794,-31928,-32051,-32165,-32270,-32364,-32449,-32523,-32588,-32643,-32688,-32723,-32748,-32763,-32767,-32763,-32748,-32723,-32688,-32643,-32588,-32523,-32449,-32364,-32270,-32165,-32051,-31928,-31794,-31651,-31498,-31336,-31164,-30982,-30791,-30591,-30381,-30163,-29935,-29697,-29451,-29196,-28932,-28659,-28377,-28087,-27788,-27481,-27165,-26842,-26509,-26169,-25821,-25465,-25101,-24730,-24351,-23965,-23571,-23170,-22762,-22347,-21926,-21497,-21063,-20621,-20174,-19720,-19260,-18795,-18323,-17846,-17364,-16877,-16384,-15886,-15383,-14876,-14364,-13848,-13328,-12803,-12275,-11743,-11207,-10668,-10126,-9580,-9032,-8481,-7927,-7371,-6813,-6252,-5690,-5126,-4560,-3993,-3425,-2856,-2286,-1715,-1144,-572]),
-                
                 SOLVER_LUT_SCALE: 16,
                 SOLVER_LUT_INT: [0,415,830,1245,1660,2076,2491,2906,3321,3736,4152,4567,4982,5397,5812,6228,6643,7058,7473,7888,8304,8719,9134,9549,9965,10380,10795,11210,11625,12041,12456,12871,13286,13701,14117,14532,14947,15362,15777,16193,16608,17023,17438,17853,18269,18684,19099,19514,19930,20345,20760,21175,21590,22006,22421,22836,23251,23666,24082,24497,24912,25327,25742,26158,26573,26988,27403,27818,28234,28649,29064,29479,29895,30310,30725,31140,31555,31971,32386,32801,33216,33631,34047,34462,34877,35292,35707,36123,36538,36953,37368,37784,38199,38614,39029,39444,39860,40275,40690,41105,41520,41936,42351,42766,43181,43596,44012,44427,44842,45257,45672,46088,46503,46918,47333,47749,48164,48579,48994,49409,49825,50240,50655,51070,51485,51901,52316,52731,53146,53561,53977,54392,54807,55222,55637,56053,56468,56883,57298,57714,58129,58544,58959,59374,59790,60205,60620,61035,61450,61866,62281,62696,63111,63526,63942,64357,64772,65187,65602,66018,66433,66848,67263,67679,68094,68509,68924,69339,69755,70170,70585,71000,71415,71831,72246,72661,73076,73491,73907,74322,74737,75152,75568,75983,76398,76813,77228,77644,78059,78474,78889,79304,79720,80135,80550,80965,81380,81796,82211,82626,83041,83456,83872,84287,84702,85117,85533,85948,86363,86778,87193,87609,88024,88439,88854,89269,89685,90100,90515,90930,91345,91761,92176,92591,93006,93421,93837,94252,94667,95082,95498,95913,96328,96743,97158,97574,97989,98404,98819,99234,99650,100065,100480,100895,101310,101726,102141,102556,102971,103386,103802,104217,104632,105047,105463,105878,106293,106708,107123,107539,107954,108369,108784,109199,109615,110030,110445,110860,111275,111691,112106,112521,112936,113352,113767,114182,114597,115012,115428,115843,116258,116673,117088,117504,117919,118334,118749,119164,119580,119995,120410,120825,121240,121656,122071,122486,122901,123317,123732,124147,124562,124977,125393,125808,126223,126638,127053,127469,127884,128299,128714,129129,129545,129960,130375,130790,131205,131621,132036,132451,132866,133282,133697,134112,134527,134942,135358,135773,136188,136603,137018,137434,137849,138264,138679,139094,139510,139925,140340,140755,141170,141586,142001,142416,142831,143247,143662,144077,144492,144907,145323,145738,146153,146568,146983,147399,147814,148229,148644,149059,149475,149890,150305,150720,151136,151551,151966,152381,152796,153212,153627,154042,154457,154872,155288,155703,156118,156533,156948,157364,157779,158194,158609,159024,159440,159855,160270,160685,161101,161516,161931,162346,162761,163177,163592,164007,164422,164837,165253,165668,166083,166498,166913,167329,167744,168159,168574,168989,169405,169820,170235,170650,171066,171481,171896,172311,172726,173142,173557,173972,174387,174802,175218,175633,176048,176463,176878,177294,177709,178124,178539,178955,179370,179785,180200,180615,181031,181446,181861,182276,182691,183107,183522,183937,184352,184767,185183,185598,186013,186428,186843,187259,187674,188089,188504,188920,189335,189750,190165,190580,190996,191411,191826,192241,192656,193072,193487,193902,194317,194732,195148,195563,195978,196393,196808,197224,197639,198054,198469,198885,199300,199715,200130,200545,200961,201376,201791,202206,202621,203037,203452,203867,204282,204697,205113,205528,205943,206358,206773,207189,207604,208019,208434,208850,209265,209680,210095,210510,210926,211341,211756,212171,212586],
             },
@@ -112,86 +107,70 @@
                 return LogoEngine._interpolateFromLut(lut, floatIndex);
             },
 
-            /**
-             * Improved interpolation precision.
-             * This function now performs multiplication *before* truncating to an integer,
-             * preserving the fractional precision for a smoother result. This is a key
-             * part of increasing the fidelity of the baked LUT data.
-             */
             _interpolateFromLut: function(lut, floatIndex, wrap = false, wrapLength = 0) {
                 const lutLength = wrap ? (wrapLength > 0 ? wrapLength : lut.length) : lut.length;
                 const index1 = floatIndex | 0;
                 const fraction = floatIndex - index1;
-
-                // This calculation is now more precise.
-                const performInterpolation = (v1, v2) => {
-                    // By multiplying with the float `fraction` first, we maintain precision.
-                    // The bit-shift `>> 8` performs the efficient division by 256 at the end.
-                    return v1 + ( ((v2 - v1) * (fraction * 256)) >> 8 );
-                };
-
+                const performInterpolation = (v1, v2) => v1 + ( ((v2 - v1) * (fraction * 256)) >> 8 );
                 if (wrap) {
-                    const wrappedIndex1 = (index1 % lutLength + lutLength) % lutLength;
-                    const wrappedIndex2 = (wrappedIndex1 + 1) % lutLength;
-                    const value1 = lut[wrappedIndex1];
-                    const value2 = lut[wrappedIndex2];
-                    return performInterpolation(value1, value2);
-                } else {
-                    if (index1 >= lutLength - 1) return lut[lutLength - 1];
-                    if (index1 < 0) return lut[0];
-                    const value1 = lut[index1];
-                    const value2 = lut[index1 + 1];
-                    return performInterpolation(value1, value2);
+                    const i1 = (index1 % lutLength + lutLength) % lutLength;
+                    const i2 = (i1 + 1) % lutLength;
+                    return performInterpolation(lut[i1], lut[i2]);
                 }
+                if (index1 >= lutLength - 1) return lut[lutLength - 1];
+                if (index1 < 0) return lut[0];
+                return performInterpolation(lut[index1], lut[index1 + 1]);
             },
-            
-            // --- Core Methods: The Compiler & Renderer ---
-            
-            reloadWithNewArt: function(svgText, isLut) {
-                this._resetAnimationState();
-                this.state.isStreaming = false;
-                this.state.lastSvgText = isLut ? '' : svgText;
-                
-                let pointsToPace = 0;
 
-                if (!isLut) {
-                    const estimatedPoints = this._solver(svgText);
-                    pointsToPace = estimatedPoints; 
-                }
+            // --- Core Methods: Unified Ingestion and Rendering ---
+            init: function() {
+                this.state.canvas = document.getElementById(this.config.canvasId);
+                if (!this.state.canvas) return;
+                this.state.ctx = this.state.canvas.getContext('2d', { willReadFrequently: true });
+                this.state.reusablePathForSampling = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+                
+                this.Streamer.parent = this;
 
-                const parser = new DOMParser();
-                const svgDoc = parser.parseFromString(svgText, "image/svg+xml");
-                const svgElement = svgDoc.querySelector('svg');
-                if (!svgElement || svgDoc.querySelector('parsererror')) return;
-
-                this._extractSVGMetadata(svgElement);
-                const { animatablePaths, compoundPathMeta } = this._extractAndConvertPathsFromSVG(svgElement);
+                const svgUploader = document.getElementById('svg-uploader');
+                const lutUploader = document.getElementById('lut-uploader');
                 
-                const { finalPalette, mappedStrokes, maxStroke } = this._buildPaletteAndMapPaths(animatablePaths);
-                this.state.colorPalette = finalPalette;
-                this.state.maxGeometricStrokeWidth = maxStroke;
-                
-                const { lut } = this._generateLookupTable(mappedStrokes);
-                
-                this.state.totalPointsInLut = lut.reduce((sum, stroke) => sum + (stroke.length > 0 ? stroke.length - 1 : 0), 0);
-                
-                const drawableLut = this._resolveCompoundPaths(lut, compoundPathMeta);
-                this.state.lookupTable = drawableLut;
-                
-                this.startAnimation(isLut ? this.state.totalPointsInLut : pointsToPace);
+                window.addEventListener('keydown', (e) => {
+                    if (e.target.matches('input, textarea')) return;
+                    const key = e.key.toLowerCase();
+                    if (key === 'b') svgUploader.click();
+                    else if (key === 's') this._saveLutToFile();
+                    else if (key === 'l') lutUploader.click();
+                });
+                svgUploader.addEventListener('change', (e) => {
+                    if (!e.target.files[0]) return;
+                    this.state.lastSvgFile = e.target.files[0];
+                    this.Streamer.init(e.target.files[0], true);
+                    e.target.value = '';
+                });
+                lutUploader.addEventListener('change', (e) => {
+                    if (!e.target.files[0]) return;
+                    this.state.lastSvgFile = null;
+                    this.Streamer.init(e.target.files[0], false);
+                    e.target.value = '';
+                });
+                window.addEventListener('resize', () => {
+                    if (this.state.streamReader) {
+                        this.startAnimation(this.state.totalPointsInLut);
+                    }
+                });
+                const defaultFile = new File([new Blob([this.config.defaultSvgMarkup], {type: 'image/svg+xml'})], "default.svg");
+                this.state.lastSvgFile = defaultFile;
+                requestAnimationFrame(() => this.Streamer.init(defaultFile, true));
             },
 
             startAnimation: function(pointsForPacing) {
                 if (!this.state.canvas || !this.state.ctx) return;
-                
                 cancelAnimationFrame(this.state.animationFrameId);
                 this.state.drawnPointsCount = 0;
                 this.state.currentStrokeIndex = 0;
                 this.state.currentPointInStrokeIndex = 0;
-
                 const container = document.getElementById('logo-container');
                 if (!container) return;
-
                 const containerRect = container.getBoundingClientRect();
                 if (containerRect.width === 0 || containerRect.height === 0) {
                     requestAnimationFrame(() => this.startAnimation(pointsForPacing));
@@ -200,281 +179,189 @@
                 this._setupCanvas(containerRect);
                 this._renderLoop(pointsForPacing);
             },
-            
-            // --- Rendering and Animation ---
 
+            // --- Rendering and Animation ---
             _setupCanvas: function(containerRect) {
                 const { canvas, viewBox } = this.state;
                 const dpr = window.devicePixelRatio || 1;
-                
                 const padding = (this.state.maxGeometricStrokeWidth * 0.5) + this.config.maxStrokeWidth;
-                const effectiveViewBox = {
-                    width: viewBox.width + padding * 2,
-                    height: viewBox.height + padding * 2
-                };
-
-                const scaleX = containerRect.width / effectiveViewBox.width;
-                const scaleY = containerRect.height / effectiveViewBox.height;
-                const scale = scaleX < scaleY ? scaleX : scaleY;
-
+                const effectiveViewBox = { width: viewBox.width + padding * 2, height: viewBox.height + padding * 2 };
+                const scale = Math.min(containerRect.width / effectiveViewBox.width, containerRect.height / effectiveViewBox.height);
                 const canvasWidth = effectiveViewBox.width * scale;
                 const canvasHeight = effectiveViewBox.height * scale;
-
                 canvas.width = canvasWidth * dpr;
                 canvas.height = canvasHeight * dpr;
                 canvas.style.width = `${canvasWidth}px`;
                 canvas.style.height = `${canvasHeight}px`;
             },
-            
+
             _renderLoop: function(pointsForPacing) {
-                const dataSource = this.state.isStreaming ? this.state.dataBuffer : this.state.lookupTable;
                 const { ctx, colorPalette, viewBox } = this.state;
-                const { INV_ANIMATION_DURATION_MS } = this.PRECALCULATED;
-
-                if (!ctx || !dataSource) return;
-
+                if (!ctx) return;
+                const dataSource = this.state.dataBuffer;
                 const pacingTotalPoints = (pointsForPacing > 0) ? pointsForPacing : this.state.totalPointsInLut;
-                if (pacingTotalPoints === 0 && this.state.totalPointsInLut === 0) return;
+                if (pacingTotalPoints === 0 && this.state.totalPointsInLut === 0 && this.state.isEndOfStream) return;
 
                 let startTime = null;
                 let currentPos = {x: 0, y: 0};
                 let dynamicRate = 10;
 
                 const animationFrame = (timestamp) => {
-                    if (this.state.isStreaming) {
+                    if (this.state.isStreaming && !this.state.isEndOfStream) {
                         this.Streamer._manageBuffer();
                     }
 
                     if (!startTime) startTime = timestamp;
                     let elapsedTime = timestamp - startTime;
 
-                    if (this.state.drawnPointsCount < this.state.totalPointsInLut) {
+                    if (this.state.drawnPointsCount < this.state.totalPointsInLut || !this.state.isEndOfStream) {
                         if (elapsedTime > 200 && this.state.drawnPointsCount < 50 && this.state.totalPointsInLut > 100) {
-                            dynamicRate = dynamicRate < 49 ? dynamicRate + 1 : 50;
+                            dynamicRate = Math.min(50, dynamicRate + 1);
                         }
                         elapsedTime = (elapsedTime * dynamicRate) / 10;
-
-                        const pacingProgress = elapsedTime * INV_ANIMATION_DURATION_MS;
-                        const targetPointsToDraw = (pacingProgress * pacingTotalPoints) | 0;
+                        const targetPointsToDraw = (elapsedTime * this.PRECALCULATED.INV_ANIMATION_DURATION_MS * pacingTotalPoints) | 0;
 
                         if(this.state.drawnPointsCount < targetPointsToDraw) {
                             ctx.save();
                             const dpr = window.devicePixelRatio || 1;
                             const padding = (this.state.maxGeometricStrokeWidth * 0.5) + this.config.maxStrokeWidth;
-                            const effectiveWidth = viewBox.width + padding * 2;
-                            const effectiveHeight = viewBox.height + padding * 2;
-                            
-                            const scaleX = (ctx.canvas.width / dpr) / effectiveWidth;
-                            const scaleY = (ctx.canvas.height / dpr) / effectiveHeight;
-                            
-                            const translateX = (-viewBox.x + padding) * scaleX * dpr;
-                            const translateY = (-viewBox.y + padding) * scaleY * dpr;
-
-                            ctx.setTransform(scaleX * dpr, 0, 0, scaleY * dpr, translateX, translateY);
+                            const scale = Math.min((ctx.canvas.width / dpr) / (viewBox.width + padding * 2), (ctx.canvas.height / dpr) / (viewBox.height + padding * 2));
+                            const translateX = (-viewBox.x + padding) * scale * dpr;
+                            const translateY = (-viewBox.y + padding) * scale * dpr;
+                            ctx.setTransform(scale * dpr, 0, 0, scale * dpr, translateX, translateY);
                             ctx.lineCap = 'round';
                             ctx.lineJoin = 'round';
-                            
+
                             let drawnPoints = this.state.drawnPointsCount;
                             let strokeIdx = this.state.currentStrokeIndex;
                             let pointIdx = this.state.currentPointInStrokeIndex;
 
-                            while (drawnPoints < targetPointsToDraw && drawnPoints < this.state.totalPointsInLut) {
-                                if (strokeIdx >= dataSource.length) break;
-                                
-                                let currentStroke;
-                                if (this.state.isStreaming) {
-                                    const currentStrokeData = dataSource[strokeIdx];
-                                    currentStroke = currentStrokeData.stroke;
-                                } else {
-                                    currentStroke = dataSource[strokeIdx];
-                                }
-                                
+                            while (drawnPoints < targetPointsToDraw && strokeIdx < dataSource.length) {
+                                const currentStroke = dataSource[strokeIdx].stroke;
                                 if (pointIdx === 0) {
-                                    if (!currentStroke || currentStroke.length < 2 || typeof currentStroke[0].x === 'undefined') {
-                                        strokeIdx++;
-                                        continue;
-                                    }
+                                    if (!currentStroke || currentStroke.length < 2) { strokeIdx++; continue; }
+                                    // FIX: Explicitly move to the start of a new stroke ("pen-up")
                                     currentPos.x = currentStroke[0].x;
                                     currentPos.y = currentStroke[0].y;
+                                    ctx.moveTo(currentPos.x, currentPos.y);
                                     pointIdx = 1;
                                 }
-
-                                if (pointIdx >= currentStroke.length) {
-                                    pointIdx = 0;
-                                    strokeIdx++;
-                                    continue;
-                                }
-
-                                const prevPos = { ...currentPos };
-                                const deltaPoint = currentStroke[pointIdx];
+                                if (pointIdx >= currentStroke.length) { pointIdx = 0; strokeIdx++; continue; }
                                 
+                                const prevPos = { ...currentPos }; // This is now correct
+                                const deltaPoint = currentStroke[pointIdx];
                                 currentPos.x += deltaPoint.dx;
                                 currentPos.y += deltaPoint.dy;
-
                                 const colorData = colorPalette[deltaPoint.colorIndex] || {r:0,g:0,b:0,a:1};
                                 const colorStr = `rgba(${colorData.r},${colorData.g},${colorData.b},${colorData.a})`;
                                 if (ctx.strokeStyle !== colorStr) ctx.strokeStyle = colorStr;
                                 
                                 ctx.beginPath();
+                                ctx.moveTo(prevPos.x, prevPos.y); // Start from the last point
                                 ctx.lineWidth = deltaPoint.width;
-                                ctx.moveTo(prevPos.x, prevPos.y);
                                 ctx.lineTo(currentPos.x, currentPos.y);
                                 ctx.stroke();
-
+                                
                                 drawnPoints++;
                                 pointIdx++;
                             }
-                            
                             this.state.drawnPointsCount = drawnPoints;
                             this.state.currentStrokeIndex = strokeIdx;
                             this.state.currentPointInStrokeIndex = pointIdx;
-
                             ctx.restore();
                         }
-                        this.state.animationFrameId = requestAnimationFrame(animationFrame);
                     }
+                    this.state.animationFrameId = requestAnimationFrame(animationFrame);
                 };
                 this.state.animationFrameId = requestAnimationFrame(animationFrame);
             },
-            
+
             // --- LUT Generation, Saving, and Loading ---
-            
-            /**
-             * Increased serialization precision.
-             * These functions now use a larger multiplier (`visIntPrecision`) to store
-             * floating-point values as integers in the .vis file, significantly
-             * reducing the precision loss.
-             */
             _toVisInt: (num) => (num * LogoEngine.config.visIntPrecision) | 0,
             _fromVisInt: (int) => int / LogoEngine.config.visIntPrecision,
 
-            _saveLutToFile: function() {
-                if (!this.state.lastSvgText) {
-                    console.error("No SVG data loaded to generate a LUT from.");
+            _saveLutToFile: async function() {
+                if (!this.state.lastSvgFile) {
+                    console.error("No SVG file has been loaded to generate a LUT from.");
                     return;
                 }
-                
+                const svgText = await this.state.lastSvgFile.text();
                 const parser = new DOMParser();
-                const svgDoc = parser.parseFromString(this.state.lastSvgText, "image/svg+xml");
+                const svgDoc = parser.parseFromString(svgText, "image/svg+xml");
                 const svgElement = svgDoc.querySelector('svg');
+                if (!svgElement) return;
+
                 this._extractSVGMetadata(svgElement);
                 const { animatablePaths, compoundPathMeta } = this._extractAndConvertPathsFromSVG(svgElement);
                 const { finalPalette, mappedStrokes, maxStroke } = this._buildPaletteAndMapPaths(animatablePaths);
                 const { lut } = this._generateLookupTable(mappedStrokes);
                 const finalLut = this._resolveCompoundPaths(lut, compoundPathMeta);
-                
-                const actualTotalPoints = finalLut.reduce((sum, stroke) => sum + (stroke.length > 0 ? stroke.length - 1 : 0), 0);
-                
-                let visString = `v${this._toVisInt(this.state.viewBox.x)},${this._toVisInt(this.state.viewBox.y)},${this._toVisInt(this.state.viewBox.width)},${this._toVisInt(this.state.viewBox.height)}|`;
-                visString += `m${this._toVisInt(maxStroke)}|`;
-                visString += `p${JSON.stringify(finalPalette)}|`;
-                visString += `i1,${actualTotalPoints}|`;
+                const actualTotalPoints = finalLut.reduce((sum, s) => sum + (s.length > 1 ? s.length - 1 : 0), 0);
 
+                let visString = `v${this._toVisInt(this.state.viewBox.x)},${this._toVisInt(this.state.viewBox.y)},${this._toVisInt(this.state.viewBox.width)},${this._toVisInt(this.state.viewBox.height)}|`;
+                visString += `m${this._toVisInt(maxStroke)}|p${JSON.stringify(finalPalette)}|i1,${actualTotalPoints}|`;
                 const tableString = finalLut.map(stroke => {
                     if (stroke.length < 2) return '';
                     const start = `x${this._toVisInt(stroke[0].x)}y${this._toVisInt(stroke[0].y)}`;
                     const deltas = stroke.slice(1).map(p => `d${this._toVisInt(p.dx)},${this._toVisInt(p.dy)}c${p.colorIndex}w${this._toVisInt(p.width)}`).join('');
                     return start + deltas;
                 }).join('S');
-
                 visString += `t${tableString}`;
-
                 const blob = new Blob([visString], { type: 'text/plain' });
                 const url = URL.createObjectURL(blob);
-
                 const a = document.createElement('a');
-                a.href = url;
-                a.download = 'animation.vis';
-                document.body.appendChild(a);
-                a.click();
-                document.body.removeChild(a);
-                URL.revokeObjectURL(url);
+                a.href = url; a.download = 'animation.vis';
+                document.body.appendChild(a); a.click();
+                document.body.removeChild(a); URL.revokeObjectURL(url);
             },
 
-            _loadLutFromFile: function(file) {
-                this.Streamer.init(file);
+            _solver: function(svgTextChunk) {
+                const commandRegex = /[MmLlHhVvCcSsQqTtAaZz]/g;
+                let complexity = 0;
+                const costs = { M: 1, L: 2, H: 2, V: 2, C: 5, S: 4, Q: 4, T: 3, A: 5, Z: 1 };
+                const dRegex = /d\s*=\s*"([^"]+)"/gi;
+                let match;
+                while ((match = dRegex.exec(svgTextChunk)) !== null) {
+                    const commands = match[1].match(commandRegex) || [];
+                    commands.forEach(cmd => { complexity += costs[cmd.toUpperCase()] || 1; });
+                }
+                if (complexity === 0) return 21179; // Fallback
+                if (complexity >= 8191) return (complexity * 26) | 0;
+                const floatIndex = complexity / this.PRECALCULATED.SOLVER_LUT_SCALE;
+                return this._interpolateFromLut(this.PRECALCULATED.SOLVER_LUT_INT, floatIndex);
             },
             
-            // --- Initialization and Event Handlers ---
-            init: function() {
-                this.state.canvas = document.getElementById(this.config.canvasId);
-                if (!this.state.canvas) return;
-                this.state.ctx = this.state.canvas.getContext('2d', { willReadFrequently: true });
-                
-                this.state.reusablePathForSampling = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-                this.Streamer.parent = this; // Link Streamer to the parent LogoEngine instance.
-
-                const svgUploader = document.getElementById('svg-uploader');
-                const lutUploader = document.getElementById('lut-uploader');
-                
-                window.addEventListener('keydown', (e) => {
-                    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
-                    const key = e.key.toLowerCase();
-                    if (key === 'b') svgUploader.click();
-                    else if (key === 's') this._saveLutToFile();
-                    else if (key === 'l') lutUploader.click();
-                });
-
-                svgUploader.addEventListener('change', (e) => {
-                    const file = e.target.files[0];
-                    if (!file) return;
-                    const reader = new FileReader();
-                    reader.onload = (event) => this.reloadWithNewArt(event.target.result, false);
-                    reader.readAsText(file);
-                    e.target.value = '';
-                });
-
-                lutUploader.addEventListener('change', (e) => {
-                    const file = e.target.files[0];
-                    if (!file) return;
-                    this._loadLutFromFile(file);
-                    e.target.value = '';
-                });
-
-                window.addEventListener('resize', () => {
-                    // Re-initialize canvas and animation on window resize.
-                    this.startAnimation(this.state.totalPointsInLut);
-                });
-
-                requestAnimationFrame(() => { this.reloadWithNewArt(this.config.defaultSvgMarkup, false); });
+            // --- Helper and Legacy Functions (Restored) ---
+            _resetAnimationState: function() {
+                 cancelAnimationFrame(this.state.animationFrameId);
+                this.state.drawnPointsCount = 0;
+                this.state.currentStrokeIndex = 0;
+                this.state.currentPointInStrokeIndex = 0;
+                this.state.totalPointsInLut = 0;
+                this.state.streamReader = null;
+                this.state.isStreaming = false;
+                this.state.isEndOfStream = false;
+                this.state.dataBuffer = [];
+                if (this.state.ctx) this.state.ctx.reset();
             },
-
-            _solver: function(svgText) {
-                const parser = new DOMParser();
-                const svgDoc = parser.parseFromString(svgText, "image/svg+xml");
-                const svgElement = svgDoc.querySelector('svg');
-                if (!svgElement) return 21179; // Return average if parse fails
-
-                const commandRegex = /[MmLlHhVvCcSsQqTtAaZz]/g;
-                let liveGeometricComplexity = 0;
-                const commandCosts = { M: 1, L: 2, H: 2, V: 2, C: 5, S: 4, Q: 4, T: 3, A: 5, Z: 1 };
-
-                const pathElements = svgElement.querySelectorAll('path, rect, circle, ellipse, line, polyline, polygon');
-                pathElements.forEach(node => {
-                    const pathData = this._getPathDataFromNode(node);
-                    if (pathData) {
-                        const commands = pathData.match(commandRegex) || [];
-                        commands.forEach(cmd => {
-                            liveGeometricComplexity += commandCosts[cmd.toUpperCase()] || 1;
-                        });
-                    }
-                });
-
-                if (liveGeometricComplexity === 0) return 0;
-                
-                if (liveGeometricComplexity >= 8191) {
-                    return (liveGeometricComplexity * 26) | 0; 
+            _parseAttributes: function(attrString) {
+                const attrs = {};
+                if (!attrString) return attrs;
+                const attrRegex = /([a-zA-Z0-9\-_:]+)\s*=\s*(?:"([^"]*)"|'([^']*)'|[^\s]+)/g;
+                let match;
+                while ((match = attrRegex.exec(attrString)) !== null) {
+                    attrs[match[1]] = match[2] ?? match[3] ?? match[0].split('=')[1];
                 }
-
-                const lut = this.PRECALCULATED.SOLVER_LUT_INT;
-                const scale = this.PRECALCULATED.SOLVER_LUT_SCALE;
-
-                const floatIndex = liveGeometricComplexity / scale;
-                return this._interpolateFromLut(lut, floatIndex);
+                return attrs;
             },
-
-            // --- Helper Functions ---
-            _buildPaletteAndMapPaths: function(animatablePaths) {
+            _parseStyleAttribute: function(s) {
+                return s.split(';').reduce((styles, p) => {
+                    const parts = p.split(':');
+                    if (parts.length === 2) styles[parts[0].trim()] = parts[1].trim();
+                    return styles;
+                }, {});
+            },
+             _buildPaletteAndMapPaths: function(animatablePaths) {
                 if (!animatablePaths || animatablePaths.length === 0) {
                     return { finalPalette: [this._colorUtils.parseColor(this.config.fallbackStrokeColor, 1)], mappedStrokes: [], maxStroke: 0 };
                 }
@@ -928,28 +815,6 @@
                     this.state.clipPathCache.set(clipId, combinedPath2D);
                 });
             },
-            _resetAnimationState: function() {
-                cancelAnimationFrame(this.state.animationFrameId);
-                this.state.drawnPointsCount = 0;
-                this.state.currentStrokeIndex = 0;
-                this.state.currentPointInStrokeIndex = 0;
-                this.state.totalPointsInLut = 0;
-                this.state.lookupTable = [];
-                this.state.streamReader = null;
-                this.state.isStreaming = false;
-                this.state.isEndOfStream = false;
-                this.state.dataBuffer = [];
-                if (this.state.ctx && this.state.canvas) {
-                    this.state.ctx.reset();
-                }
-            },
-            _parseStyleAttribute: function(s) {
-                return s.split(';').reduce((styles, p) => {
-                    const parts = p.split(':');
-                    if (parts.length === 2) styles[parts[0].trim()] = parts[1].trim();
-                    return styles;
-                }, {});
-            },
             _parseStyleSheets: function(svgNode) {
                 const rules = new Map();
                 svgNode.querySelectorAll('style').forEach(style => {
@@ -986,7 +851,6 @@
 
                     const getTrigValue = (angleInDegrees) => {
                         const floatIndex = (angleInDegrees % 360 + 360) % 360;
-                        // SIN_LUT_INT has 360 entries for a full circle
                         const interpolatedValue = LogoEngine._interpolateFromLut(lut, floatIndex, true, 360);
                         return interpolatedValue * inv_scale;
                     };
@@ -1073,21 +937,7 @@
                 if (perimeter < 1) return { perimeter: 0, area: 0 };
                 
                 const points = [];
-                
-                // Data-driven sample count based on profiling.
-                let sampleCount;
-                if (perimeter < 50) {
-                    sampleCount = 30; // Tiny paths
-                } else if (perimeter < 250) {
-                    sampleCount = 60; // Small paths
-                } else if (perimeter < 750) {
-                    sampleCount = 100; // Medium paths
-                } else if (perimeter < 1500) {
-                    sampleCount = 150; // Large paths
-                } else {
-                    sampleCount = 200; // Huge paths
-                }
-                
+                let sampleCount = 100; // Simplified for streaming context
                 const invSampleCount = 1.0 / sampleCount;
 
                 for (let i = 0; i < sampleCount; i++) {
@@ -1129,42 +979,116 @@
             },
         };
 
+        // ===================================================================================
+        // UNIFIED STREAMER OBJECT
+        // ===================================================================================
         LogoEngine.Streamer = {
             parent: null,
-            partialStrokeData: "", // Holds data from a stroke split between chunks
+            // SVG-specific state
+            _svg: {
+                partialData: "",
+                transformStack: [],
+                styleStack: [],
+                tagRegex: /<\/?([a-zA-Z0-9]+)((?:\s+[a-zA-Z0-9\-_:]+(?:\s*=\s*(?:"[^"]*"|'[^']*'))?)*)\s*\/?>/g,
+                pointGenerator: null,
+                isFillingBuffer: false,
+            },
+            // VIS-specific state
+            _vis: {
+                partialStrokeData: "",
+            },
 
-            init: function(file) {
+            async init(file, isSvg) {
                 this.parent._resetAnimationState();
                 this.parent.state.isStreaming = true;
-                this.parent.state.streamReader = {
-                    file: file,
-                    readPosition: 0,
-                    isReading: false,
-                };
-                this.partialStrokeData = "";
+                this.parent.state.streamReader = { file, readPosition: 0, isReading: false, isSvg };
 
+                if (isSvg) {
+                    await this._initSvgRoutine();
+                } else {
+                    this._initVisRoutine();
+                }
+            },
+
+            _manageBuffer() {
+                const { streamReader, isEndOfStream } = this.parent.state;
+                if (!streamReader || isEndOfStream) return;
+
+                if (streamReader.isSvg) {
+                    this._manageSvgBuffer();
+                } else {
+                    this._manageVisBuffer();
+                }
+            },
+
+            // --- .VIS ROUTINE ---
+            _initVisRoutine() {
+                this._vis.partialStrokeData = "";
                 const reader = new FileReader();
                 reader.onload = (e) => {
                     const text = e.target.result;
                     const headerEndIndex = text.indexOf('|t');
-                    if (headerEndIndex === -1) {
-                        console.error("Invalid .vis file: table data not found.");
-                        return;
-                    }
-
-                    const headerText = text.substring(0, headerEndIndex);
-                    this.parent.state.streamReader.readPosition = headerEndIndex + 2; // Start after '|t'
-
-                    let pointsForPacing = this._parseHeader(headerText);
+                    if (headerEndIndex === -1) { console.error("Invalid .vis file"); return; }
                     
-                    this._fetchNextChunk().then(() => {
+                    const headerText = text.substring(0, headerEndIndex);
+                    this.parent.state.streamReader.readPosition = headerEndIndex + 2;
+                    const pointsForPacing = this._parseVisHeader(headerText);
+
+                    this._fetchVisChunk().then(() => {
                         this.parent.startAnimation(pointsForPacing);
                     });
                 };
-                reader.readAsText(file);
+                reader.readAsText(this.parent.state.streamReader.file.slice(0, 2048));
             },
+            _manageVisBuffer() {
+                const { streamReader, dataBuffer, currentStrokeIndex } = this.parent.state;
+                if (streamReader.isReading) return;
 
-            _parseHeader: function(headerText) {
+                let remainingBytes = 0;
+                for (let i = currentStrokeIndex; i < dataBuffer.length; i++) {
+                    remainingBytes += dataBuffer[i].size;
+                }
+                if (remainingBytes < this.parent.config.streamBufferThreshold) {
+                    this._fetchVisChunk();
+                }
+            },
+            async _fetchVisChunk() {
+                const { streamReader } = this.parent.state;
+                if (streamReader.isReading) return;
+                streamReader.isReading = true;
+
+                const { file, readPosition } = streamReader;
+                if (readPosition >= file.size) {
+                    this.parent.state.isEndOfStream = true;
+                    streamReader.isReading = false;
+                    if (this._vis.partialStrokeData) {
+                        this._parseVisChunk(this._vis.partialStrokeData);
+                        this._vis.partialStrokeData = "";
+                    }
+                    return;
+                }
+
+                const end = readPosition + this.parent.config.visStreamChunkSize;
+                const blob = file.slice(readPosition, end);
+                const textChunk = await blob.text();
+
+                const combinedText = this._vis.partialStrokeData + textChunk;
+                const lastSeparator = combinedText.lastIndexOf('S');
+                
+                let chunkToParse;
+                if (lastSeparator === -1 && end < file.size) {
+                    this._vis.partialStrokeData = combinedText;
+                    chunkToParse = "";
+                } else {
+                    chunkToParse = combinedText.substring(0, lastSeparator > -1 ? lastSeparator : undefined);
+                    this._vis.partialStrokeData = lastSeparator > -1 ? combinedText.substring(lastSeparator + 1) : "";
+                }
+
+                streamReader.readPosition += blob.size;
+                this._parseVisChunk(chunkToParse);
+                streamReader.isReading = false;
+            },
+            _parseVisHeader(headerText) {
                 const parts = headerText.split('|');
                 let pointsForPacing = 0;
                 parts.forEach(part => {
@@ -1193,107 +1117,273 @@
                 });
                 return pointsForPacing;
             },
-
-            _manageBuffer: function() {
-                const { streamReader, dataBuffer, isEndOfStream, currentStrokeIndex } = this.parent.state;
-                if (!streamReader || streamReader.isReading || isEndOfStream) {
-                    return;
-                }
-                
-                let remainingBytes = 0;
-                for (let i = currentStrokeIndex; i < dataBuffer.length; i++) {
-                    remainingBytes += dataBuffer[i].size;
-                }
-                
-                if (remainingBytes < this.parent.config.streamBufferThreshold) {
-                    this._fetchNextChunk();
-                }
-            },
-
-            _fetchNextChunk: async function() {
-                const { streamReader } = this.parent.state;
-                if (!streamReader || streamReader.isReading) return;
-
-                streamReader.isReading = true;
-                const file = streamReader.file;
-                const start = streamReader.readPosition;
-                
-                if (start >= file.size) {
-                    this.parent.state.isEndOfStream = true;
-                    streamReader.isReading = false;
-                    if (this.partialStrokeData) {
-                        this._parseChunk(this.partialStrokeData);
-                        this.partialStrokeData = "";
-                    }
-                    return;
-                }
-                
-                const end = start + this.parent.config.streamChunkSize;
-                const blob = file.slice(start, end);
-                const textChunk = await blob.text();
-                
-                const combinedText = this.partialStrokeData + textChunk;
-                const lastStrokeSeparator = combinedText.lastIndexOf('S');
-                
-                let chunkToParse;
-                
-                if (lastStrokeSeparator === -1) {
-                    this.partialStrokeData = combinedText;
-                    chunkToParse = "";
-                } else {
-                    chunkToParse = combinedText.substring(0, lastStrokeSeparator);
-                    this.partialStrokeData = combinedText.substring(lastStrokeSeparator + 1);
-                }
-                
-                streamReader.readPosition = start + (new Blob([textChunk]).size);
-
-                this._parseChunk(chunkToParse);
-                streamReader.isReading = false;
-            },
-
-            _parseChunk: function(chunkText) {
+            _parseVisChunk(chunkText) {
                 if (!chunkText) return;
                 const strokes = chunkText.split('S').filter(s => s);
                 strokes.forEach(strokeStr => {
-                       if (!strokeStr) return;
-                       const stroke = [];
-                       const regex = /([xycdw])([\-0-9,]+)/g;
-                       let match;
-                       let currentPoint = {};
-                       let isStart = true;
-
-                       while ((match = regex.exec(strokeStr)) !== null) {
-                           const type = match[1];
-                           const values = match[2];
-                           
-                           if (isStart) {
-                               if (type === 'x') currentPoint.x = this.parent._fromVisInt(parseInt(values, 10));
-                               if (type === 'y') {
-                                   currentPoint.y = this.parent._fromVisInt(parseInt(values, 10));
-                                   stroke.push(currentPoint);
-                                   currentPoint = {};
-                                   isStart = false;
-                               }
-                           } else {
-                               if (type === 'd') {
-                                   const [dx, dy] = values.split(',').map(v => this.parent._fromVisInt(parseInt(v, 10)));
-                                   currentPoint.dx = dx;
-                                   currentPoint.dy = dy;
-                               }
-                               if (type === 'c') currentPoint.colorIndex = parseInt(values, 10);
-                               if (type === 'w') {
-                                   currentPoint.width = this.parent._fromVisInt(parseInt(values, 10));
-                                   stroke.push(currentPoint);
-                                   currentPoint = {};
-                               }
-                           }
-                       }
-                       if(stroke.length > 1) { // A valid stroke must have a start point and at least one delta point.
-                           const strokeSizeInBytes = new Blob([strokeStr]).size + 1; // +1 for the 'S' separator
-                           this.parent.state.dataBuffer.push({ stroke: stroke, size: strokeSizeInBytes });
-                       }
+                    if (!strokeStr) return;
+                    const stroke = [];
+                    const regex = /([xycdw])([\-0-9,]+)/g;
+                    let match, currentPoint = {}, isStart = true;
+                    while ((match = regex.exec(strokeStr))) {
+                        const [_, type, values] = match;
+                        if (isStart) {
+                            if (type === 'x') currentPoint.x = this.parent._fromVisInt(parseInt(values, 10));
+                            if (type === 'y') {
+                                currentPoint.y = this.parent._fromVisInt(parseInt(values, 10));
+                                stroke.push(currentPoint);
+                                currentPoint = {};
+                                isStart = false;
+                            }
+                        } else {
+                            if (type === 'd') {
+                                const [dx, dy] = values.split(',').map(v => this.parent._fromVisInt(parseInt(v, 10)));
+                                currentPoint.dx = dx; currentPoint.dy = dy;
+                            }
+                            if (type === 'c') currentPoint.colorIndex = parseInt(values, 10);
+                            if (type === 'w') {
+                                currentPoint.width = this.parent._fromVisInt(parseInt(values, 10));
+                                stroke.push(currentPoint);
+                                currentPoint = {};
+                            }
+                        }
+                    }
+                    if (stroke.length > 1) {
+                        const size = new Blob([strokeStr]).size + 1;
+                        this.parent.state.dataBuffer.push({ stroke, size });
+                    }
                 });
-            }
+            },
+
+            // --- SVG ROUTINE (Two-Pass Look-Ahead Processor) ---
+            async _initSvgRoutine() {
+                // Pass 1: Get metadata for setup
+                const metadata = await this._svg_firstPass();
+                this.parent.state.colorPalette = metadata.finalPalette;
+                this.parent.state.maxGeometricStrokeWidth = metadata.maxStroke;
+                this.parent.state.viewBox = metadata.viewBox;
+                
+                // Create the generator that will produce points on demand
+                this._svg.pointGenerator = this._svg_secondPassGenerator();
+
+                // CRITICAL: Prime the buffer BEFORE starting the animation
+                await this._svg.pointGenerator.next();
+
+                // Now that the buffer is primed, start the renderer
+                this.parent.startAnimation(metadata.pointsForPacing);
+            },
+            async _svg_firstPass() {
+                const reader = this.parent.state.streamReader;
+                reader.readPosition = 0;
+                let firstChunk = "";
+                const colorWeights = new Map();
+                let maxStroke = 0;
+                let viewBox = this.parent.state.viewBox;
+
+                while(reader.readPosition < reader.file.size) {
+                    const chunkText = await this._fetchChunkForPass();
+                    if (firstChunk === "") firstChunk = chunkText;
+                    
+                    this._svg.tagRegex.lastIndex = 0;
+                    let match;
+                    while ((match = this._svg.tagRegex.exec(chunkText))) {
+                        if (match[0].startsWith('</')) continue;
+                        const tagName = match[1].toLowerCase();
+                        const attrs = this.parent._parseAttributes(match[2]);
+                        const style = { ...attrs, ...(attrs.style ? this.parent._parseStyleAttribute(attrs.style) : {}) };
+                        
+                        const fill = style.fill || (tagName === 'path' ? 'none' : 'black');
+                        const stroke = style.stroke;
+
+                        if (fill !== 'none') {
+                           const rgba = this.parent._colorUtils.parseColor(fill, parseFloat(style['fill-opacity'] || 1));
+                           if(rgba.a > 0) {
+                               const key = `${rgba.r},${rgba.g},${rgba.b},${rgba.a}`;
+                               if (!colorWeights.has(key)) colorWeights.set(key, { color: rgba, weight: 0 });
+                               colorWeights.get(key).weight++;
+                           }
+                        }
+                        if (stroke && stroke !== 'none') {
+                           const rgba = this.parent._colorUtils.parseColor(stroke, parseFloat(style['stroke-opacity'] || 1));
+                           if(rgba.a > 0) {
+                               const key = `${rgba.r},${rgba.g},${rgba.b},${rgba.a}`;
+                               if (!colorWeights.has(key)) colorWeights.set(key, { color: rgba, weight: 0 });
+                               colorWeights.get(key).weight++;
+                           }
+                        }
+
+                        const strokeW = parseFloat(style['stroke-width']);
+                        if (!isNaN(strokeW) && strokeW > maxStroke) maxStroke = strokeW;
+                        if(tagName === 'svg' && attrs.viewBox) {
+                            const vb = attrs.viewBox.split(/[\s,]+/).map(Number);
+                            if (vb.length === 4) viewBox = { x: vb[0], y: vb[1], width: vb[2], height: vb[3] };
+                        }
+                    }
+                }
+                
+                const weightedColors = Array.from(colorWeights.values());
+                let finalPalette = weightedColors.length <= this.parent.config.maxPaletteSize
+                    ? weightedColors.map(item => item.color)
+                    : this.parent._quantizeWithWeightedKMeans(weightedColors, this.parent.config.maxPaletteSize);
+
+                if (finalPalette.length === 0) {
+                    finalPalette.push(this.parent._colorUtils.parseColor(this.parent.config.fallbackStrokeColor, 1));
+                }
+
+                return {
+                    finalPalette, maxStroke, viewBox,
+                    pointsForPacing: this.parent._solver(firstChunk)
+                };
+            },
+            async* _svg_secondPassGenerator() {
+                const reader = this.parent.state.streamReader;
+                reader.readPosition = 0; // Rewind
+                this._svg.partialData = "";
+                this._svg.transformStack = [this.parent._matrixHelper.identity()];
+                this._svg.styleStack = [{ fill: 'black', 'fill-opacity': 1, stroke: 'none', 'stroke-opacity': 1, 'stroke-width': 1, color: '#000' }];
+
+                while (reader.readPosition < reader.file.size) {
+                    const chunkText = await this._fetchChunkForPass();
+                    const newPoints = this._parseSvgChunk(chunkText);
+                    if (newPoints.length > 0) {
+                        this.parent.state.dataBuffer.push(...newPoints);
+                        yield; // Pause until more data is needed
+                    }
+                }
+                this.parent.state.isEndOfStream = true;
+            },
+            _manageSvgBuffer() {
+                if (this._svg.isFillingBuffer || this.parent.state.isEndOfStream) return;
+                
+                let remainingBytes = 0;
+                for (let i = this.parent.state.currentStrokeIndex; i < this.parent.state.dataBuffer.length; i++) {
+                    remainingBytes += this.parent.state.dataBuffer[i].size;
+                }
+
+                if (remainingBytes < this.parent.config.streamBufferThreshold) {
+                    this._svg.isFillingBuffer = true;
+                    this._svg.pointGenerator.next().then(() => {
+                        this._svg.isFillingBuffer = false;
+                    });
+                }
+            },
+            async _fetchChunkForPass() {
+                const reader = this.parent.state.streamReader;
+                const start = reader.readPosition;
+                const end = start + this.parent.config.svgStreamChunkSize; // Use 4KB chunk size
+                const blob = reader.file.slice(start, end);
+                const text = await blob.text();
+                reader.readPosition += blob.size;
+                return text;
+            },
+            _parseSvgChunk(chunkText) {
+                const allFoundPaths = [];
+                const combinedText = this._svg.partialData + chunkText;
+                const lastTagEnd = combinedText.lastIndexOf('>');
+                let chunkToParse = combinedText;
+                if (lastTagEnd !== -1) {
+                    chunkToParse = combinedText.substring(0, lastTagEnd + 1);
+                    this._svg.partialData = combinedText.substring(lastTagEnd + 1);
+                } else {
+                    this._svg.partialData = combinedText;
+                }
+
+                this._svg.tagRegex.lastIndex = 0;
+                let match;
+                while ((match = this._svg.tagRegex.exec(chunkToParse))) {
+                    const tagName = match[1].toLowerCase();
+                    if (match[0].startsWith('</')) {
+                        if (['g', 'svg'].includes(tagName)) {
+                            if (this._svg.transformStack.length > 1) this._svg.transformStack.pop();
+                            if (this._svg.styleStack.length > 1) this._svg.styleStack.pop();
+                        }
+                    } else {
+                        const attrs = this.parent._parseAttributes(match[2]);
+                        if (['g', 'svg'].includes(tagName)) {
+                            this._svg_pushState(attrs);
+                            if (match[0].endsWith('/>')) {
+                                this._svg.transformStack.pop();
+                                this._svg.styleStack.pop();
+                            }
+                        } else if (['path', 'rect', 'circle', 'ellipse', 'line', 'polygon', 'polyline'].includes(tagName)) {
+                            this._svg_processShape(tagName, attrs, allFoundPaths);
+                        }
+                    }
+                }
+
+                // Re-implement the original fill/stroke logic
+                const animatablePaths = [];
+                const hasStrokesInCollection = allFoundPaths.some(p => p.isOriginalStroke);
+                const hasFillsInCollection = allFoundPaths.some(p => p.type === 'fill');
+                animatablePaths.push(...allFoundPaths.filter(p => p.type === 'fill'));
+                if (hasStrokesInCollection) {
+                    animatablePaths.push(...allFoundPaths.filter(p => p.type === 'stroke'));
+                } else if (hasFillsInCollection) {
+                    const strokesFromFills = allFoundPaths.filter(p => p.type === 'fill').map(p => ({ 
+                        ...p, type: 'stroke', strokeWidth: 2, color: p.color, opacity: p.opacity, isOriginalStroke: false 
+                    }));
+                    animatablePaths.push(...strokesFromFills);
+                }
+                
+                const mappedStrokes = animatablePaths.map(stroke => {
+                    const rgba = this.parent._colorUtils.parseColor(stroke.color, stroke.opacity);
+                    let bestMatchIndex = 0, minDistance = Infinity;
+                    this.parent.state.colorPalette.forEach((paletteRgba, index) => {
+                        const distance = this.parent._colorUtils.colorDistanceSq(rgba, paletteRgba);
+                        if (distance < minDistance) {
+                            minDistance = distance;
+                            bestMatchIndex = index;
+                        }
+                    });
+                    return { ...stroke, colorIndex: bestMatchIndex };
+                });
+
+                const newPointsBuffer = [];
+                this.parent._streamProcessSVG(mappedStrokes, (segment) => {
+                    const size = JSON.stringify(segment).length;
+                    newPointsBuffer.push({ stroke: segment, size });
+                    this.parent.state.totalPointsInLut += segment.length - 1;
+                });
+
+                return newPointsBuffer;
+            },
+            _svg_pushState(attrs) {
+                const parentStyle = this._svg.styleStack[this._svg.styleStack.length - 1];
+                const newStyle = { ...parentStyle, ...this.parent._parseStyleAttribute(attrs.style || '') };
+                ['fill', 'fill-opacity', 'stroke', 'stroke-opacity', 'stroke-width', 'color'].forEach(key => {
+                    if (attrs[key] != null) newStyle[key] = attrs[key];
+                });
+                if (newStyle.fill === 'currentColor') newStyle.fill = newStyle.color;
+                if (newStyle.stroke === 'currentColor') newStyle.stroke = newStyle.color;
+                this._svg.styleStack.push(newStyle);
+
+                const parentTransform = this._svg.transformStack[this._svg.transformStack.length - 1];
+                const localTransform = attrs.transform ? this.parent._parseTransform(attrs.transform) : this.parent._matrixHelper.identity();
+                this._svg.transformStack.push(this.parent._matrixHelper.multiply(parentTransform, localTransform));
+            },
+            _svg_processShape(tagName, attrs, allFoundPaths) {
+                const currentStyle = { ...this._svg.styleStack[this._svg.styleStack.length - 1], ...attrs };
+                const currentTransform = this._svg.transformStack[this._svg.transformStack.length - 1];
+                const pathData = this.parent._getPathDataFromNode({ tagName, getAttribute: (name) => currentStyle[name] });
+                if (!pathData) return;
+
+                // FIX: Split path data by MoveTo commands to handle sub-paths correctly
+                const subPaths = pathData.trim().split(/(?=M|m)/g).filter(s => s.trim());
+                
+                subPaths.forEach(subPathData => {
+                    const transformedPath = this.parent._applyTransformBySampling(subPathData, currentTransform);
+                    const strokeWidth = parseFloat(currentStyle['stroke-width']) || 0;
+                    const fillOpacity = parseFloat(currentStyle['fill-opacity']) || 1;
+                    const strokeOpacity = parseFloat(currentStyle['stroke-opacity']) || 1;
+                    
+                    if (currentStyle.fill && currentStyle.fill !== 'none' && fillOpacity > 0) {
+                         allFoundPaths.push({ path: transformedPath, type: 'fill', color: currentStyle.fill, opacity: fillOpacity, isOriginalStroke: false, strokeWidth: this.parent.config.maxStrokeWidth });
+                    }
+                    if (currentStyle.stroke && currentStyle.stroke !== 'none' && strokeWidth > 0 && strokeOpacity > 0) {
+                         allFoundPaths.push({ path: transformedPath, type: 'stroke', color: currentStyle.stroke, opacity: strokeOpacity, isOriginalStroke: true, strokeWidth: strokeWidth });
+                    }
+                });
+            },
         };
 
         document.addEventListener('DOMContentLoaded', () => LogoEngine.init());
