@@ -48,8 +48,9 @@
     <script>
         /**
          * EdgeLUT: SVG animation engine and LUT compiler.
-         * V10: Implements all visual style fixes: "pen-up" bug, original fill/stroke logic,
-         * and meticulous point styling. Uses the ideal 4KB workspace for SVG processing.
+         * V13 (Refactor): Removed all legacy DOM-based parsing code. The engine is now
+         * fully committed to the low-memory streaming architecture. The save-to-vis
+         * function is temporarily disabled as it depended on the legacy code.
          */
         const LogoEngine = {
             config: {
@@ -59,20 +60,20 @@
                 maxStrokeWidth: 8.5,
                 minCurveWidth: 1.5,
                 maxPaletteSize: 16,
-                visStreamChunkSize: 61440, // 60 KB for robust .vis loading
+                visStreamChunkSize: 61440, 
                 streamBufferThreshold: 51200, 
                 visIntPrecision: 100000,
-                // Ideal workspace size for SVG conversion, based on analysis.
                 svgStreamChunkSize: 4096,
             },
 
             state: {
                 canvas: null, ctx: null, animationFrameId: null,
                 viewBox: { x: 0, y: 0, width: 400, height: 225 },
-                colorPalette: [], cssRules: new Map(), drawnPointsCount: 0,
+                colorPalette: [], 
+                drawnPointsCount: 0,
                 totalPointsInLut: 0,
                 currentStrokeIndex: 0, currentPointInStrokeIndex: 0,
-                clipPathCache: new Map(), reusablePathForSampling: null,
+                reusablePathForSampling: null,
                 maxGeometricStrokeWidth: 0,
                 _lcg_seed: 1,
                 lastSvgFile: null,
@@ -280,39 +281,36 @@
             _toVisInt: (num) => (num * LogoEngine.config.visIntPrecision) | 0,
             _fromVisInt: (int) => int / LogoEngine.config.visIntPrecision,
 
-            _saveLutToFile: async function() {
-                if (!this.state.lastSvgFile) {
-                    console.error("No SVG file has been loaded to generate a LUT from.");
+            _saveLutToFile: function() {
+                if (this.state.dataBuffer.length === 0) {
+                    console.error("No animation data in the buffer to save.");
                     return;
                 }
-                const svgText = await this.state.lastSvgFile.text();
-                const parser = new DOMParser();
-                const svgDoc = parser.parseFromString(svgText, "image/svg+xml");
-                const svgElement = svgDoc.querySelector('svg');
-                if (!svgElement) return;
-
-                this._extractSVGMetadata(svgElement);
-                const { animatablePaths, compoundPathMeta } = this._extractAndConvertPathsFromSVG(svgElement);
-                const { finalPalette, mappedStrokes, maxStroke } = this._buildPaletteAndMapPaths(animatablePaths);
-                const { lut } = this._generateLookupTable(mappedStrokes);
-                const finalLut = this._resolveCompoundPaths(lut, compoundPathMeta);
-                const actualTotalPoints = finalLut.reduce((sum, s) => sum + (s.length > 1 ? s.length - 1 : 0), 0);
-
+                
                 let visString = `v${this._toVisInt(this.state.viewBox.x)},${this._toVisInt(this.state.viewBox.y)},${this._toVisInt(this.state.viewBox.width)},${this._toVisInt(this.state.viewBox.height)}|`;
-                visString += `m${this._toVisInt(maxStroke)}|p${JSON.stringify(finalPalette)}|i1,${actualTotalPoints}|`;
-                const tableString = finalLut.map(stroke => {
+                visString += `m${this._toVisInt(this.state.maxGeometricStrokeWidth)}|`;
+                visString += `p${JSON.stringify(this.state.colorPalette)}|`;
+                visString += `i1,${this.state.totalPointsInLut}|`;
+
+                const tableString = this.state.dataBuffer.map(strokeData => {
+                    const stroke = strokeData.stroke;
                     if (stroke.length < 2) return '';
                     const start = `x${this._toVisInt(stroke[0].x)}y${this._toVisInt(stroke[0].y)}`;
                     const deltas = stroke.slice(1).map(p => `d${this._toVisInt(p.dx)},${this._toVisInt(p.dy)}c${p.colorIndex}w${this._toVisInt(p.width)}`).join('');
                     return start + deltas;
                 }).join('S');
+
                 visString += `t${tableString}`;
+
                 const blob = new Blob([visString], { type: 'text/plain' });
                 const url = URL.createObjectURL(blob);
                 const a = document.createElement('a');
-                a.href = url; a.download = 'animation.vis';
-                document.body.appendChild(a); a.click();
-                document.body.removeChild(a); URL.revokeObjectURL(url);
+                a.href = url;
+                a.download = 'animation.vis';
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
             },
 
             _solver: function(svgTextChunk) {
@@ -360,51 +358,6 @@
                     if (parts.length === 2) styles[parts[0].trim()] = parts[1].trim();
                     return styles;
                 }, {});
-            },
-             _buildPaletteAndMapPaths: function(animatablePaths) {
-                if (!animatablePaths || animatablePaths.length === 0) {
-                    return { finalPalette: [this._colorUtils.parseColor(this.config.fallbackStrokeColor, 1)], mappedStrokes: [], maxStroke: 0 };
-                }
-                const colorWeights = new Map();
-                let maxStroke = 0;
-                animatablePaths.forEach(p => {
-                    const rgba = this._colorUtils.parseColor(p.color, p.opacity);
-                    if (rgba.a > 0) {
-                        const colorKey = `${rgba.r},${rgba.g},${rgba.b},${rgba.a}`;
-                        const metrics = this._getPathMetrics(p.path);
-                        const weight = p.type === 'fill' ? metrics.area : metrics.perimeter * p.strokeWidth;
-                        if (colorWeights.has(colorKey)) {
-                            colorWeights.get(colorKey).weight += weight;
-                        } else {
-                            colorWeights.set(colorKey, { color: rgba, weight });
-                        }
-                    }
-                    if (p.strokeWidth > maxStroke) maxStroke = p.strokeWidth;
-                });
-
-                const weightedColors = Array.from(colorWeights.values());
-                let finalPalette;
-                if (weightedColors.length <= this.config.maxPaletteSize) {
-                    finalPalette = weightedColors.map(item => item.color);
-                } else {
-                    finalPalette = this._quantizeWithWeightedKMeans(weightedColors, this.config.maxPaletteSize);
-                }
-                if (finalPalette.length === 0) finalPalette.push(this._colorUtils.parseColor(this.config.fallbackStrokeColor, 1));
-                
-                const mappedStrokes = animatablePaths.map(stroke => {
-                    const strokeRgba = this._colorUtils.parseColor(stroke.color, stroke.opacity);
-                    if (strokeRgba.a === 0) return null;
-                    let bestMatchIndex = 0, minDistance = Infinity;
-                    finalPalette.forEach((paletteRgba, index) => {
-                        const distance = this._colorUtils.colorDistanceSq(strokeRgba, paletteRgba);
-                        if (distance < minDistance) {
-                            minDistance = distance;
-                            bestMatchIndex = index;
-                        }
-                    });
-                    return { ...stroke, colorIndex: bestMatchIndex };
-                }).filter(Boolean);
-                return { finalPalette, mappedStrokes, maxStroke };
             },
             _quantizeWithWeightedKMeans: function(weightedColors, k) {
                 if (weightedColors.length <= k) return weightedColors.map(wc => wc.color);
@@ -474,14 +427,6 @@
                 }
                 return centroids;
             },
-            _generateLookupTable: function(animatablePaths) {
-                const draftLut = [];
-                const pointCollectorCallback = (segment) => {
-                    draftLut.push(segment);
-                };
-                this._streamProcessSVG(animatablePaths, pointCollectorCallback);
-                return { lut: draftLut };
-            },
             _streamProcessSVG: function(animatablePaths, pointCallback) {
                 const checkCtx = document.createElement('canvas').getContext('2d');
                 
@@ -497,8 +442,6 @@
                     let samplingStep = length * 0.002;
                     samplingStep = samplingStep < 1.0 ? samplingStep : 1.0;
                     samplingStep = samplingStep > 0.25 ? samplingStep : 0.25;
-
-                    const clipPath2D = pathData.clipPathId ? this.state.clipPathCache.get(pathData.clipPathId) : null;
                     
                     let currentSegment = [], lastPoint = null;
                     for (let i = 0; i < length; i += samplingStep) {
@@ -556,177 +499,19 @@
                             }
                         }
 
-                        if (!clipPath2D || checkCtx.isPointInPath(clipPath2D, point.x, point.y)) {
-                            let tempWidth = width > this.config.maxStrokeWidth * 1.5 ? this.config.maxStrokeWidth * 1.5 : width;
-                            width = tempWidth < 0.5 ? 0.5 : tempWidth;
+                        let tempWidth = width > this.config.maxStrokeWidth * 1.5 ? this.config.maxStrokeWidth * 1.5 : width;
+                        width = tempWidth < 0.5 ? 0.5 : tempWidth;
 
-                            const pointData = { width, colorIndex: pathData.colorIndex, type: pathData.type, compoundId: pathData.compoundId };
-                            if (!lastPoint) {
-                                currentSegment.push({ x: point.x, y: point.y, ...pointData });
-                            } else {
-                                currentSegment.push({ dx: point.x - lastPoint.x, dy: point.y - lastPoint.y, ...pointData });
-                            }
-                            lastPoint = point;
+                        const pointData = { width, colorIndex: pathData.colorIndex, type: pathData.type };
+                        if (!lastPoint) {
+                            currentSegment.push({ x: point.x, y: point.y, ...pointData });
                         } else {
-                            if (currentSegment.length > 1) pointCallback(currentSegment);
-                            currentSegment = [];
-                            lastPoint = null;
+                            currentSegment.push({ dx: point.x - lastPoint.x, dy: point.y - lastPoint.y, ...pointData });
                         }
+                        lastPoint = point;
                     }
                     if (currentSegment.length > 1) pointCallback(currentSegment);
                 });
-            },
-            _resolveCompoundPaths: function(draftLut, compoundPathMeta) {
-                if (compoundPathMeta.size === 0) return draftLut;
-                const cleanedLut = [];
-                const checkCtx = document.createElement('canvas').getContext('2d');
-                const holeGeometries = new Map();
-                for (const [id, meta] of compoundPathMeta.entries()) {
-                    holeGeometries.set(id, new Path2D(meta.erasePathData));
-                }
-                draftLut.forEach(segment => {
-                    const firstPoint = segment[0];
-                    if (firstPoint.type !== 'fill' || !holeGeometries.has(firstPoint.compoundId)) {
-                        cleanedLut.push(segment);
-                        return;
-                    }
-                    const hole = holeGeometries.get(firstPoint.compoundId);
-                    const absolutePoints = this._convertDeltaToAbsolute(segment);
-                    let currentCleanSegment = [];
-                    absolutePoints.forEach(absPoint => {
-                        if (!checkCtx.isPointInPath(hole, absPoint.absX, absPoint.absY, 'evenodd')) {
-                            currentCleanSegment.push(absPoint);
-                        } else {
-                            if (currentCleanSegment.length > 1) cleanedLut.push(this._convertAbsoluteToDelta(currentCleanSegment));
-                            currentCleanSegment = [];
-                        }
-                    });
-                    if (currentCleanSegment.length > 1) cleanedLut.push(this._convertAbsoluteToDelta(currentCleanSegment));
-                });
-                return cleanedLut;
-            },
-            _extractAndConvertPathsFromSVG: function(svgNode) {
-                const allFoundPaths = [], compoundPathMeta = new Map();
-                let compoundPathCounter = 0;
-                
-                const traverse = (node, inheritedProps) => {
-                    if (node.nodeType !== 1 || ['defs', 'mask', 'style', 'title', 'metadata', 'clippath'].includes(node.tagName.toLowerCase())) return;
-                    const props = this._getInheritedProps(node, inheritedProps);
-                    if (node.tagName.toLowerCase() === 'use') {
-                        const href = node.getAttribute('href') || node.getAttribute('xlink:href');
-                        if (href?.startsWith('#')) {
-                            const referencedNode = svgNode.getRootNode().getElementById(href.substring(1));
-                            if (referencedNode) {
-                                const useX = +node.getAttribute('x') || 0, useY = +node.getAttribute('y') || 0;
-                                const finalProps = { ...props };
-                                if (useX !== 0 || useY !== 0) {
-                                    finalProps.transform = this._matrixHelper.multiply(props.transform, this._matrixHelper.translate(useX, useY));
-                                }
-                                traverse(referencedNode, finalProps);
-                            }
-                        }
-                        return;
-                    }
-                    this._processPathNode(node, props, allFoundPaths, compoundPathMeta, ++compoundPathCounter);
-                    node.childNodes.forEach(child => traverse(child, props));
-                };
-
-                const initialProps = {
-                    transform: this._matrixHelper.identity(), fill: 'black', 'fill-opacity': 1,
-                    stroke: 'none', 'stroke-opacity': 1, 'stroke-width': 1,
-                    clipPath: null, fillRule: 'nonzero', color: '#000'
-                };
-                traverse(svgNode, initialProps);
-
-                const animatablePaths = [];
-                const hasStrokesInCollection = allFoundPaths.some(p => p.isOriginalStroke);
-                const hasFillsInCollection = allFoundPaths.some(p => p.type === 'fill');
-                animatablePaths.push(...allFoundPaths.filter(p => p.type === 'fill'));
-                if (hasStrokesInCollection) {
-                    animatablePaths.push(...allFoundPaths.filter(p => p.type === 'stroke'));
-                } else if (hasFillsInCollection) {
-                    const strokesFromFills = allFoundPaths.filter(p => p.type === 'fill').map(p => ({ 
-                        ...p, type: 'stroke', strokeWidth: 2, color: p.color, opacity: p.opacity, isOriginalStroke: false 
-                    }));
-                    animatablePaths.push(...strokesFromFills);
-                }
-                return { animatablePaths, compoundPathMeta };
-            },
-            _processPathNode: function(node, props, allFoundPaths, compoundPathMeta, compoundId) {
-                let pathData = this._getPathDataFromNode(node);
-                if (!pathData) return;
-                const isSolid = (c) => c && c !== 'none' && !c.includes('url(');
-                const hasVisibleFill = isSolid(props.fill) && props['fill-opacity'] > 0;
-                const hasVisibleStroke = isSolid(props.stroke) && props['stroke-width'] > 0 && props['stroke-opacity'] > 0;
-                const subPaths = pathData.trim().split(/(?=M|m)/g).filter(s => s.trim());
-                const isCompound = props.fillRule === 'evenodd' && subPaths.length > 1;
-
-                if (hasVisibleFill) {
-                    const processFill = (pData, cId) => {
-                        const transformedPath = this._applyTransformBySampling(pData, props.transform);
-                        allFoundPaths.push({
-                            path: transformedPath, clipPathId: props.clipPath, compoundId: cId,
-                            type: 'fill', strokeWidth: this.config.maxStrokeWidth,
-                            color: props.fill, opacity: props['fill-opacity'], isOriginalStroke: false
-                        });
-                    };
-                    if (isCompound) {
-                        processFill(subPaths[0], compoundId);
-                        const holePathsData = subPaths.slice(1).join(' ');
-                        const transformedHolePath = this._applyTransformBySampling(holePathsData, props.transform);
-                        compoundPathMeta.set(compoundId, { erasePathData: transformedHolePath });
-                    } else {
-                        subPaths.forEach(subPathData => processFill(subPathData, null));
-                    }
-                }
-                if (hasVisibleStroke) {
-                    subPaths.forEach(subPathData => {
-                        const transformedPath = this._applyTransformBySampling(subPathData, props.transform);
-                        allFoundPaths.push({
-                            path: transformedPath, clipPathId: props.clipPath, compoundId: null,
-                            type: 'stroke', strokeWidth: props['stroke-width'],
-                            color: props.stroke, opacity: props['stroke-opacity'], isOriginalStroke: true
-                        });
-                    });
-                }
-            },
-            _getInheritedProps: function(node, inheritedProps) {
-                const props = { ...inheritedProps };
-                const styleProps = {};
-                const styleAttr = node.getAttribute('style');
-                const classAttr = node.getAttribute('class');
-                if (classAttr) {
-                    classAttr.split(' ').forEach(cls => {
-                        const rule = this.state.cssRules.get(`.${cls}`);
-                        if (rule) Object.assign(styleProps, rule);
-                    });
-                }
-                if (node.id && this.state.cssRules.has(`#${node.id}`)) {
-                    Object.assign(styleProps, this.state.cssRules.get(`#${node.id}`));
-                }
-                if (styleAttr) Object.assign(styleProps, this._parseStyleAttribute(styleAttr));
-                Object.assign(props, styleProps);
-                const directAttrs = {
-                    fill: node.getAttribute('fill'), 'fill-opacity': node.getAttribute('fill-opacity'),
-                    'fill-rule': node.getAttribute('fill-rule'), stroke: node.getAttribute('stroke'),
-                    'stroke-width': node.getAttribute('stroke-width'), 'stroke-opacity': node.getAttribute('stroke-opacity'),
-                    'clip-path': node.getAttribute('clip-path'), color: node.getAttribute('color')
-                };
-                for (const [key, value] of Object.entries(directAttrs)) {
-                    if (value !== null) props[key] = value;
-                }
-                if (props.fill === 'currentColor') props.fill = props.color;
-                if (props.stroke === 'currentColor') props.stroke = props.color;
-                let localTransform = this._matrixHelper.identity();
-                if (styleProps.transform) localTransform = this._parseTransform(styleProps.transform);
-                const attrTransform = node.getAttribute('transform');
-                if (attrTransform) localTransform = this._matrixHelper.multiply(localTransform, this._parseTransform(attrTransform));
-                props.transform = this._matrixHelper.multiply(inheritedProps.transform, localTransform);
-                props['stroke-width'] = +props['stroke-width'];
-                props['stroke-opacity'] = +props['stroke-opacity'];
-                props['fill-opacity'] = +props['fill-opacity'];
-                if (props['clip-path']) props.clipPath = props['clip-path'].replace(/url\(#|\)/g, '');
-                return props;
             },
             _getPathDataFromNode: function(node) {
                 const tagName = node.tagName.toLowerCase();
@@ -767,66 +552,6 @@
                     }
                     default: return '';
                 }
-            },
-            _extractSVGMetadata: function(svgElement) {
-                const viewBoxAttr = svgElement.getAttribute('viewBox');
-                if (viewBoxAttr) {
-                    const vb = viewBoxAttr.split(/[\s,]+/).map(Number);
-                    if (vb.length === 4 && !vb.some(isNaN)) this.state.viewBox = { x: vb[0], y: vb[1], width: vb[2], height: vb[3] };
-                } else {
-                    const w = +svgElement.getAttribute('width'), h = +svgElement.getAttribute('height');
-                    this.state.viewBox = { x: 0, y: 0, width: (isNaN(w) ? 400 : w), height: (isNaN(h) ? 225 : h) };
-                }
-                this.state.cssRules = this._parseStyleSheets(svgElement);
-                this.state.clipPathCache.clear();
-                this._compileClipPaths(svgElement);
-            },
-            _compileClipPaths: function(svgNode) {
-                svgNode.querySelectorAll('clipPath').forEach(clipNode => {
-                    const clipId = clipNode.getAttribute('id');
-                    if (!clipId) return;
-                    const combinedPath2D = new Path2D();
-                    const traverseClipPath = (node, inheritedTransform) => {
-                        if (node.nodeType !== 1) return;
-                        let currentTransform = inheritedTransform;
-                        const transformAttr = node.getAttribute('transform');
-                        if (transformAttr) currentTransform = this._matrixHelper.multiply(inheritedTransform, this._parseTransform(transformAttr));
-                        if (node.tagName.toLowerCase() === 'use') {
-                            const href = node.getAttribute('href') || node.getAttribute('xlink:href');
-                            if (href?.startsWith('#')) {
-                                const ref = svgNode.getRootNode().getElementById(href.substring(1));
-                                if (ref) {
-                                    const useX = +node.getAttribute('x')||0, useY = +node.getAttribute('y')||0;
-                                    let finalTransform = currentTransform;
-                                    if (useX !== 0 || useY !== 0) finalTransform = this._matrixHelper.multiply(currentTransform, this._matrixHelper.translate(useX, useY));
-                                    traverseClipPath(ref, finalTransform);
-                                }
-                            }
-                        } else {
-                            const pathData = this._getPathDataFromNode(node);
-                            if (pathData) {
-                                const transformedPath = this._applyTransformBySampling(pathData, currentTransform);
-                                combinedPath2D.addPath(new Path2D(transformedPath));
-                            }
-                        }
-                        node.childNodes.forEach(child => traverseClipPath(child, currentTransform));
-                    };
-                    traverseClipPath(clipNode, this._matrixHelper.identity());
-                    this.state.clipPathCache.set(clipId, combinedPath2D);
-                });
-            },
-            _parseStyleSheets: function(svgNode) {
-                const rules = new Map();
-                svgNode.querySelectorAll('style').forEach(style => {
-                    const ruleRegex = /([^{]+)\s*\{([^}]+)\}/g;
-                    let match;
-                    while ((match = ruleRegex.exec(style.textContent)) !== null) {
-                        const selector = match[1].trim();
-                        const properties = this._parseStyleAttribute(match[2].trim());
-                        rules.set(selector, properties);
-                    }
-                });
-                return rules;
             },
             _lcg: function() {
                 const { INV_LCG_SCALE_H, INV_LCG_SCALE_L } = this.PRECALCULATED;
@@ -930,53 +655,6 @@
                     return dr*dr + dg*dg + db*db + da*da;
                 }
             },
-            _getPathMetrics: function(pathData) {
-                const path = this.state.reusablePathForSampling;
-                path.setAttribute('d', pathData);
-                const perimeter = path.getTotalLength();
-                if (perimeter < 1) return { perimeter: 0, area: 0 };
-                
-                const points = [];
-                let sampleCount = 100; // Simplified for streaming context
-                const invSampleCount = 1.0 / sampleCount;
-
-                for (let i = 0; i < sampleCount; i++) {
-                    points.push(path.getPointAtLength(i * invSampleCount * perimeter));
-                }
-                if (points.length === 0) return { perimeter, area: 0 };
-                
-                points.push(points[0]);
-                let area = 0;
-                for (let i = 0; i < points.length - 1; i++) {
-                    area += points[i].x * points[i+1].y - points[i+1].x * points[i].y;
-                }
-                area = (area < 0 ? -area : area) * 0.5;
-
-                return { perimeter, area };
-            },
-            _convertAbsoluteToDelta: function(abs) {
-                if (abs.length < 2) return [];
-                const first = abs[0];
-                const delta = [{ x: first.absX, y: first.absY, ...first }];
-                delete delta[0].absX; delete delta[0].absY;
-                for (let i = 1; i < abs.length; i++) {
-                    const curr = abs[i], prev = abs[i-1];
-                    const p = { dx: curr.absX - prev.absX, dy: curr.absY - prev.absY, ...curr };
-                    delete p.absX; delete p.absY;
-                    delta.push(p);
-                }
-                return delta;
-            },
-            _convertDeltaToAbsolute: function(delta) {
-                const abs = [];
-                let curr = { x: 0, y: 0 };
-                delta.forEach((p, i) => {
-                    if (i === 0) { curr = { x: p.x, y: p.y }; }
-                    else { curr.x += p.dx; curr.y += p.dy; }
-                    abs.push({ ...p, absX: curr.x, absY: curr.y });
-                });
-                return abs;
-            },
         };
 
         // ===================================================================================
@@ -1004,9 +682,9 @@
                 this.parent.state.streamReader = { file, readPosition: 0, isReading: false, isSvg };
 
                 if (isSvg) {
-                    await this._initSvgRoutine();
+                    await this.SVG.init();
                 } else {
-                    this._initVisRoutine();
+                    this.VIS.init();
                 }
             },
 
@@ -1015,375 +693,399 @@
                 if (!streamReader || isEndOfStream) return;
 
                 if (streamReader.isSvg) {
-                    this._manageSvgBuffer();
+                    this.SVG._manageBuffer();
                 } else {
-                    this._manageVisBuffer();
+                    this.VIS._manageBuffer();
                 }
             },
 
-            // --- .VIS ROUTINE ---
-            _initVisRoutine() {
-                this._vis.partialStrokeData = "";
-                const reader = new FileReader();
-                reader.onload = (e) => {
-                    const text = e.target.result;
-                    const headerEndIndex = text.indexOf('|t');
-                    if (headerEndIndex === -1) { console.error("Invalid .vis file"); return; }
+            // --- .VIS ROUTINE (Now in its own home) ---
+            VIS: {
+                init() {
+                    const S = LogoEngine.Streamer;
+                    S._vis.partialStrokeData = "";
+                    const reader = new FileReader();
+                    reader.onload = (e) => {
+                        const text = e.target.result;
+                        const headerEndIndex = text.indexOf('|t');
+                        if (headerEndIndex === -1) { console.error("Invalid .vis file"); return; }
+                        
+                        const headerText = text.substring(0, headerEndIndex);
+                        S.parent.state.streamReader.readPosition = headerEndIndex + 2;
+                        const pointsForPacing = S.VIS._parseHeader(headerText);
+
+                        S.VIS._fetchChunk().then(() => {
+                            S.parent.startAnimation(pointsForPacing);
+                        });
+                    };
+                    reader.readAsText(S.parent.state.streamReader.file.slice(0, 2048));
+                },
+                _manageBuffer() {
+                    const { streamReader, dataBuffer, currentStrokeIndex } = LogoEngine.state;
+                    if (streamReader.isReading) return;
+
+                    let remainingBytes = 0;
+                    for (let i = currentStrokeIndex; i < dataBuffer.length; i++) {
+                        remainingBytes += dataBuffer[i].size;
+                    }
+                    if (remainingBytes < LogoEngine.config.streamBufferThreshold) {
+                        this._fetchChunk();
+                    }
+                },
+                async _fetchChunk() {
+                    const S = LogoEngine.Streamer;
+                    const { streamReader } = S.parent.state;
+                    if (streamReader.isReading) return;
+                    streamReader.isReading = true;
+
+                    const { file, readPosition } = streamReader;
+                    if (readPosition >= file.size) {
+                        S.parent.state.isEndOfStream = true;
+                        streamReader.isReading = false;
+                        if (S._vis.partialStrokeData) {
+                            S.VIS._parseChunk(S._vis.partialStrokeData);
+                            S._vis.partialStrokeData = "";
+                        }
+                        return;
+                    }
+
+                    const end = readPosition + S.parent.config.visStreamChunkSize;
+                    const blob = file.slice(readPosition, end);
+                    const textChunk = await blob.text();
+
+                    const combinedText = S._vis.partialStrokeData + textChunk;
+                    const lastSeparator = combinedText.lastIndexOf('S');
                     
-                    const headerText = text.substring(0, headerEndIndex);
-                    this.parent.state.streamReader.readPosition = headerEndIndex + 2;
-                    const pointsForPacing = this._parseVisHeader(headerText);
+                    let chunkToParse;
+                    if (lastSeparator === -1 && end < file.size) {
+                        S._vis.partialStrokeData = combinedText;
+                        chunkToParse = "";
+                    } else {
+                        chunkToParse = combinedText.substring(0, lastSeparator > -1 ? lastSeparator : undefined);
+                        S._vis.partialStrokeData = lastSeparator > -1 ? combinedText.substring(lastSeparator + 1) : "";
+                    }
 
-                    this._fetchVisChunk().then(() => {
-                        this.parent.startAnimation(pointsForPacing);
-                    });
-                };
-                reader.readAsText(this.parent.state.streamReader.file.slice(0, 2048));
-            },
-            _manageVisBuffer() {
-                const { streamReader, dataBuffer, currentStrokeIndex } = this.parent.state;
-                if (streamReader.isReading) return;
-
-                let remainingBytes = 0;
-                for (let i = currentStrokeIndex; i < dataBuffer.length; i++) {
-                    remainingBytes += dataBuffer[i].size;
-                }
-                if (remainingBytes < this.parent.config.streamBufferThreshold) {
-                    this._fetchVisChunk();
-                }
-            },
-            async _fetchVisChunk() {
-                const { streamReader } = this.parent.state;
-                if (streamReader.isReading) return;
-                streamReader.isReading = true;
-
-                const { file, readPosition } = streamReader;
-                if (readPosition >= file.size) {
-                    this.parent.state.isEndOfStream = true;
+                    streamReader.readPosition += blob.size;
+                    S.VIS._parseChunk(chunkToParse);
                     streamReader.isReading = false;
-                    if (this._vis.partialStrokeData) {
-                        this._parseVisChunk(this._vis.partialStrokeData);
-                        this._vis.partialStrokeData = "";
-                    }
-                    return;
-                }
-
-                const end = readPosition + this.parent.config.visStreamChunkSize;
-                const blob = file.slice(readPosition, end);
-                const textChunk = await blob.text();
-
-                const combinedText = this._vis.partialStrokeData + textChunk;
-                const lastSeparator = combinedText.lastIndexOf('S');
-                
-                let chunkToParse;
-                if (lastSeparator === -1 && end < file.size) {
-                    this._vis.partialStrokeData = combinedText;
-                    chunkToParse = "";
-                } else {
-                    chunkToParse = combinedText.substring(0, lastSeparator > -1 ? lastSeparator : undefined);
-                    this._vis.partialStrokeData = lastSeparator > -1 ? combinedText.substring(lastSeparator + 1) : "";
-                }
-
-                streamReader.readPosition += blob.size;
-                this._parseVisChunk(chunkToParse);
-                streamReader.isReading = false;
-            },
-            _parseVisHeader(headerText) {
-                const parts = headerText.split('|');
-                let pointsForPacing = 0;
-                parts.forEach(part => {
-                    if (!part) return;
-                    const token = part[0];
-                    const data = part.substring(1);
-                    switch(token) {
-                        case 'v':
-                            const vb = data.split(',').map(v => this.parent._fromVisInt(parseInt(v, 10)));
-                            if (vb.length === 4) this.parent.state.viewBox = { x: vb[0], y: vb[1], width: vb[2], height: vb[3] };
-                            break;
-                        case 'm':
-                            this.parent.state.maxGeometricStrokeWidth = this.parent._fromVisInt(parseInt(data, 10));
-                            break;
-                        case 'p':
-                            this.parent.state.colorPalette = JSON.parse(data);
-                            break;
-                        case 'i':
-                            const info = data.split(',').map(v => parseInt(v, 10));
-                            if (info[0] === 1) {
-                                pointsForPacing = info[1];
-                                this.parent.state.totalPointsInLut = info[1];
-                            }
-                            break;
-                    }
-                });
-                return pointsForPacing;
-            },
-            _parseVisChunk(chunkText) {
-                if (!chunkText) return;
-                const strokes = chunkText.split('S').filter(s => s);
-                strokes.forEach(strokeStr => {
-                    if (!strokeStr) return;
-                    const stroke = [];
-                    const regex = /([xycdw])([\-0-9,]+)/g;
-                    let match, currentPoint = {}, isStart = true;
-                    while ((match = regex.exec(strokeStr))) {
-                        const [_, type, values] = match;
-                        if (isStart) {
-                            if (type === 'x') currentPoint.x = this.parent._fromVisInt(parseInt(values, 10));
-                            if (type === 'y') {
-                                currentPoint.y = this.parent._fromVisInt(parseInt(values, 10));
-                                stroke.push(currentPoint);
-                                currentPoint = {};
-                                isStart = false;
-                            }
-                        } else {
-                            if (type === 'd') {
-                                const [dx, dy] = values.split(',').map(v => this.parent._fromVisInt(parseInt(v, 10)));
-                                currentPoint.dx = dx; currentPoint.dy = dy;
-                            }
-                            if (type === 'c') currentPoint.colorIndex = parseInt(values, 10);
-                            if (type === 'w') {
-                                currentPoint.width = this.parent._fromVisInt(parseInt(values, 10));
-                                stroke.push(currentPoint);
-                                currentPoint = {};
+                },
+                _parseHeader(headerText) {
+                    const P = LogoEngine;
+                    const parts = headerText.split('|');
+                    let pointsForPacing = 0;
+                    parts.forEach(part => {
+                        if (!part) return;
+                        const token = part[0];
+                        const data = part.substring(1);
+                        switch(token) {
+                            case 'v':
+                                const vb = data.split(',').map(v => P._fromVisInt(parseInt(v, 10)));
+                                if (vb.length === 4) P.state.viewBox = { x: vb[0], y: vb[1], width: vb[2], height: vb[3] };
+                                break;
+                            case 'm':
+                                P.state.maxGeometricStrokeWidth = P._fromVisInt(parseInt(data, 10));
+                                break;
+                            case 'p':
+                                P.state.colorPalette = JSON.parse(data);
+                                break;
+                            case 'i':
+                                const info = data.split(',').map(v => parseInt(v, 10));
+                                if (info[0] === 1) {
+                                    pointsForPacing = info[1];
+                                    P.state.totalPointsInLut = info[1];
+                                }
+                                break;
+                        }
+                    });
+                    return pointsForPacing;
+                },
+                _parseChunk(chunkText) {
+                    const P = LogoEngine;
+                    if (!chunkText) return;
+                    const strokes = chunkText.split('S').filter(s => s);
+                    strokes.forEach(strokeStr => {
+                        if (!strokeStr) return;
+                        const stroke = [];
+                        const regex = /([xycdw])([\-0-9,]+)/g;
+                        let match, currentPoint = {}, isStart = true;
+                        while ((match = regex.exec(strokeStr))) {
+                            const [_, type, values] = match;
+                            if (isStart) {
+                                if (type === 'x') currentPoint.x = P._fromVisInt(parseInt(values, 10));
+                                if (type === 'y') {
+                                    currentPoint.y = P._fromVisInt(parseInt(values, 10));
+                                    stroke.push(currentPoint);
+                                    currentPoint = {};
+                                    isStart = false;
+                                }
+                            } else {
+                                if (type === 'd') {
+                                    const [dx, dy] = values.split(',').map(v => P._fromVisInt(parseInt(v, 10)));
+                                    currentPoint.dx = dx; currentPoint.dy = dy;
+                                }
+                                if (type === 'c') currentPoint.colorIndex = parseInt(values, 10);
+                                if (type === 'w') {
+                                    currentPoint.width = P._fromVisInt(parseInt(values, 10));
+                                    stroke.push(currentPoint);
+                                    currentPoint = {};
+                                }
                             }
                         }
-                    }
-                    if (stroke.length > 1) {
-                        const size = new Blob([strokeStr]).size + 1;
-                        this.parent.state.dataBuffer.push({ stroke, size });
-                    }
-                });
+                        if (stroke.length > 1) {
+                            const size = new Blob([strokeStr]).size + 1;
+                            P.state.dataBuffer.push({ stroke, size });
+                        }
+                    });
+                },
             },
 
             // --- SVG ROUTINE (Two-Pass Look-Ahead Processor) ---
-            async _initSvgRoutine() {
-                // Pass 1: Get metadata for setup
-                const metadata = await this._svg_firstPass();
-                this.parent.state.colorPalette = metadata.finalPalette;
-                this.parent.state.maxGeometricStrokeWidth = metadata.maxStroke;
-                this.parent.state.viewBox = metadata.viewBox;
-                
-                // Create the generator that will produce points on demand
-                this._svg.pointGenerator = this._svg_secondPassGenerator();
-
-                // CRITICAL: Prime the buffer BEFORE starting the animation
-                await this._svg.pointGenerator.next();
-
-                // Now that the buffer is primed, start the renderer
-                this.parent.startAnimation(metadata.pointsForPacing);
-            },
-            async _svg_firstPass() {
-                const reader = this.parent.state.streamReader;
-                reader.readPosition = 0;
-                let firstChunk = "";
-                const colorWeights = new Map();
-                let maxStroke = 0;
-                let viewBox = this.parent.state.viewBox;
-
-                while(reader.readPosition < reader.file.size) {
-                    const chunkText = await this._fetchChunkForPass();
-                    if (firstChunk === "") firstChunk = chunkText;
+            SVG: {
+                async init() {
+                    const S = LogoEngine.Streamer;
+                    const P = S.parent;
+                    // Pass 1: Get metadata for setup
+                    const metadata = await S.SVG._firstPass();
+                    P.state.colorPalette = metadata.finalPalette;
+                    P.state.maxGeometricStrokeWidth = metadata.maxStroke;
+                    P.state.viewBox = metadata.viewBox;
                     
-                    this._svg.tagRegex.lastIndex = 0;
-                    let match;
-                    while ((match = this._svg.tagRegex.exec(chunkText))) {
-                        if (match[0].startsWith('</')) continue;
-                        const tagName = match[1].toLowerCase();
-                        const attrs = this.parent._parseAttributes(match[2]);
-                        const style = { ...attrs, ...(attrs.style ? this.parent._parseStyleAttribute(attrs.style) : {}) };
+                    // Create the generator that will produce points on demand
+                    S._svg.pointGenerator = S.SVG._secondPassGenerator();
+
+                    // CRITICAL: Prime the buffer BEFORE starting the animation
+                    await S._svg.pointGenerator.next();
+
+                    // Now that the buffer is primed, start the renderer
+                    P.startAnimation(metadata.pointsForPacing);
+                },
+                async _firstPass() {
+                    const S = LogoEngine.Streamer;
+                    const P = S.parent;
+                    const reader = P.state.streamReader;
+                    reader.readPosition = 0;
+                    let firstChunk = "";
+                    const colorWeights = new Map();
+                    let maxStroke = 0;
+                    let viewBox = P.state.viewBox;
+
+                    while(reader.readPosition < reader.file.size) {
+                        const chunkText = await S.SVG._fetchChunkForPass();
+                        if (firstChunk === "") firstChunk = chunkText;
                         
-                        const fill = style.fill || (tagName === 'path' ? 'none' : 'black');
-                        const stroke = style.stroke;
+                        S._svg.tagRegex.lastIndex = 0;
+                        let match;
+                        while ((match = S._svg.tagRegex.exec(chunkText))) {
+                            if (match[0].startsWith('</')) continue;
+                            const tagName = match[1].toLowerCase();
+                            const attrs = P._parseAttributes(match[2]);
+                            const style = { ...attrs, ...(attrs.style ? P._parseStyleAttribute(attrs.style) : {}) };
+                            
+                            const fill = style.fill || (tagName === 'path' ? 'none' : 'black');
+                            const stroke = style.stroke;
 
-                        if (fill !== 'none') {
-                           const rgba = this.parent._colorUtils.parseColor(fill, parseFloat(style['fill-opacity'] || 1));
-                           if(rgba.a > 0) {
-                               const key = `${rgba.r},${rgba.g},${rgba.b},${rgba.a}`;
-                               if (!colorWeights.has(key)) colorWeights.set(key, { color: rgba, weight: 0 });
-                               colorWeights.get(key).weight++;
-                           }
-                        }
-                        if (stroke && stroke !== 'none') {
-                           const rgba = this.parent._colorUtils.parseColor(stroke, parseFloat(style['stroke-opacity'] || 1));
-                           if(rgba.a > 0) {
-                               const key = `${rgba.r},${rgba.g},${rgba.b},${rgba.a}`;
-                               if (!colorWeights.has(key)) colorWeights.set(key, { color: rgba, weight: 0 });
-                               colorWeights.get(key).weight++;
-                           }
-                        }
-
-                        const strokeW = parseFloat(style['stroke-width']);
-                        if (!isNaN(strokeW) && strokeW > maxStroke) maxStroke = strokeW;
-                        if(tagName === 'svg' && attrs.viewBox) {
-                            const vb = attrs.viewBox.split(/[\s,]+/).map(Number);
-                            if (vb.length === 4) viewBox = { x: vb[0], y: vb[1], width: vb[2], height: vb[3] };
-                        }
-                    }
-                }
-                
-                const weightedColors = Array.from(colorWeights.values());
-                let finalPalette = weightedColors.length <= this.parent.config.maxPaletteSize
-                    ? weightedColors.map(item => item.color)
-                    : this.parent._quantizeWithWeightedKMeans(weightedColors, this.parent.config.maxPaletteSize);
-
-                if (finalPalette.length === 0) {
-                    finalPalette.push(this.parent._colorUtils.parseColor(this.parent.config.fallbackStrokeColor, 1));
-                }
-
-                return {
-                    finalPalette, maxStroke, viewBox,
-                    pointsForPacing: this.parent._solver(firstChunk)
-                };
-            },
-            async* _svg_secondPassGenerator() {
-                const reader = this.parent.state.streamReader;
-                reader.readPosition = 0; // Rewind
-                this._svg.partialData = "";
-                this._svg.transformStack = [this.parent._matrixHelper.identity()];
-                this._svg.styleStack = [{ fill: 'black', 'fill-opacity': 1, stroke: 'none', 'stroke-opacity': 1, 'stroke-width': 1, color: '#000' }];
-
-                while (reader.readPosition < reader.file.size) {
-                    const chunkText = await this._fetchChunkForPass();
-                    const newPoints = this._parseSvgChunk(chunkText);
-                    if (newPoints.length > 0) {
-                        this.parent.state.dataBuffer.push(...newPoints);
-                        yield; // Pause until more data is needed
-                    }
-                }
-                this.parent.state.isEndOfStream = true;
-            },
-            _manageSvgBuffer() {
-                if (this._svg.isFillingBuffer || this.parent.state.isEndOfStream) return;
-                
-                let remainingBytes = 0;
-                for (let i = this.parent.state.currentStrokeIndex; i < this.parent.state.dataBuffer.length; i++) {
-                    remainingBytes += this.parent.state.dataBuffer[i].size;
-                }
-
-                if (remainingBytes < this.parent.config.streamBufferThreshold) {
-                    this._svg.isFillingBuffer = true;
-                    this._svg.pointGenerator.next().then(() => {
-                        this._svg.isFillingBuffer = false;
-                    });
-                }
-            },
-            async _fetchChunkForPass() {
-                const reader = this.parent.state.streamReader;
-                const start = reader.readPosition;
-                const end = start + this.parent.config.svgStreamChunkSize; // Use 4KB chunk size
-                const blob = reader.file.slice(start, end);
-                const text = await blob.text();
-                reader.readPosition += blob.size;
-                return text;
-            },
-            _parseSvgChunk(chunkText) {
-                const allFoundPaths = [];
-                const combinedText = this._svg.partialData + chunkText;
-                const lastTagEnd = combinedText.lastIndexOf('>');
-                let chunkToParse = combinedText;
-                if (lastTagEnd !== -1) {
-                    chunkToParse = combinedText.substring(0, lastTagEnd + 1);
-                    this._svg.partialData = combinedText.substring(lastTagEnd + 1);
-                } else {
-                    this._svg.partialData = combinedText;
-                }
-
-                this._svg.tagRegex.lastIndex = 0;
-                let match;
-                while ((match = this._svg.tagRegex.exec(chunkToParse))) {
-                    const tagName = match[1].toLowerCase();
-                    if (match[0].startsWith('</')) {
-                        if (['g', 'svg'].includes(tagName)) {
-                            if (this._svg.transformStack.length > 1) this._svg.transformStack.pop();
-                            if (this._svg.styleStack.length > 1) this._svg.styleStack.pop();
-                        }
-                    } else {
-                        const attrs = this.parent._parseAttributes(match[2]);
-                        if (['g', 'svg'].includes(tagName)) {
-                            this._svg_pushState(attrs);
-                            if (match[0].endsWith('/>')) {
-                                this._svg.transformStack.pop();
-                                this._svg.styleStack.pop();
+                            if (fill !== 'none') {
+                               const rgba = P._colorUtils.parseColor(fill, parseFloat(style['fill-opacity'] || 1));
+                               if(rgba.a > 0) {
+                                   const key = `${rgba.r},${rgba.g},${rgba.b},${rgba.a}`;
+                                   if (!colorWeights.has(key)) colorWeights.set(key, { color: rgba, weight: 0 });
+                                   colorWeights.get(key).weight++;
+                               }
                             }
-                        } else if (['path', 'rect', 'circle', 'ellipse', 'line', 'polygon', 'polyline'].includes(tagName)) {
-                            this._svg_processShape(tagName, attrs, allFoundPaths);
+                            if (stroke && stroke !== 'none') {
+                               const rgba = P._colorUtils.parseColor(stroke, parseFloat(style['stroke-opacity'] || 1));
+                               if(rgba.a > 0) {
+                                   const key = `${rgba.r},${rgba.g},${rgba.b},${rgba.a}`;
+                                   if (!colorWeights.has(key)) colorWeights.set(key, { color: rgba, weight: 0 });
+                                   colorWeights.get(key).weight++;
+                               }
+                            }
+
+                            const strokeW = parseFloat(style['stroke-width']);
+                            if (!isNaN(strokeW) && strokeW > maxStroke) maxStroke = strokeW;
+                            if(tagName === 'svg' && attrs.viewBox) {
+                                const vb = attrs.viewBox.split(/[\s,]+/).map(Number);
+                                if (vb.length === 4) viewBox = { x: vb[0], y: vb[1], width: vb[2], height: vb[3] };
+                            }
                         }
                     }
-                }
+                    
+                    const weightedColors = Array.from(colorWeights.values());
+                    let finalPalette = weightedColors.length <= P.config.maxPaletteSize
+                        ? weightedColors.map(item => item.color)
+                        : P._quantizeWithWeightedKMeans(weightedColors, P.config.maxPaletteSize);
 
-                // Re-implement the original fill/stroke logic
-                const animatablePaths = [];
-                const hasStrokesInCollection = allFoundPaths.some(p => p.isOriginalStroke);
-                const hasFillsInCollection = allFoundPaths.some(p => p.type === 'fill');
-                animatablePaths.push(...allFoundPaths.filter(p => p.type === 'fill'));
-                if (hasStrokesInCollection) {
-                    animatablePaths.push(...allFoundPaths.filter(p => p.type === 'stroke'));
-                } else if (hasFillsInCollection) {
-                    const strokesFromFills = allFoundPaths.filter(p => p.type === 'fill').map(p => ({ 
-                        ...p, type: 'stroke', strokeWidth: 2, color: p.color, opacity: p.opacity, isOriginalStroke: false 
-                    }));
-                    animatablePaths.push(...strokesFromFills);
-                }
-                
-                const mappedStrokes = animatablePaths.map(stroke => {
-                    const rgba = this.parent._colorUtils.parseColor(stroke.color, stroke.opacity);
-                    let bestMatchIndex = 0, minDistance = Infinity;
-                    this.parent.state.colorPalette.forEach((paletteRgba, index) => {
-                        const distance = this.parent._colorUtils.colorDistanceSq(rgba, paletteRgba);
-                        if (distance < minDistance) {
-                            minDistance = distance;
-                            bestMatchIndex = index;
+                    if (finalPalette.length === 0) {
+                        finalPalette.push(P._colorUtils.parseColor(P.config.fallbackStrokeColor, 1));
+                    }
+
+                    return {
+                        finalPalette, maxStroke, viewBox,
+                        pointsForPacing: P._solver(firstChunk)
+                    };
+                },
+                async* _secondPassGenerator() {
+                    const S = LogoEngine.Streamer;
+                    const P = S.parent;
+                    const reader = P.state.streamReader;
+                    reader.readPosition = 0; // Rewind
+                    S._svg.partialData = "";
+                    S._svg.transformStack = [P._matrixHelper.identity()];
+                    S._svg.styleStack = [{ fill: 'black', 'fill-opacity': 1, stroke: 'none', 'stroke-opacity': 1, 'stroke-width': 1, color: '#000' }];
+
+                    while (reader.readPosition < reader.file.size) {
+                        const chunkText = await S.SVG._fetchChunkForPass();
+                        const newPoints = S.SVG._parseSvgChunk(chunkText);
+                        if (newPoints.length > 0) {
+                            P.state.dataBuffer.push(...newPoints);
+                            yield; // Pause until more data is needed
+                        }
+                    }
+                    P.state.isEndOfStream = true;
+                },
+                _manageBuffer() {
+                    const S = LogoEngine.Streamer;
+                    const P = S.parent;
+                    if (S._svg.isFillingBuffer || P.state.isEndOfStream) return;
+                    
+                    let remainingBytes = 0;
+                    for (let i = P.state.currentStrokeIndex; i < P.state.dataBuffer.length; i++) {
+                        remainingBytes += P.state.dataBuffer[i].size;
+                    }
+
+                    if (remainingBytes < P.config.streamBufferThreshold) {
+                        S._svg.isFillingBuffer = true;
+                        S._svg.pointGenerator.next().then(() => {
+                            S._svg.isFillingBuffer = false;
+                        });
+                    }
+                },
+                async _fetchChunkForPass() {
+                    const S = LogoEngine.Streamer;
+                    const P = S.parent;
+                    const reader = P.state.streamReader;
+                    const start = reader.readPosition;
+                    const end = start + P.config.svgStreamChunkSize; // Use 4KB chunk size
+                    const blob = reader.file.slice(start, end);
+                    const text = await blob.text();
+                    reader.readPosition += blob.size;
+                    return text;
+                },
+                _parseSvgChunk(chunkText) {
+                    const S = LogoEngine.Streamer;
+                    const P = S.parent;
+                    const allFoundPaths = [];
+                    const combinedText = S._svg.partialData + chunkText;
+                    const lastTagEnd = combinedText.lastIndexOf('>');
+                    let chunkToParse = combinedText;
+                    if (lastTagEnd !== -1) {
+                        chunkToParse = combinedText.substring(0, lastTagEnd + 1);
+                        S._svg.partialData = combinedText.substring(lastTagEnd + 1);
+                    } else {
+                        S._svg.partialData = combinedText;
+                    }
+
+                    S._svg.tagRegex.lastIndex = 0;
+                    let match;
+                    while ((match = S._svg.tagRegex.exec(chunkToParse))) {
+                        const tagName = match[1].toLowerCase();
+                        if (match[0].startsWith('</')) {
+                            if (['g', 'svg'].includes(tagName)) {
+                                if (S._svg.transformStack.length > 1) S._svg.transformStack.pop();
+                                if (S._svg.styleStack.length > 1) S._svg.styleStack.pop();
+                            }
+                        } else {
+                            const attrs = P._parseAttributes(match[2]);
+                            if (['g', 'svg'].includes(tagName)) {
+                                S.SVG._pushState(attrs);
+                                if (match[0].endsWith('/>')) {
+                                    S._svg.transformStack.pop();
+                                    S._svg.styleStack.pop();
+                                }
+                            } else if (['path', 'rect', 'circle', 'ellipse', 'line', 'polygon', 'polyline'].includes(tagName)) {
+                                S.SVG._processShape(tagName, attrs, allFoundPaths);
+                            }
+                        }
+                    }
+
+                    // Re-implement the original fill/stroke logic
+                    const animatablePaths = [];
+                    const hasStrokesInCollection = allFoundPaths.some(p => p.isOriginalStroke);
+                    const hasFillsInCollection = allFoundPaths.some(p => p.type === 'fill');
+                    animatablePaths.push(...allFoundPaths.filter(p => p.type === 'fill'));
+                    if (hasStrokesInCollection) {
+                        animatablePaths.push(...allFoundPaths.filter(p => p.type === 'stroke'));
+                    } else if (hasFillsInCollection) {
+                        const strokesFromFills = allFoundPaths.filter(p => p.type === 'fill').map(p => ({ 
+                            ...p, type: 'stroke', strokeWidth: 2, color: p.color, opacity: p.opacity, isOriginalStroke: false 
+                        }));
+                        animatablePaths.push(...strokesFromFills);
+                    }
+                    
+                    const mappedStrokes = animatablePaths.map(stroke => {
+                        const rgba = P._colorUtils.parseColor(stroke.color, stroke.opacity);
+                        let bestMatchIndex = 0, minDistance = Infinity;
+                        P.state.colorPalette.forEach((paletteRgba, index) => {
+                            const distance = P._colorUtils.colorDistanceSq(rgba, paletteRgba);
+                            if (distance < minDistance) {
+                                minDistance = distance;
+                                bestMatchIndex = index;
+                            }
+                        });
+                        return { ...stroke, colorIndex: bestMatchIndex };
+                    });
+
+                    const newPointsBuffer = [];
+                    P._streamProcessSVG(mappedStrokes, (segment) => {
+                        const size = JSON.stringify(segment).length;
+                        newPointsBuffer.push({ stroke: segment, size });
+                        P.state.totalPointsInLut += segment.length - 1;
+                    });
+
+                    return newPointsBuffer;
+                },
+                _pushState(attrs) {
+                    const S = LogoEngine.Streamer;
+                    const P = S.parent;
+                    const parentStyle = S._svg.styleStack[S._svg.styleStack.length - 1];
+                    const newStyle = { ...parentStyle, ...P._parseStyleAttribute(attrs.style || '') };
+                    ['fill', 'fill-opacity', 'stroke', 'stroke-opacity', 'stroke-width', 'color'].forEach(key => {
+                        if (attrs[key] != null) newStyle[key] = attrs[key];
+                    });
+                    if (newStyle.fill === 'currentColor') newStyle.fill = newStyle.color;
+                    if (newStyle.stroke === 'currentColor') newStyle.stroke = newStyle.color;
+                    S._svg.styleStack.push(newStyle);
+
+                    const parentTransform = S._svg.transformStack[S._svg.transformStack.length - 1];
+                    const localTransform = attrs.transform ? P._parseTransform(attrs.transform) : P._matrixHelper.identity();
+                    S._svg.transformStack.push(P._matrixHelper.multiply(parentTransform, localTransform));
+                },
+                _processShape(tagName, attrs, allFoundPaths) {
+                    const S = LogoEngine.Streamer;
+                    const P = S.parent;
+                    const currentStyle = { ...S._svg.styleStack[S._svg.styleStack.length - 1], ...attrs };
+                    const currentTransform = S._svg.transformStack[S._svg.transformStack.length - 1];
+                    const pathData = P._getPathDataFromNode({ tagName, getAttribute: (name) => currentStyle[name] });
+                    if (!pathData) return;
+
+                    // FIX: Split path data by MoveTo commands to handle sub-paths correctly
+                    const subPaths = pathData.trim().split(/(?=M|m)/g).filter(s => s.trim());
+                    
+                    subPaths.forEach(subPathData => {
+                        const transformedPath = P._applyTransformBySampling(subPathData, currentTransform);
+                        const strokeWidth = parseFloat(currentStyle['stroke-width']) || 0;
+                        const fillOpacity = parseFloat(currentStyle['fill-opacity']) || 1;
+                        const strokeOpacity = parseFloat(currentStyle['stroke-opacity']) || 1;
+                        
+                        if (currentStyle.fill && currentStyle.fill !== 'none' && fillOpacity > 0) {
+                             allFoundPaths.push({ path: transformedPath, type: 'fill', color: currentStyle.fill, opacity: fillOpacity, isOriginalStroke: false, strokeWidth: P.config.maxStrokeWidth });
+                        }
+                        if (currentStyle.stroke && currentStyle.stroke !== 'none' && strokeWidth > 0 && strokeOpacity > 0) {
+                             allFoundPaths.push({ path: transformedPath, type: 'stroke', color: currentStyle.stroke, opacity: strokeOpacity, isOriginalStroke: true, strokeWidth: strokeWidth });
                         }
                     });
-                    return { ...stroke, colorIndex: bestMatchIndex };
-                });
-
-                const newPointsBuffer = [];
-                this.parent._streamProcessSVG(mappedStrokes, (segment) => {
-                    const size = JSON.stringify(segment).length;
-                    newPointsBuffer.push({ stroke: segment, size });
-                    this.parent.state.totalPointsInLut += segment.length - 1;
-                });
-
-                return newPointsBuffer;
-            },
-            _svg_pushState(attrs) {
-                const parentStyle = this._svg.styleStack[this._svg.styleStack.length - 1];
-                const newStyle = { ...parentStyle, ...this.parent._parseStyleAttribute(attrs.style || '') };
-                ['fill', 'fill-opacity', 'stroke', 'stroke-opacity', 'stroke-width', 'color'].forEach(key => {
-                    if (attrs[key] != null) newStyle[key] = attrs[key];
-                });
-                if (newStyle.fill === 'currentColor') newStyle.fill = newStyle.color;
-                if (newStyle.stroke === 'currentColor') newStyle.stroke = newStyle.color;
-                this._svg.styleStack.push(newStyle);
-
-                const parentTransform = this._svg.transformStack[this._svg.transformStack.length - 1];
-                const localTransform = attrs.transform ? this.parent._parseTransform(attrs.transform) : this.parent._matrixHelper.identity();
-                this._svg.transformStack.push(this.parent._matrixHelper.multiply(parentTransform, localTransform));
-            },
-            _svg_processShape(tagName, attrs, allFoundPaths) {
-                const currentStyle = { ...this._svg.styleStack[this._svg.styleStack.length - 1], ...attrs };
-                const currentTransform = this._svg.transformStack[this._svg.transformStack.length - 1];
-                const pathData = this.parent._getPathDataFromNode({ tagName, getAttribute: (name) => currentStyle[name] });
-                if (!pathData) return;
-
-                // FIX: Split path data by MoveTo commands to handle sub-paths correctly
-                const subPaths = pathData.trim().split(/(?=M|m)/g).filter(s => s.trim());
-                
-                subPaths.forEach(subPathData => {
-                    const transformedPath = this.parent._applyTransformBySampling(subPathData, currentTransform);
-                    const strokeWidth = parseFloat(currentStyle['stroke-width']) || 0;
-                    const fillOpacity = parseFloat(currentStyle['fill-opacity']) || 1;
-                    const strokeOpacity = parseFloat(currentStyle['stroke-opacity']) || 1;
-                    
-                    if (currentStyle.fill && currentStyle.fill !== 'none' && fillOpacity > 0) {
-                         allFoundPaths.push({ path: transformedPath, type: 'fill', color: currentStyle.fill, opacity: fillOpacity, isOriginalStroke: false, strokeWidth: this.parent.config.maxStrokeWidth });
-                    }
-                    if (currentStyle.stroke && currentStyle.stroke !== 'none' && strokeWidth > 0 && strokeOpacity > 0) {
-                         allFoundPaths.push({ path: transformedPath, type: 'stroke', color: currentStyle.stroke, opacity: strokeOpacity, isOriginalStroke: true, strokeWidth: strokeWidth });
-                    }
-                });
-            },
+                },
+            }
         };
 
         document.addEventListener('DOMContentLoaded', () => LogoEngine.init());
