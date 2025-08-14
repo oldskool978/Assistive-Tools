@@ -48,11 +48,20 @@
     <script>
         /**
          * EdgeLUT: A low-memory SVG animation engine and LUT compiler.
-         * Architecture: A true single-pass, "finalizing stream" model.
-         * The decompiler reads the SVG in 4kb chunks. As shapes are discovered, they are
-         * immediately processed into raw point geometry. Centering, color quantization, and
-         * draw order are all handled concurrently within the stream, respecting the anemic
-         * renderer and sacred stack philosophy. No post-stream finalization pass is needed.
+         *
+         * CORE PHILOSOPHY: PERFORMANCE ABOVE ALL
+         * This engine is designed for edge devices with minimal CPU and memory.
+         * - No Standard Libraries: All complex math is handled by pre-calculated Look-Up Tables (LUTs).
+         * - Integer & Fixed-Point Math: Avoids expensive floating-point operations.
+         * - Anemic Renderer: The renderer's only job is to draw. All intelligence happens upstream.
+         *
+         * ARCHITECTURE: A TRUE FINALIZING STREAM
+         * A single-pass, inline decompiler. No second pass or post-stream finalization.
+         * - Workspace-Scoped Processing: A 4kb chunk is the entire workspace for the decompiler.
+         * - Inline Ordering & Point Generation: Shapes are sorted (fills then strokes) and processed into
+         * point data immediately within the scope of each chunk.
+         * - Concurrent Finalization: Artwork bounds and color palettes are calculated live as the
+         * stream is processed, allowing the artwork to center and color itself as it's discovered.
          */
         const LogoEngine = {
             config: {
@@ -63,10 +72,9 @@
                 minCurveWidth: 1.5,
                 maxPaletteSize: 16,
                 visStreamChunkSize: 61440,
-                svgStreamChunkSize: 4096,
+                svgStreamChunkSize: 4096, // YOU SHOULD KNOW: This defines the decompiler's workspace size.
                 colorSimilarityThreshold: 2500,
                 visIntPrecision: 100000,
-                dataBufferMaxSize: 122880, // 120kb buffer for the renderhead
             },
 
             state: {
@@ -84,14 +92,17 @@
                 isEndOfStream: false,
                 streamReader: null,
                 dataBuffer: [],
-                dataBufferSize: 0,
                 renderOffset: { x: 0, y: 0 },
                 artworkBounds: null,
                 rawColorWeights: new Map(),
             },
 
+            // --- PRECALCULATED DATA ---
+            // YOU SHOULD KNOW: All LUTs are integer arrays. The corresponding _SCALE value
+            // is used to convert the integer back to a normalized float (0.0-1.0),
+            // a technique known as fixed-point arithmetic.
             PRECALCULATED: {
-                INV_ANIMATION_DURATION_MS: 0.00025,
+                INV_ANIMATION_DURATION_MS: 0.00025, // Represents 1 / 4000ms. Used to avoid division in the render loop.
                 INV_LCG_SCALE_H: 0,
                 INV_LCG_SCALE_L: 0,
                 INV_255_SCALE_H: 1,
@@ -120,6 +131,8 @@
                 const fraction = floatIndex - index1;
                 const performInterpolation = (v1, v2) => v1 + ( ((v2 - v1) * (fraction * 256)) >> 8 );
                 if (wrap) {
+                    // YOU SHOULD KNOW: Bitwise AND is used here as a fast alternative to modulo
+                    // for wrapping the index around the LUT length.
                     const i1 = index1 & (lutLength - 1);
                     const i2 = (i1 + 1) & (lutLength - 1);
                     return performInterpolation(lut[i1], lut[i2]);
@@ -213,7 +226,7 @@
             },
 
             _renderLoop: function(pointsForPacing) {
-                const { ctx, colorPalette, viewBox } = this.state;
+                const { ctx, colorPalette } = this.state;
                 if (!ctx) return;
                 const dataSource = this.state.dataBuffer;
                 const pacingTotalPoints = pointsForPacing;
@@ -221,17 +234,12 @@
 
                 let startTime = null;
                 let currentPos = {x: 0, y: 0};
-                let dynamicRate = 10;
 
                 const animationFrame = (timestamp) => {
                     if (!startTime) startTime = timestamp;
                     let elapsedTime = timestamp - startTime;
 
                     if (this.state.drawnPointsCount < this.state.totalPointsInLut || (!this.state.isEndOfStream && dataSource.length > 0) ) {
-                        if (elapsedTime > 200 && this.state.drawnPointsCount < 50 && this.state.totalPointsInLut > 100) {
-                            dynamicRate = Math.min(50, dynamicRate + 1);
-                        }
-                        elapsedTime = (elapsedTime * dynamicRate) / 10;
                         const targetPointsToDraw = (elapsedTime * this.PRECALCULATED.INV_ANIMATION_DURATION_MS * pacingTotalPoints) | 0;
 
                         if(this.state.drawnPointsCount < targetPointsToDraw) {
@@ -376,7 +384,6 @@
                 this.state.isStreaming = false;
                 this.state.isEndOfStream = false;
                 this.state.dataBuffer = [];
-                this.state.dataBufferSize = 0;
                 this.state.renderOffset = { x: 0, y: 0 };
                 this.state.artworkBounds = null;
                 this.state.colorPalette = [];
@@ -704,14 +711,6 @@
                 colorDistanceSq(c1, c2) {
                     const dr = c1.r - c2.r, dg = c1.g - c2.g, db = c1.b - c2.b;
                     return dr*dr + dg*dg + db*db;
-                },
-                interpolateColor(c1, c2, factor) {
-                    return {
-                        r: c1.r + (c2.r - c1.r) * factor,
-                        g: c1.g + (c2.g - c1.g) * factor,
-                        b: c1.b + (c2.b - c1.b) * factor,
-                        a: c1.a + (c2.a - c1.a) * factor,
-                    };
                 },
                 findClosestPaletteIndex(color, palette) {
                     let bestMatchIndex = 0, minDistance = Infinity;
