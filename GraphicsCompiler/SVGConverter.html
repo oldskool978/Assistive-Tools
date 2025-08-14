@@ -47,10 +47,12 @@
 
     <script>
         /**
-         * EdgeLUT: SVG animation engine and LUT compiler.
-         * V13 (Refactor): Removed all legacy DOM-based parsing code. The engine is now
-         * fully committed to the low-memory streaming architecture. The save-to-vis
-         * function is temporarily disabled as it depended on the legacy code.
+         * EdgeLUT: A low-memory SVG animation engine and LUT compiler.
+         * This engine ingests SVG or .vis files via a streaming, chunk-based processor
+         * to maintain a minimal memory footprint, suitable for edge devices. It uses
+         * pre-calculated look-up tables (LUTs) and integer math to bypass expensive
+         * floating-point computations during animation. The final output is a compact,
+         * renderer-ready data structure.
          */
         const LogoEngine = {
             config: {
@@ -63,6 +65,8 @@
                 visStreamChunkSize: 61440, 
                 streamBufferThreshold: 51200, 
                 visIntPrecision: 100000,
+                // SVG processing reads the file in 4096-byte chunks. This size is optimal
+                // for handling SVG structure without clipping elements and keeps the workspace small.
                 svgStreamChunkSize: 4096,
             },
 
