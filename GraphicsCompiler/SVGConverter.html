@@ -48,17 +48,12 @@
     <script>
         /**
          * EdgeLUT: A low-memory SVG animation engine and LUT compiler.
-         * Ingests SVG or .vis files via a streaming, chunk-based processor to maintain
-         * a minimal memory footprint. Uses pre-calculated look-up tables (LUTs) and
-         * integer math to bypass expensive floating-point computations during animation.
-         *
-         * V15 Refactor: Implements a two-phase "Stream then Finalize" model.
-         * 1. Stream: A true single-pass decompiler reads the SVG in 4kb chunks, generating
-         * raw point geometry and calculating artwork bounds without intermediate buffering.
-         * 2. Finalize: After the stream, a single, fast in-memory pass calculates the
-         * centering offset, quantizes the final color palette, and maps all points to
-         * their correct color index before rendering begins. This solves all race
-         * conditions and ordering issues while respecting the anemic renderer philosophy.
+         * Architecture: A two-phase "Stream then Finalize" model.
+         * Phase 1 (Stream): A single-pass decompiler reads the SVG in 4kb chunks, generating
+         * raw point geometry and calculating artwork bounds. No intermediate arrays persist.
+         * Phase 2 (Finalize): After the stream, a single, fast in-memory pass calculates the
+         * centering offset, quantizes the final color palette from raw color data, and maps
+         * all buffered points to their correct color index before rendering begins.
          */
         const LogoEngine = {
             config: {
@@ -71,7 +66,7 @@
                 visStreamChunkSize: 61440, 
                 streamBufferThreshold: 51200, 
                 visIntPrecision: 100000,
-                svgStreamChunkSize: 4096,
+                svgStreamChunkSize: 4096, // SVG stream workspace size. 4096 bytes balances parsing complete tags and minimizing memory.
                 colorSimilarityThreshold: 2500,
             },
 
@@ -79,7 +74,7 @@
                 canvas: null, ctx: null, animationFrameId: null,
                 viewBox: { x: 0, y: 0, width: 400, height: 225 },
                 colorPalette: [], 
-                rawColorWeights: null, // Changed from colorWeights
+                rawColorWeights: null, // Stores raw color strings and frequency during the stream phase.
                 drawnPointsCount: 0,
                 totalPointsInLut: 0,
                 currentStrokeIndex: 0, currentPointInStrokeIndex: 0,
@@ -514,7 +509,7 @@
                     let tempWidth = width > this.config.maxStrokeWidth * 1.5 ? this.config.maxStrokeWidth * 1.5 : width;
                     width = tempWidth < 0.5 ? 0.5 : tempWidth;
 
-                    const pointData = { width, color: pathData.color, opacity: pathData.opacity, type: pathData.type }; // Pass raw color
+                    const pointData = { width, color: pathData.color, opacity: pathData.opacity, type: pathData.type };
                     if (!lastPoint) {
                         currentSegment.push({ x: point.x, y: point.y, ...pointData });
                         absolutePos.x = point.x;
@@ -900,7 +895,6 @@
                     const P = LogoEngine.Streamer.parent;
                     const { artworkBounds, viewBox, rawColorWeights, dataBuffer } = P.state;
                     
-                    // 1. Finalize Centering
                     if (artworkBounds) {
                         const artworkCenterX = artworkBounds.minX + (artworkBounds.maxX - artworkBounds.minX) * 0.5;
                         const artworkCenterY = artworkBounds.minY + (artworkBounds.maxY - artworkBounds.minY) * 0.5;
@@ -910,7 +904,6 @@
                         P.state.renderOffset.y = viewBoxCenterY - artworkCenterY;
                     }
 
-                    // 2. Finalize Color Palette
                     const weightedColors = Array.from(rawColorWeights.values());
                     let finalPalette = weightedColors.length <= P.config.maxPaletteSize
                         ? weightedColors.map(item => item.color)
@@ -921,13 +914,12 @@
                     }
                     P.state.colorPalette = finalPalette;
 
-                    // 3. Final In-Memory Pass to Map Colors
                     dataBuffer.forEach(strokeData => {
                         strokeData.stroke.forEach(point => {
-                            if (point.color) { // Only map points that have a raw color
+                            if (point.color) {
                                 const rgba = P._colorUtils.parseColor(point.color, point.opacity);
                                 point.colorIndex = P._colorUtils.findClosestPaletteIndex(rgba, finalPalette);
-                                delete point.color; // Clean up raw data
+                                delete point.color;
                                 delete point.opacity;
                             }
                         });
@@ -948,7 +940,7 @@
                 _parseAndProcessSvgChunk(chunkText, isFinalChunk = false) {
                     const S = LogoEngine.Streamer;
                     const P = S.parent;
-                    const chunkShapes = []; // Workspace-scoped buffer
+                    const chunkShapes = [];
 
                     const combinedText = S._svg.partialData + chunkText;
                     let chunkToParse;
@@ -1000,7 +992,6 @@
                     const S = LogoEngine.Streamer;
                     const P = S.parent;
 
-                    // First, collect all raw colors and their weights from this chunk
                     shapes.forEach(p => {
                         const rgba = P._colorUtils.parseColor(p.color, p.opacity);
                         if (rgba.a > 0) {
@@ -1010,7 +1001,6 @@
                         }
                     });
 
-                    // Now, create the correctly ordered list of animatable paths
                     const animatablePaths = [];
                     const hasStrokesInCollection = shapes.some(p => p.isOriginalStroke);
                     const hasFillsInCollection = shapes.some(p => p.type === 'fill');
@@ -1026,7 +1016,6 @@
                         animatablePaths.push(...strokesFromFills);
                     }
                     
-                    // Finally, process each path in the correct order
                     animatablePaths.forEach(path => {
                         P._streamProcessSVG(path, (segment) => {
                             const size = JSON.stringify(segment).length;
