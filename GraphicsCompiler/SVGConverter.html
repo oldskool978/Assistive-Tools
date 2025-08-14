@@ -73,7 +73,6 @@
                 canvas: null, ctx: null, animationFrameId: null,
                 viewBox: { x: 0, y: 0, width: 400, height: 225 },
                 colorPalette: [], 
-                rawColorWeights: null,
                 drawnPointsCount: 0,
                 totalPointsInLut: 0,
                 currentStrokeIndex: 0, currentPointInStrokeIndex: 0,
@@ -188,13 +187,23 @@
 
             // --- Rendering and Animation ---
             _setupCanvas: function(containerRect) {
-                const { canvas, viewBox } = this.state;
+                const { canvas, viewBox, artworkBounds } = this.state;
                 const dpr = window.devicePixelRatio || 1;
                 const padding = (this.state.maxGeometricStrokeWidth * 0.5) + this.config.maxStrokeWidth;
-                const effectiveViewBox = { width: viewBox.width + padding * 2, height: viewBox.height + padding * 2 };
-                const scale = Math.min(containerRect.width / effectiveViewBox.width, containerRect.height / effectiveViewBox.height);
-                const canvasWidth = effectiveViewBox.width * scale;
-                const canvasHeight = effectiveViewBox.height * scale;
+
+                const bounds = artworkBounds 
+                    ? { width: artworkBounds.maxX - artworkBounds.minX, height: artworkBounds.maxY - artworkBounds.minY }
+                    : { width: viewBox.width, height: viewBox.height };
+
+                const effectiveBounds = { width: bounds.width + padding * 2, height: bounds.height + padding * 2 };
+                
+                if (effectiveBounds.width <= 0 || effectiveBounds.height <= 0) return;
+
+                const scale = Math.min(containerRect.width / effectiveBounds.width, containerRect.height / effectiveBounds.height);
+                
+                const canvasWidth = effectiveBounds.width * scale;
+                const canvasHeight = effectiveBounds.height * scale;
+                
                 canvas.width = canvasWidth * dpr;
                 canvas.height = canvasHeight * dpr;
                 canvas.style.width = `${canvasWidth}px`;
@@ -226,11 +235,33 @@
                         if(this.state.drawnPointsCount < targetPointsToDraw) {
                             ctx.save();
                             const dpr = window.devicePixelRatio || 1;
+                            const { viewBox, artworkBounds, renderOffset } = this.state;
                             const padding = (this.state.maxGeometricStrokeWidth * 0.5) + this.config.maxStrokeWidth;
-                            const scale = Math.min((ctx.canvas.width / dpr) / (viewBox.width + padding * 2), (ctx.canvas.height / dpr) / (viewBox.height + padding * 2));
+
+                            const scaleBounds = artworkBounds 
+                                ? { width: artworkBounds.maxX - artworkBounds.minX, height: artworkBounds.maxY - artworkBounds.minY }
+                                : { width: viewBox.width, height: viewBox.height };
                             
-                            const translateX = (-viewBox.x + padding + this.state.renderOffset.x) * scale * dpr;
-                            const translateY = (-viewBox.y + padding + this.state.renderOffset.y) * scale * dpr;
+                            const translateBounds = artworkBounds
+                                ? { x: artworkBounds.minX, y: artworkBounds.minY }
+                                : { x: viewBox.x, y: viewBox.y };
+
+                            const effectiveWidth = scaleBounds.width + padding * 2;
+                            const effectiveHeight = scaleBounds.height + padding * 2;
+
+                            if (effectiveWidth <= 0 || effectiveHeight <= 0) {
+                                ctx.restore();
+                                this.state.animationFrameId = requestAnimationFrame(animationFrame);
+                                return;
+                            }
+
+                            const scale = Math.min((ctx.canvas.width / dpr) / effectiveWidth, (ctx.canvas.height / dpr) / effectiveHeight);
+                            
+                            const offsetX = artworkBounds ? 0 : renderOffset.x;
+                            const offsetY = artworkBounds ? 0 : renderOffset.y;
+
+                            const translateX = (-translateBounds.x + padding + offsetX) * scale * dpr;
+                            const translateY = (-translateBounds.y + padding + offsetY) * scale * dpr;
 
                             ctx.setTransform(scale * dpr, 0, 0, scale * dpr, translateX, translateY);
                             ctx.lineCap = 'round';
