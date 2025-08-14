@@ -63,9 +63,10 @@
                 minCurveWidth: 1.5,
                 maxPaletteSize: 16,
                 visStreamChunkSize: 61440,
-                visIntPrecision: 100000,
                 svgStreamChunkSize: 4096,
                 colorSimilarityThreshold: 2500,
+                visIntPrecision: 100000,
+                dataBufferMaxSize: 122880, // 120kb buffer for the renderhead
             },
 
             state: {
@@ -83,6 +84,7 @@
                 isEndOfStream: false,
                 streamReader: null,
                 dataBuffer: [],
+                dataBufferSize: 0,
                 renderOffset: { x: 0, y: 0 },
                 artworkBounds: null,
                 rawColorWeights: new Map(),
@@ -374,6 +376,7 @@
                 this.state.isStreaming = false;
                 this.state.isEndOfStream = false;
                 this.state.dataBuffer = [];
+                this.state.dataBufferSize = 0;
                 this.state.renderOffset = { x: 0, y: 0 };
                 this.state.artworkBounds = null;
                 this.state.colorPalette = [];
