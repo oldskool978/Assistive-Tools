@@ -48,12 +48,11 @@
     <script>
         /**
          * EdgeLUT: A low-memory SVG animation engine and LUT compiler.
-         * Architecture: A two-phase "Stream then Finalize" model.
-         * Phase 1 (Stream): A single-pass decompiler reads the SVG in 4kb chunks, generating
-         * raw point geometry and calculating artwork bounds. No intermediate arrays persist.
-         * Phase 2 (Finalize): After the stream, a single, fast in-memory pass calculates the
-         * centering offset, quantizes the final color palette from raw color data, and maps
-         * all buffered points to their correct color index before rendering begins.
+         * Architecture: A true single-pass, "finalizing stream" model.
+         * The decompiler reads the SVG in 4kb chunks. As shapes are discovered, they are
+         * immediately processed into raw point geometry. Centering, color quantization, and
+         * draw order are all handled concurrently within the stream, respecting the anemic
+         * renderer and sacred stack philosophy. No post-stream finalization pass is needed.
          */
         const LogoEngine = {
             config: {
@@ -66,7 +65,7 @@
                 visStreamChunkSize: 61440, 
                 streamBufferThreshold: 51200, 
                 visIntPrecision: 100000,
-                svgStreamChunkSize: 4096, // SVG stream workspace size. 4096 bytes balances parsing complete tags and minimizing memory.
+                svgStreamChunkSize: 4096,
                 colorSimilarityThreshold: 2500,
             },
 
@@ -74,7 +73,7 @@
                 canvas: null, ctx: null, animationFrameId: null,
                 viewBox: { x: 0, y: 0, width: 400, height: 225 },
                 colorPalette: [], 
-                rawColorWeights: null, // Stores raw color strings and frequency during the stream phase.
+                rawColorWeights: null,
                 drawnPointsCount: 0,
                 totalPointsInLut: 0,
                 currentStrokeIndex: 0, currentPointInStrokeIndex: 0,
