@@ -55,13 +55,11 @@
          * - Integer & Fixed-Point Math: Avoids expensive floating-point operations.
          * - Anemic Renderer: The renderer's only job is to draw. All intelligence happens upstream.
          *
-         * ARCHITECTURE: A TRUE FINALIZING STREAM
-         * A single-pass, inline decompiler. No second pass or post-stream finalization.
-         * - Workspace-Scoped Processing: A 4kb chunk is the entire workspace for the decompiler.
-         * - Inline Ordering & Point Generation: Shapes are sorted (fills then strokes) and processed into
-         * point data immediately within the scope of each chunk.
-         * - Concurrent Finalization: Artwork bounds and color palettes are calculated live as the
-         * stream is processed, allowing the artwork to center and color itself as it's discovered.
+         * ARCHITECTURE: TWO-PASS FINALIZING STREAM
+         * A two-pass, inline decompiler. This solves for dynamic centering artifacts while keeping the stack sacred.
+         * - Pass 1 (Analysis): A fast, non-rendering pass to calculate final artwork bounds. No point data is stored.
+         * - Pass 2 (Drawing): A second pass processes paths in the correct order (fills then strokes) into point data.
+         * - Concurrent Finalization: Color palettes are calculated live during the drawing pass.
          */
         const LogoEngine = {
             config: {
@@ -475,7 +473,7 @@
                 }
                 return centroids;
             },
-            _streamProcessSVG: function(animatablePath, pointCallback) {
+            _streamProcessSVG: function(animatablePath, pointCallback, isAnalysisPass = false) {
                 const { EASING_LUT_SCALE, CURVATURE_LUT_SCALE, VELOCITY_LUT_SCALE } = this.PRECALCULATED;
                 const absolutePos = { x: 0, y: 0 };
                 const pathData = animatablePath;
