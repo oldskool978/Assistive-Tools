@@ -63,9 +63,9 @@
                 minCurveWidth: 1.5,
                 maxPaletteSize: 16,
                 visStreamChunkSize: 61440,
+                visIntPrecision: 100000,
                 svgStreamChunkSize: 4096,
                 colorSimilarityThreshold: 2500,
-                visIntPrecision: 100000,
             },
 
             state: {
@@ -85,11 +85,11 @@
                 dataBuffer: [],
                 renderOffset: { x: 0, y: 0 },
                 artworkBounds: null,
-                rawColorWeights: new Map(), // Re-introduced for final quantization pass
+                rawColorWeights: new Map(),
             },
 
             PRECALCULATED: {
-                INV_ANIMATION_DURATION_MS: 0.00025, // 1 / 4000ms
+                INV_ANIMATION_DURATION_MS: 0.00025,
                 INV_LCG_SCALE_H: 0,
                 INV_LCG_SCALE_L: 0,
                 INV_255_SCALE_H: 1,
