@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" id="github-page-viewer-main">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -8,6 +8,7 @@
         /* --- Base Styles & Reset --- */
         html, body { margin: 0; padding: 0; height: 100%; width: 100%; overflow: hidden; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji"; }
         *, *::before, *::after { box-sizing: border-box; }
+        ul { list-style: none; margin: 0; padding: 0; }
 
         /* --- Layout --- */
         body { background-color: #f3f4f6; }
@@ -15,8 +16,8 @@
         .fixed { position: fixed; }
         .inset-0 { top: 0; right: 0; bottom: 0; left: 0; }
         .bottom-2 { bottom: 0.5rem; }
-        .left-1\/2 { left: 50%; }
-        .-translate-x-1\/2 { transform: translateX(-50%); }
+        .left-half { left: 50%; }
+        .translate-x-negative-half { transform: translateX(-50%); }
         .flex { display: flex; }
         .flex-col { flex-direction: column; }
         .flex-grow { flex-grow: 1; }
@@ -28,19 +29,21 @@
 
         /* --- Sizing & Spacing --- */
         .w-full { width: 100%; }
+        .w-11-12 { width: 91.666667%; }
         .max-w-2xl { max-width: 42rem; }
-        .max-h-\[70vh\] { max-height: 70vh; }
+        .max-h-80vh { max-height: 80vh; }
         .p-1 { padding: 0.25rem; }
+        .p-2 { padding: 0.5rem; }
+        .p-4 { padding: 1rem; }
         .px-3 { padding-left: 0.75rem; padding-right: 0.75rem; }
-        .py-1\.5 { padding-top: 0.375rem; padding-bottom: 0.375rem; }
-        .pt-16 { padding-top: 4rem; }
+        .py-1-5 { padding-top: 0.375rem; padding-bottom: 0.375rem; }
+        .py-2 { padding-top: 0.5rem; padding-bottom: 0.5rem; }
+        .pt-8 { padding-top: 2rem; }
         .px-4 { padding-left: 1rem; padding-right: 1rem; }
         .w-10 { width: 2.5rem; }
         .h-10 { height: 2.5rem; }
         .h-5 { height: 1.25rem; }
         .w-5 { width: 1.25rem; }
-        .h-4 { height: 1rem; }
-        .w-4 { width: 1rem; }
         .mr-3 { margin-right: 0.75rem; }
 
         /* --- Typography --- */
@@ -54,27 +57,27 @@
         .text-gray-800 { color: #1f2937; }
         .text-gray-700 { color: #374151; }
         .text-gray-600 { color: #4b5563; }
-        .text-blue-600 { color: #2563eb; }
+        .text-blue-400 { color: #60a5fa; }
+        .text-yellow-400 { color: #facc15; }
         .truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
         /* --- Backgrounds & Borders --- */
         .bg-white { background-color: #ffffff; }
+        .bg-gray-50 { background-color: #f9fafb; }
         .bg-gray-100 { background-color: #f3f4f6; }
-        .bg-gray-200 { background-color: #e5e7eb; }
         .bg-black { background-color: #000000; }
+        .bg-blue-100 { background-color: #dbeafe; }
         .bg-opacity-50 { background-color: rgba(0, 0, 0, 0.5); }
-        .bg-opacity-75 { background-color: rgba(255, 255, 255, 0.75); }
         .bg-opacity-80 { background-color: rgba(255, 255, 255, 0.8); }
-        .rounded-lg { border-radius: 0.5rem; }
+        .rounded-xl { border-radius: 0.75rem; }
         .rounded-full { border-radius: 9999px; }
         .rounded-md { border-radius: 0.375rem; }
-        .rounded-sm { border-radius: 0.125rem; }
-        .rounded-t-lg { border-top-left-radius: 0.5rem; border-top-right-radius: 0.5rem; }
-        .rounded-b-lg { border-bottom-left-radius: 0.5rem; border-bottom-right-radius: 0.5rem; }
+        .rounded-t-xl { border-top-left-radius: 0.75rem; border-top-right-radius: 0.75rem; }
+        .rounded-b-xl { border-bottom-left-radius: 0.75rem; border-bottom-right-radius: 0.75rem; }
         .border-b { border-bottom-width: 1px; }
         .border-t { border-top-width: 1px; }
+        .border-gray-200 { border-color: #e5e7eb; }
         .border-gray-300 { border-color: #d1d5db; }
-        .border-gray-400 { border-color: #9ca3af; }
 
         /* --- Effects & Transitions --- */
         .shadow-2xl { box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25); }
@@ -83,68 +86,90 @@
         .hover\:opacity-100:hover { opacity: 1; }
         .transition-all { transition-property: all; transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1); transition-duration: 300ms; }
         .transition-colors { transition-property: color, background-color, border-color, text-decoration-color, fill, stroke; transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1); transition-duration: 150ms; }
-        .animate-spin { animation: spin 1s linear infinite; }
-        @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
-        .backdrop-blur-sm { backdrop-filter: blur(4px); }
+        .fade-in { animation: fadeIn 0.3s ease-in-out; }
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
         
         /* --- Interactivity --- */
         .cursor-move { cursor: move; }
+        .cursor-not-allowed { cursor: not-allowed; }
         .hover\:bg-red-500:hover { background-color: #ef4444; }
         .hover\:text-white:hover { color: #ffffff; }
-        .hover\:bg-blue-500:hover { background-color: #3b82f6; }
+        .hover\:bg-blue-100:hover { background-color: #dbeafe; }
         .hover\:text-gray-900:hover { color: #111827; }
-        .flex-shrink-0 { flex-shrink: 0; }
         
         /* --- Z-Index --- */
         #navigation-controls { z-index: 1000; }
         #file-browser-modal { z-index: 2000; }
         #loading-indicator { z-index: 2001; }
+
+        /* --- Custom Animations --- */
+        .pulsing-loader div {
+            width: 12px;
+            height: 12px;
+            background-color: white;
+            border-radius: 100%;
+            display: inline-block;
+            animation: pulse 1.4s infinite ease-in-out both;
+        }
+        .pulsing-loader .dot2 { animation-delay: 0.16s; }
+        .pulsing-loader .dot3 { animation-delay: 0.32s; }
+        @keyframes pulse {
+            0%, 80%, 100% { transform: scale(0); }
+            40% { transform: scale(1.0); }
+        }
+
+        /* --- Responsive Design --- */
+        @media (min-width: 640px) {
+            .sm\:pt-16 { padding-top: 4rem; }
+        }
+
     </style>
 </head>
 <body>
 
     <iframe id="content-frame" src="about:blank"></iframe>
 
-    <div id="loading-indicator" class="fixed inset-0 flex items-center justify-center bg-white bg-opacity-75 backdrop-blur-sm">
+    <div id="loading-indicator" class="fixed inset-0 flex items-center justify-center bg-black" style="display: none;">
         <div class="text-center">
-            <svg class="animate-spin h-10 w-10 text-blue-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" style="opacity: 0.25;"></circle>
-                <path fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" style="opacity: 0.75;"></path>
-            </svg>
-            <p class="text-lg font-semibold text-gray-700" style="margin-top: 1rem;">Fetching pages from GitHub...</p>
+            <div class="pulsing-loader">
+                <div class="dot1"></div>
+                <div class="dot2"></div>
+                <div class="dot3"></div>
+            </div>
+            <p id="loading-text" class="text-lg font-semibold text-white" style="margin-top: 1.5rem;">Fetching Repository...</p>
         </div>
     </div>
 
-    <div id="file-browser-modal-container" class="fixed inset-0 bg-black bg-opacity-50 flex items-start justify-center pt-16 px-4" style="display: none;">
-        <div id="file-browser-modal" class="bg-white rounded-lg shadow-2xl w-full max-w-2xl max-h-[70vh] flex flex-col border border-gray-400">
-            <div id="modal-title-bar" class="px-3 py-1.5 bg-gray-200 border-b border-gray-400 flex justify-between items-center rounded-t-lg">
-                <h2 class="text-sm font-semibold text-gray-800">File Explorer</h2>
-                <button id="close-modal-btn" class="text-gray-600 hover:text-gray-900 p-1 rounded-sm hover:bg-red-500 hover:text-white transition-colors">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M6 18L18 6M6 6l12 12" />
+    <div id="file-browser-modal-container" class="fixed inset-0 bg-black bg-opacity-50 flex items-start justify-center p-4 pt-8 sm:pt-16" style="display: none;">
+        <div id="file-browser-modal" class="bg-gray-50 rounded-xl shadow-2xl w-11-12 max-w-2xl max-h-80vh flex flex-col border border-gray-300">
+            <div id="modal-title-bar" class="px-3 py-2 bg-gray-100 border-b border-gray-200 flex justify-between items-center rounded-t-xl cursor-move">
+                <h2 id="modal-title" class="text-sm font-semibold text-gray-800 truncate">File Explorer</h2>
+                <button id="close-modal-btn" class="w-10 h-10 flex items-center justify-center text-gray-600 hover:text-gray-900 rounded-full hover:bg-red-500 hover:text-white transition-colors">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M6 18L18 6M6 6l12 12" />
                     </svg>
                 </button>
             </div>
-            <ul id="file-list" class="overflow-y-auto p-1 bg-white flex-grow"></ul>
-            <div class="px-3 py-1 bg-gray-100 border-t border-gray-300 text-xs text-gray-600 rounded-b-lg">
+            <ul id="file-list" class="overflow-y-auto p-2 bg-white flex-grow"></ul>
+            <div class="px-3 py-1 bg-gray-100 border-t border-gray-200 text-xs text-gray-600 rounded-b-xl">
                 <span id="file-count">0 items</span>
             </div>
         </div>
     </div>
 
-    <div id="navigation-controls" class="fixed bottom-2 left-1/2 -translate-x-1/2 flex items-center justify-center gap-2 p-1 bg-opacity-50 rounded-full shadow-lg opacity-50 hover:opacity-100 transition-all" style="display: none;">
-        <button id="prev-btn" class="w-10 h-10 flex items-center justify-center bg-opacity-80 rounded-full text-gray-800">
+    <div id="navigation-controls" class="fixed bottom-2 left-half translate-x-negative-half flex items-center justify-center gap-2 p-1 bg-opacity-80 rounded-full shadow-lg opacity-50 hover:opacity-100 transition-all" style="display: none;">
+        <button id="prev-btn" class="w-10 h-10 flex items-center justify-center rounded-full text-white">
             <svg id="prev-arrow" xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
             </svg>
         </button>
-        <button id="open-modal-btn" class="w-10 h-10 flex items-center justify-center bg-opacity-80 rounded-full text-gray-800">
+        <button id="open-modal-btn" class="w-10 h-10 flex items-center justify-center rounded-full text-white">
              <svg id="folder-icon" xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
             </svg>
         </button>
-        <div id="page-counter" class="font-mono text-sm px-2"></div>
-        <button id="next-btn" class="w-10 h-10 flex items-center justify-center bg-opacity-80 rounded-full text-gray-800">
+        <div id="page-counter" class="font-mono text-sm px-2 text-white flex items-center"></div>
+        <button id="next-btn" class="w-10 h-10 flex items-center justify-center rounded-full text-white">
             <svg id="next-arrow" xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
             </svg>
@@ -153,58 +178,66 @@
 
     <script>
         document.addEventListener('DOMContentLoaded', () => {
-            // --- CONFIGURATION ---
-            const GITHUB_FOLDER_URL = 'https://github.com/oldskool978/Assistive-Tools/tree/main/BoardPages';
+            // --- System Configuration ---
+            const GITHUB_URL = 'https://github.com/oldskool978/Assistive-Tools/tree/main/BoardPages';
+            const ICONS = {
+                parent: `<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-3 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" style="stroke-width: 1.5;"><path stroke-linecap="round" stroke-linejoin="round" d="M9 11l-4 4m0 0l4 4m-4-4h12a4 4 0 004-4v-4" /></svg>`,
+                folder: `<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-3 text-yellow-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" style="stroke-width: 1.5;"><path stroke-linecap="round" stroke-linejoin="round" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" /></svg>`,
+                file: `<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-3 text-blue-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" style="stroke-width: 1.5;"><path stroke-linecap="round" stroke-linejoin="round" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" /></svg>`
+            };
 
-            // --- DOM ELEMENT CACHE ---
+            // --- DOM Element References ---
             const DOMElements = {
                 iframe: document.getElementById('content-frame'),
-                prevBtn: document.getElementById('prev-btn'),
-                nextBtn: document.getElementById('next-btn'),
                 loadingIndicator: document.getElementById('loading-indicator'),
+                loadingText: document.getElementById('loading-text'),
                 navControls: document.getElementById('navigation-controls'),
                 pageCounter: document.getElementById('page-counter'),
-                prevArrow: document.getElementById('prev-arrow'),
-                nextArrow: document.getElementById('next-arrow'),
-                folderIcon: document.getElementById('folder-icon'),
                 modalContainer: document.getElementById('file-browser-modal-container'),
                 modal: document.getElementById('file-browser-modal'),
                 modalTitleBar: document.getElementById('modal-title-bar'),
+                modalTitle: document.getElementById('modal-title'),
                 openModalBtn: document.getElementById('open-modal-btn'),
                 closeModalBtn: document.getElementById('close-modal-btn'),
                 fileList: document.getElementById('file-list'),
                 fileCount: document.getElementById('file-count'),
+                prevBtn: document.getElementById('prev-btn'),
+                nextBtn: document.getElementById('next-btn'),
             };
 
-            // --- APPLICATION STATE ---
+            // --- State Management ---
             const state = {
-                htmlFileUrls: [],
+                repoConfig: null,
+                currentDirectoryFiles: [],
                 currentIndex: 0,
+                currentPath: '',
                 isDragging: false,
                 dragOffsetX: 0,
                 dragOffsetY: 0,
+                isPageLoaded: false,
+                directoryCache: {},
             };
 
-            // --- API & PARSING FUNCTIONS ---
+            // --- Utility Functions ---
+            // Renders a formatted error message in the main iframe.
+            function showError(title, message) {
+                DOMElements.iframe.srcdoc = `<div style="display:flex; flex-direction:column; align-items:center; justify-content:center; height:100%; font-family:sans-serif; color:red; padding: 2em; text-align:center;"><h1>${title}</h1><p>${message}</p></div>`;
+                DOMElements.loadingIndicator.style.display = 'none';
+            }
 
-            /**
-             * Parses GitHub URL into components {owner, repo, branch, path}.
-             * @param {string} url - The GitHub URL to parse.
-             */
+            // Deconstructs a GitHub URL into its core components.
             function parseGitHubUrl(url) {
                 if (!url || typeof url !== 'string') return null;
                 try {
-                    const urlObj = new URL(url);
+                    const cleanUrl = url.endsWith('.git') ? url.slice(0, -4) : url;
+                    const urlObj = new URL(cleanUrl);
                     if (urlObj.hostname !== 'github.com') return null;
-                    
                     const pathParts = urlObj.pathname.split('/').filter(p => p);
                     if (pathParts.length < 2) return null;
-
                     const owner = pathParts[0];
                     const repo = pathParts[1];
-                    let branch = 'main'; // Default branch
+                    let branch = 'main';
                     let path = '';
-
                     const treeIndex = pathParts.indexOf('tree');
                     if (treeIndex !== -1 && pathParts.length > treeIndex + 1) {
                         branch = pathParts[treeIndex + 1];
@@ -212,7 +245,6 @@
                     } else if (treeIndex === -1 && pathParts.length > 2) {
                         path = pathParts.slice(2).join('/');
                     }
-                    
                     return { owner, repo, branch, path };
                 } catch (e) {
                     console.error("URL parsing failed:", e);
@@ -220,13 +252,8 @@
                 }
             }
 
-            // --- UI FUNCTIONS ---
-
-            /**
-             * Extracts a CSS property from a body tag's inline style.
-             * @param {string} html - Raw HTML content.
-             * @param {string} property - CSS property name.
-             */
+            // --- UI Functions ---
+            // Extracts a specific CSS property from an HTML string's body tag.
             function extractBodyStyle(html, property) {
                 const bodyStyleMatch = html.match(/<body[^>]*style\s*=\s*["']([^"']*)["']/i);
                 if (bodyStyleMatch && bodyStyleMatch[1]) {
@@ -237,10 +264,7 @@
                 return null;
             }
 
-            /**
-             * Determines if a CSS color is light or dark.
-             * @param {string} color - CSS color string.
-             */
+            // Calculates luminance to determine if a color is light or dark.
             function isColorLight(color) {
                 try {
                     const tempDiv = document.createElement('div');
@@ -254,113 +278,175 @@
                 } catch (e) { return true; }
             }
 
-            /**
-             * Updates navigation control styles based on page content.
-             * @param {string|null} bgColor - Page background color.
-             * @param {string|null} font - Page font family.
-             */
+            // Adapts navigation UI colors based on the loaded page's background.
             function updateNavStyles(bgColor, font) {
-                const { navControls, pageCounter, prevArrow, nextArrow, folderIcon } = DOMElements;
-                const defaultBg = 'rgba(31, 41, 55, 0.6)';
+                const { navControls, pageCounter } = DOMElements;
+                const allIcons = navControls.querySelectorAll('svg');
+                const defaultBg = 'rgba(31, 41, 55, 0.8)';
                 const defaultTextColor = 'white';
-                const defaultStrokeColor = 'black';
-
+                const defaultStrokeColor = 'white';
                 if (bgColor) {
                     navControls.style.backgroundColor = bgColor;
                     const textColor = isColorLight(bgColor) ? 'black' : 'white';
                     pageCounter.style.color = textColor;
-                    prevArrow.style.stroke = textColor;
-                    nextArrow.style.stroke = textColor;
-                    folderIcon.style.stroke = textColor;
+                    allIcons.forEach(svg => svg.style.stroke = textColor);
                 } else {
                     navControls.style.backgroundColor = defaultBg;
                     pageCounter.style.color = defaultTextColor;
-                    prevArrow.style.stroke = defaultStrokeColor;
-                    nextArrow.style.stroke = defaultStrokeColor;
-                    folderIcon.style.stroke = defaultStrokeColor;
+                    allIcons.forEach(svg => svg.style.stroke = defaultStrokeColor);
                 }
                 pageCounter.style.fontFamily = font ? font : 'monospace';
             }
 
-            /**
-             * Populates file browser modal with discovered HTML files.
-             */
-            function populateFileBrowser() {
-                const { fileList, fileCount } = DOMElements;
-                fileList.innerHTML = '';
-                state.htmlFileUrls.forEach((url, index) => {
-                    const fileName = url.split('/').pop();
+            // Renders file and directory list in the modal.
+            function populateFileBrowser(contents) {
+                const { fileList, fileCount, modalTitle } = DOMElements;
+                const fragment = document.createDocumentFragment();
+                
+                modalTitle.textContent = `Explorer: /${state.currentPath || ''}`;
+
+                if (state.currentPath) {
                     const li = document.createElement('li');
-                    li.innerHTML = `
-                        <a href="#" data-index="${index}" class="flex items-center p-2 text-gray-800 hover:bg-blue-500 hover:text-white rounded-md transition-colors text-sm">
-                            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-3 text-blue-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" style="stroke-width: 1.5;">
-                                <path stroke-linecap="round" stroke-linejoin="round" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
-                            </svg>
-                            <span class="truncate">${fileName}</span>
-                        </a>`;
-                    fileList.appendChild(li);
+                    li.innerHTML = `<a href="#" data-type="parent" class="flex items-center p-2 text-gray-800 hover:bg-blue-100 hover:text-gray-900 rounded-md transition-colors text-sm">${ICONS.parent}.. (Parent)</a>`;
+                    fragment.appendChild(li);
+                }
+
+                const folders = contents.filter(item => item.type === 'dir');
+                const files = contents.filter(item => item.type === 'file' && item.name.toLowerCase().endsWith('.html'));
+
+                folders.forEach(item => {
+                    const li = document.createElement('li');
+                    li.innerHTML = `<a href="#" data-path="${item.path}" data-type="dir" class="flex items-center p-2 text-gray-800 hover:bg-blue-100 hover:text-gray-900 rounded-md transition-colors text-sm">${ICONS.folder}<span class="truncate">${item.name}</span></a>`;
+                    fragment.appendChild(li);
                 });
-                fileCount.textContent = `${state.htmlFileUrls.length} item(s)`;
+
+                files.forEach(item => {
+                    const li = document.createElement('li');
+                    li.innerHTML = `<a href="#" data-path="${item.path}" data-type="file" class="flex items-center p-2 text-gray-800 hover:bg-blue-100 hover:text-gray-900 rounded-md transition-colors text-sm">${ICONS.file}<span class="truncate">${item.name}</span></a>`;
+                    fragment.appendChild(li);
+                });
+                
+                fileList.innerHTML = '';
+                fileList.appendChild(fragment);
+
+                fileCount.textContent = `${folders.length + files.length} item(s)`;
+                state.currentDirectoryFiles = files.map(item => item.path);
+
+                fileList.classList.add('fade-in');
+                setTimeout(() => fileList.classList.remove('fade-in'), 300);
             }
 
-            /**
-             * Loads a page into the iframe by its index.
-             * @param {number} index - The file index to load.
-             */
-            async function loadPage(index) {
-                if (state.htmlFileUrls.length === 0 || index < 0 || index >= state.htmlFileUrls.length) return;
-                state.currentIndex = index;
+            // --- Core Application Logic ---
+            // Fetches and displays an HTML file in the main iframe.
+            async function loadPageByPath(filePath) {
+                const { owner, repo, branch } = state.repoConfig;
+                const url = `https://raw.githubusercontent.com/${owner}/${repo}/${branch}/${filePath}`;
+                
+                DOMElements.loadingIndicator.style.display = 'flex';
+                DOMElements.loadingText.textContent = `Loading ${filePath.split('/').pop()}...`;
+
                 try {
-                    const url = state.htmlFileUrls[state.currentIndex];
                     const response = await fetch(url);
-                    if (!response.ok) throw new Error(`Fetch failed: ${response.status}`);
+                    if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
                     const htmlContent = await response.text();
+
+                    if (htmlContent.includes('id="github-page-viewer-main"')) {
+                        showError('Recursive Load Error', 'Cannot load the viewer script into itself.');
+                        return;
+                    }
                     
                     const bgColor = extractBodyStyle(htmlContent, 'background-color');
                     const font = extractBodyStyle(htmlContent, 'font-family');
                     updateNavStyles(bgColor, font);
                     
                     DOMElements.iframe.srcdoc = htmlContent;
-                    DOMElements.pageCounter.textContent = `${state.currentIndex + 1} / ${state.htmlFileUrls.length}`;
+                    state.currentIndex = state.currentDirectoryFiles.findIndex(p => p === filePath);
+                    DOMElements.pageCounter.textContent = `${state.currentIndex + 1} / ${state.currentDirectoryFiles.length}`;
+                    DOMElements.navControls.style.display = 'flex';
+
+                    if (!state.isPageLoaded) {
+                        state.isPageLoaded = true;
+                        DOMElements.closeModalBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+                    }
+
                 } catch (error) {
-                    console.error(`Error loading page ${state.htmlFileUrls[state.currentIndex]}:`, error);
-                    DOMElements.iframe.srcdoc = `<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;font-family:sans-serif;color:red;text-align:center;"><h1>Error loading page</h1><p>${error.message}</p></div>`;
+                    console.error(`Error loading page ${filePath}:`, error);
+                    showError('Error Loading Page', error.message);
                     updateNavStyles(null, null);
+                } finally {
+                    DOMElements.loadingIndicator.style.display = 'none';
                 }
             }
             
-            // --- EVENT HANDLERS & BINDING ---
+            // Fetches directory contents from GitHub API (with caching) and updates the file browser.
+            async function fetchDirectory(path) {
+                if (state.directoryCache[path]) {
+                    populateFileBrowser(state.directoryCache[path]);
+                    return;
+                }
 
-            /**
-             * Binds all application event listeners.
-             */
+                state.currentPath = path;
+                const { owner, repo } = state.repoConfig;
+                const API_URL = `https://api.github.com/repos/${owner}/${repo}/contents/${path}`;
+                DOMElements.loadingIndicator.style.display = 'flex';
+                DOMElements.loadingText.textContent = 'Fetching Directory...';
+                
+                try {
+                    const response = await fetch(API_URL);
+                    if (!response.ok) {
+                         let errorMsg = `API request failed: ${response.status}`;
+                         if (response.status === 404) errorMsg = "Repository or directory not found.";
+                         if (response.status === 403) errorMsg = "API rate limit exceeded or private repository.";
+                         throw new Error(errorMsg);
+                    }
+                    const contents = await response.json();
+                    state.directoryCache[path] = contents;
+                    
+                    populateFileBrowser(contents);
+
+                } catch (error) {
+                    console.error('Failed to fetch repository contents:', error);
+                    showError('Error Fetching Repository', error.message);
+                } finally {
+                    DOMElements.loadingIndicator.style.display = 'none';
+                }
+            }
+
+            // --- Event Listeners ---
             function bindEventListeners() {
                 const { nextBtn, prevBtn, openModalBtn, closeModalBtn, modalContainer, fileList, modalTitleBar } = DOMElements;
 
-                nextBtn.addEventListener('click', () => loadPage((state.currentIndex + 1) % state.htmlFileUrls.length));
-                prevBtn.addEventListener('click', () => loadPage((state.currentIndex - 1 + state.htmlFileUrls.length) % state.htmlFileUrls.length));
-                
-                openModalBtn.addEventListener('click', () => {
-                    modalContainer.style.display = modalContainer.style.display === 'flex' ? 'none' : 'flex';
+                nextBtn.addEventListener('click', () => {
+                    if (state.currentDirectoryFiles.length < 2) return;
+                    const nextIndex = (state.currentIndex + 1) % state.currentDirectoryFiles.length;
+                    loadPageByPath(state.currentDirectoryFiles[nextIndex]);
                 });
-                closeModalBtn.addEventListener('click', () => { modalContainer.style.display = 'none'; });
-                modalContainer.addEventListener('click', (e) => { if (e.target === modalContainer) modalContainer.style.display = 'none'; });
+                prevBtn.addEventListener('click', () => {
+                    if (state.currentDirectoryFiles.length < 2) return;
+                    const prevIndex = (state.currentIndex - 1 + state.currentDirectoryFiles.length) % state.currentDirectoryFiles.length;
+                    loadPageByPath(state.currentDirectoryFiles[prevIndex]);
+                });
+                
+                openModalBtn.addEventListener('click', () => { modalContainer.style.display = 'flex'; });
+                closeModalBtn.addEventListener('click', () => { if (state.isPageLoaded) modalContainer.style.display = 'none'; });
+                modalContainer.addEventListener('click', (e) => { if (e.target === modalContainer && state.isPageLoaded) modalContainer.style.display = 'none'; });
 
                 fileList.addEventListener('click', (e) => {
-                    const link = e.target.closest('a[data-index]');
-                    if (link) {
-                        e.preventDefault();
-                        const index = parseInt(link.dataset.index, 10);
-                        loadPage(index);
-                        modalContainer.style.display = 'none';
+                    const link = e.target.closest('a[data-type]');
+                    if (!link) return;
+                    e.preventDefault();
+                    const type = link.dataset.type;
+                    if (type === 'file') {
+                        loadPageByPath(link.dataset.path).then(() => { if (state.isPageLoaded) modalContainer.style.display = 'none'; });
+                    } else if (type === 'dir') {
+                        fetchDirectory(link.dataset.path);
+                    } else if (type === 'parent') {
+                        const parentPath = state.currentPath.substring(0, state.currentPath.lastIndexOf('/'));
+                        fetchDirectory(parentPath);
                     }
                 });
                 
-                document.addEventListener('keydown', (e) => {
-                    if (e.key === 'ArrowRight') nextBtn.click();
-                    if (e.key === 'ArrowLeft') prevBtn.click();
-                    if (e.key === 'Escape' && modalContainer.style.display === 'flex') closeModalBtn.click();
-                });
+                document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && modalContainer.style.display === 'flex' && state.isPageLoaded) closeModalBtn.click(); });
 
                 modalTitleBar.addEventListener('mousedown', (e) => {
                     state.isDragging = true;
@@ -369,62 +455,38 @@
                     DOMElements.modal.style.position = 'absolute';
                     document.body.style.userSelect = 'none';
                 });
-
                 document.addEventListener('mousemove', (e) => {
                     if (state.isDragging) {
                         DOMElements.modal.style.left = `${e.clientX - state.dragOffsetX}px`;
                         DOMElements.modal.style.top = `${e.clientY - state.dragOffsetY}px`;
                     }
                 });
-
                 document.addEventListener('mouseup', () => {
                     state.isDragging = false;
                     document.body.style.userSelect = '';
                 });
             }
 
-            // --- INITIALIZATION ---
-
-            /**
-             * Initializes the viewer application.
-             */
+            // --- Initialization ---
             async function initializeViewer() {
-                const repoConfig = parseGitHubUrl(GITHUB_FOLDER_URL);
-                if (!repoConfig) {
-                    DOMElements.iframe.srcdoc = `<div style="display:flex; flex-direction:column; align-items:center; justify-content:center; height:100%; font-family:sans-serif; color:red; padding: 2em; text-align:center;"><h1>Invalid GitHub URL</h1><p>Check <strong>GITHUB_FOLDER_URL</strong> variable.</p></div>`;
-                    DOMElements.loadingIndicator.style.display = 'none';
+                DOMElements.navControls.style.display = 'none';
+                state.repoConfig = parseGitHubUrl(GITHUB_URL);
+                if (!state.repoConfig) {
+                    showError('Invalid GitHub URL', 'Check the <strong>GITHUB_URL</strong> variable in the script.');
                     return;
                 }
-
-                const API_URL = `https://api.github.com/repos/${repoConfig.owner}/${repoConfig.repo}/contents/${repoConfig.path}`;
                 
-                try {
-                    DOMElements.loadingIndicator.style.display = 'flex';
-                    DOMElements.navControls.style.display = 'none';
-                    const response = await fetch(API_URL);
-                    if (!response.ok) throw new Error(`API request failed: ${response.status} ${response.statusText}`);
-                    const data = await response.json();
-                    
-                    state.htmlFileUrls = data
-                        .filter(item => item.type === 'file' && item.name.toLowerCase().endsWith('.html'))
-                        .map(item => `https://raw.githubusercontent.com/${repoConfig.owner}/${repoConfig.repo}/${repoConfig.branch}/${item.path}`);
-                    
-                    if (state.htmlFileUrls.length > 0) {
-                        populateFileBrowser();
-                        await loadPage(0);
-                        DOMElements.navControls.style.display = 'flex';
-                    } else {
-                        DOMElements.iframe.srcdoc = `<div style="display:flex;align-items:center;justify-content:center;height:100%;font-family:sans-serif;color:#555;"><h1>No HTML Files Found. Check Configuration.</h1></div>`;
-                    }
-                } catch (error) {
-                    console.error('Failed to fetch repository contents:', error);
-                    DOMElements.iframe.srcdoc = `<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;font-family:sans-serif;color:red;text-align:center;"><h1>Error fetching repository</h1><p>${error.message}</p></div>`;
-                } finally {
-                    DOMElements.loadingIndicator.style.display = 'none';
+                await fetchDirectory(state.repoConfig.path);
+                if (state.currentDirectoryFiles.length > 0) {
+                    await loadPageByPath(state.currentDirectoryFiles[0]);
+                } else {
+                    DOMElements.iframe.srcdoc = `<div style="display:flex;align-items:center;justify-content:center;height:100%;font-family:sans-serif;color:#555;"><h1>No HTML files found. Select a file from the explorer.</h1></div>`;
+                    DOMElements.modalContainer.style.display = 'flex';
+                    DOMElements.closeModalBtn.classList.add('opacity-50', 'cursor-not-allowed');
                 }
             }
 
-            // --- Start Application ---
+            // --- Application Entry Point ---
             initializeViewer();
             bindEventListeners();
         });
