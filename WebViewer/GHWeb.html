@@ -235,6 +235,63 @@
             height: 100%;
             color: var(--text-light);
         }
+        
+        /* --- List & Grid View Styles --- */
+        #file-list li a {
+            text-decoration: none;
+        }
+        #file-list li a span {
+            word-break: break-word;
+            white-space: normal;
+            line-height: 1.4;
+        }
+        #file-list.view-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+            gap: 0.5rem;
+            align-content: start;
+        }
+        #file-list.view-grid li a {
+            flex-direction: column;
+            height: 100px;
+            justify-content: flex-start;
+            text-align: center;
+            padding: 0.5rem;
+        }
+        #file-list.view-grid li a svg {
+            margin-right: 0;
+            margin-bottom: 0.5rem;
+            height: 2rem;
+            width: 2rem;
+        }
+        #file-list.view-grid li a span {
+            white-space: normal;
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            line-height: 1.2;
+            min-height: 2.4em; 
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .view-toggle button {
+            background-color: transparent;
+            border: 1px solid transparent;
+            padding: 0.25rem;
+            border-radius: var(--radius-md);
+            color: var(--text-light);
+        }
+        .view-toggle button.active {
+            background-color: var(--accent-blue-light);
+            color: var(--accent-blue);
+        }
+        .view-toggle button:not(.active):hover {
+            background-color: var(--border-color-light);
+        }
+
 
         /* --- Responsive Design --- */
         @media (min-width: 640px) {
@@ -289,10 +346,10 @@
             <div id="modal-title-bar" class="px-3 py-2 bg-gray-100 border-b border-gray-200 flex justify-between items-center rounded-t-xl cursor-move">
                 <div id="breadcrumb-nav"></div>
                 <div class="flex items-center gap-1">
-                    <button id="copy-link-btn" title="Copy link to this GitHub folder" class="w-10 h-10 flex items-center justify-center text-gray-600 hover:text-gray-900 rounded-full hover:bg-blue-100 transition-colors">
+                    <button id="copy-link-btn" title="Copy link to this GitHub folder" aria-label="Copy link to this GitHub folder" class="w-10 h-10 flex items-center justify-center text-gray-600 hover:text-gray-900 rounded-full hover:bg-blue-100 transition-colors">
                         <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>
                     </button>
-                    <button id="close-modal-btn" class="w-10 h-10 flex items-center justify-center text-gray-600 hover:text-gray-900 rounded-full hover:bg-red-500 hover:text-white transition-colors">
+                    <button id="close-modal-btn" title="Close file explorer" aria-label="Close file explorer" class="w-10 h-10 flex items-center justify-center text-gray-600 hover:text-gray-900 rounded-full hover:bg-red-500 hover:text-white transition-colors">
                         <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M6 18L18 6M6 6l12 12" />
                         </svg>
@@ -300,25 +357,33 @@
                 </div>
             </div>
             <ul id="file-list" class="overflow-y-auto p-2 bg-white flex-grow"></ul>
-            <div class="px-3 py-1 bg-gray-100 border-t border-gray-200 text-xs text-gray-600 rounded-b-xl">
+            <div class="px-3 py-1 bg-gray-100 border-t border-gray-200 text-xs text-gray-600 rounded-b-xl flex justify-between items-center">
                 <span id="file-count">0 items</span>
+                <div class="view-toggle flex items-center gap-1">
+                    <button id="view-list-btn" title="List View" aria-label="Switch to list view">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 10h16M4 14h16M4 18h16" /></svg>
+                    </button>
+                    <button id="view-grid-btn" title="Grid View" aria-label="Switch to grid view">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" /></svg>
+                    </button>
+                </div>
             </div>
         </div>
     </div>
 
     <div id="navigation-controls" class="fixed bottom-2 left-half translate-x-negative-half flex items-center justify-center gap-2 p-1 rounded-full shadow-lg opacity-50 hover:opacity-100 transition-all" style="display: none; background-color: var(--bg-nav);">
-        <button id="prev-btn" class="w-10 h-10 flex items-center justify-center rounded-full text-white">
+        <button id="prev-btn" title="Previous page" aria-label="Previous page" class="w-10 h-10 flex items-center justify-center rounded-full text-white">
             <svg id="prev-arrow" xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
             </svg>
         </button>
-        <button id="open-modal-btn" class="w-10 h-10 flex items-center justify-center rounded-full text-white">
+        <button id="open-modal-btn" title="Open file explorer" aria-label="Open file explorer" class="w-10 h-10 flex items-center justify-center rounded-full text-white">
              <svg id="folder-icon" xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
              </svg>
         </button>
         <div id="page-counter" class="font-mono text-sm px-2 text-white flex items-center"></div>
-        <button id="next-btn" class="w-10 h-10 flex items-center justify-center rounded-full text-white">
+        <button id="next-btn" title="Next page" aria-label="Next page" class="w-10 h-10 flex items-center justify-center rounded-full text-white">
             <svg id="next-arrow" xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
             </svg>
@@ -358,6 +423,8 @@
                 repoForm: document.getElementById('repo-form'),
                 repoUrlInput: document.getElementById('repo-url-input'),
                 repoInputError: document.getElementById('repo-input-error'),
+                viewListBtn: document.getElementById('view-list-btn'),
+                viewGridBtn: document.getElementById('view-grid-btn'),
             };
 
             // Global State
@@ -371,6 +438,7 @@
                 dragOffsetY: 0,
                 isPageLoaded: false,
                 directoryCache: {},
+                viewMode: 'list',
             };
 
             // Utility Functions
@@ -379,7 +447,6 @@
                 DOMElements.loadingIndicator.style.display = 'none';
             }
 
-            // Parses various GitHub URL formats into a structured object.
             function parseGitHubUrl(url) {
                 if (!url || typeof url !== 'string') return null;
                 try {
@@ -430,7 +497,6 @@
                 } catch (e) { return true; }
             }
 
-            // Adapts navigation controls style to the loaded page's background.
             function updateNavStyles(bgColor, font) {
                 const { navControls, pageCounter } = DOMElements;
                 const allIcons = navControls.querySelectorAll('svg');
@@ -449,7 +515,6 @@
                 pageCounter.style.fontFamily = font ? font : 'var(--font-mono)';
             }
             
-            // Renders breadcrumb navigation for the current path.
             function createBreadcrumbs() {
                 const { breadcrumbNav } = DOMElements;
                 breadcrumbNav.innerHTML = '';
@@ -467,12 +532,10 @@
 
                 pathParts.forEach((part, index) => {
                     currentPath += (index > 0 ? '/' : '') + part;
-                    
                     const separator = document.createElement('span');
                     separator.className = 'breadcrumb-separator';
                     separator.textContent = '/';
                     fragment.appendChild(separator);
-
                     if (index < pathParts.length - 1) {
                         const partItem = document.createElement('a');
                         partItem.className = 'breadcrumb-item is-link';
@@ -489,12 +552,32 @@
                 breadcrumbNav.appendChild(fragment);
             }
 
-            // Populates file list, adds parent link, and handles empty directories.
+            function setViewMode(mode) {
+                state.viewMode = mode;
+                const { fileList, viewListBtn, viewGridBtn } = DOMElements;
+                fileList.classList.toggle('view-grid', mode === 'grid');
+                viewListBtn.classList.toggle('active', mode === 'list');
+                viewGridBtn.classList.toggle('active', mode === 'grid');
+                try {
+                    localStorage.setItem('explorerViewMode', mode);
+                } catch (e) {
+                    console.warn("Could not save view mode to localStorage:", e);
+                }
+            }
+
             function populateFileBrowser(contents) {
                 const { fileList, fileCount } = DOMElements;
                 const fragment = document.createDocumentFragment();
                 
                 createBreadcrumbs();
+                setViewMode(state.viewMode);
+
+                const formatName = (name) => {
+                    return name
+                        .replace(/([a-z0-9])([A-Z])/g, '$1<wbr>$2')
+                        .replace(/([_-])/g, '$1<wbr>')
+                        .replace(/\./g, '<wbr>.');
+                };
 
                 const createListItem = (item) => {
                     const li = document.createElement('li');
@@ -505,8 +588,7 @@
                     if (item.path) a.dataset.path = item.path;
                     a.innerHTML = ICONS[item.icon];
                     const span = document.createElement('span');
-                    span.className = 'truncate';
-                    span.textContent = item.name;
+                    span.innerHTML = formatName(item.name);
                     a.appendChild(span);
                     li.appendChild(a);
                     return li;
@@ -584,7 +666,6 @@
                 }
             }
             
-            // Fetches directory contents from GitHub API, with caching.
             async function fetchDirectory(path) {
                 if (state.directoryCache[path]) {
                     state.currentPath = path;
@@ -621,7 +702,7 @@
 
             // Event Listeners
             function bindEventListeners() {
-                const { nextBtn, prevBtn, openModalBtn, closeModalBtn, copyLinkBtn, modalContainer, fileList, modalTitleBar, repoForm, breadcrumbNav } = DOMElements;
+                const { nextBtn, prevBtn, openModalBtn, closeModalBtn, copyLinkBtn, modalContainer, fileList, modalTitleBar, repoForm, breadcrumbNav, viewListBtn, viewGridBtn } = DOMElements;
 
                 nextBtn.addEventListener('click', () => {
                     if (state.currentDirectoryFiles.length < 2) return;
@@ -685,6 +766,9 @@
                     }
                 });
                 
+                viewListBtn.addEventListener('click', () => setViewMode('list'));
+                viewGridBtn.addEventListener('click', () => setViewMode('grid'));
+                
                 document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && modalContainer.style.display === 'flex' && state.isPageLoaded) closeModalBtn.click(); });
 
                 modalTitleBar.addEventListener('mousedown', (e) => {
@@ -733,7 +817,7 @@
                         DOMElements.repoInputError.textContent = 'Invalid GitHub URL. Please check and try again.';
                         DOMElements.repoInputError.style.display = 'block';
                     } else {
-                        showError('Invalid GitHub URL', 'The provided URL could not be parsed.');
+                        DOMElements.repoInputContainer.style.display = 'flex';
                     }
                     return;
                 }
@@ -755,6 +839,15 @@
             
             function initializeViewer() {
                 DOMElements.navControls.style.display = 'none';
+                try {
+                    const savedViewMode = localStorage.getItem('explorerViewMode');
+                    if (savedViewMode === 'grid' || savedViewMode === 'list') {
+                        state.viewMode = savedViewMode;
+                    }
+                } catch (e) {
+                    console.warn("Could not read view mode from localStorage:", e);
+                }
+
                 const hash = window.location.hash.substring(1);
 
                 if (hash) {
