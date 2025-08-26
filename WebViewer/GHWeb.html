@@ -23,7 +23,10 @@
             --accent-blue: #3b82f6;
             --accent-blue-light: #dbeafe;
             --accent-yellow: #facc15;
+            --accent-red: #ef4444;
+            --accent-red-light: #fee2e2;
             --accent-red-hover: #ef4444;
+            --accent-green: #22c55e;
 
             --border-color-light: #e5e7eb;
             --border-color-medium: #d1d5db;
@@ -49,6 +52,8 @@
         body { background-color: var(--bg-main); }
         #content-frame { height: 100%; width: 100%; border: none; }
         .fixed { position: fixed; }
+        .absolute { position: absolute; }
+        .relative { position: relative; }
         .inset-0 { top: 0; right: 0; bottom: 0; left: 0; }
         .bottom-2 { bottom: 0.5rem; }
         .left-half { left: 50%; }
@@ -56,6 +61,7 @@
         .flex { display: flex; }
         .flex-col { flex-direction: column; }
         .flex-grow { flex-grow: 1; }
+        .flex-shrink-0 { flex-shrink: 0; }
         .items-center { align-items: center; }
         .items-start { align-items: flex-start; }
         .justify-center { justify-content: center; }
@@ -64,13 +70,22 @@
         .gap-2 { gap: 0.5rem; }
         .gap-3 { gap: 0.75rem; }
         .gap-4 { gap: 1rem; }
+        .grid { display: grid; }
+        .grid-cols-1 { grid-template-columns: repeat(1, minmax(0, 1fr)); }
+        @media (min-width: 640px) {
+            .sm\:grid-cols-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+        }
+        .sm\:col-span-1 { grid-column: span 1 / span 1; }
+
 
         /* --- Sizing & Spacing --- */
         .w-full { width: 100%; }
         .w-11-12 { width: 91.666667%; }
+        .max-w-sm { max-width: 24rem; }
         .max-w-lg { max-width: 32rem; }
         .max-w-2xl { max-width: 42rem; }
-        .max-h-80vh { max-height: 80vh; }
+        .max-w-5xl { max-width: 64rem; }
+        .max-h-85vh { max-height: 85vh; }
         .p-1 { padding: 0.25rem; }
         .p-2 { padding: 0.5rem; }
         .p-3 { padding: 0.75rem; }
@@ -91,10 +106,17 @@
         .w-8 { width: 2rem; }
         .h-5 { height: 1.25rem; }
         .w-5 { width: 1.25rem; }
+        .h-4 { height: 1rem; }
+        .w-4 { width: 1rem; }
         .mr-3 { margin-right: 0.75rem; }
         .mt-4 { margin-top: 1rem; }
         .mt-3 { margin-top: 0.75rem; }
+        .mt-2 { margin-top: 0.5rem; }
+        .mb-3 { margin-bottom: 0.75rem; }
         .mb-4 { margin-bottom: 1rem; }
+        .mx-auto { margin-left: auto; margin-right: auto; }
+        .min-w-0 { min-width: 0; }
+        .min-h-0 { min-height: 0; }
 
         /* --- Typography --- */
         .text-sm { font-size: 0.875rem; }
@@ -164,7 +186,8 @@
         /* --- Z-Index --- */
         #repo-input-container { z-index: 3000; }
         #navigation-controls { z-index: 1000; }
-        #file-browser-modal { z-index: 2000; }
+        #file-browser-modal-container { z-index: 2000; }
+        #modifier-modal-container { z-index: 2000; }
         #loading-indicator { z-index: 2001; }
 
         /* --- Custom Animations --- */
@@ -307,6 +330,121 @@
             transform: scale(1.1);
         }
 
+        /* --- MODIFIER PANEL STYLES --- */
+        .toggle-switch {
+            position: relative;
+            display: inline-block;
+            width: 40px;
+            height: 22px;
+            flex-shrink: 0;
+        }
+        .toggle-switch input { opacity: 0; width: 0; height: 0; }
+        .slider {
+            position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0;
+            background-color: #ccc; transition: .4s; border-radius: 22px;
+        }
+        .slider:before {
+            position: absolute; content: ""; height: 16px; width: 16px; left: 3px; bottom: 3px;
+            background-color: white; transition: .4s; border-radius: 50%;
+        }
+        input:checked + .slider { background-color: var(--accent-green); }
+        input:checked + .slider:before { transform: translateX(18px); }
+        
+        .wizard-input, .wizard-select {
+             width: 100%; padding: 0.5rem 0.75rem; border: 1px solid var(--border-color-medium); border-radius: var(--radius-md); font-size: 0.875rem;
+        }
+        .wizard-label {
+            display: block; font-size: 0.8rem; font-weight: 600; color: var(--text-light); margin-bottom: 0.25rem;
+        }
+        
+        .modifier-action-btn {
+            display: flex; align-items: center; gap: 0.25rem; padding: 0.3rem 0.6rem;
+            border-radius: var(--radius-md); border: 1px solid var(--border-color-medium);
+            background-color: var(--bg-white); font-size: 0.8rem; font-weight: 600;
+            color: var(--text-medium); cursor: pointer; transition: all 0.2s;
+        }
+        .modifier-action-btn:hover {
+            background-color: var(--bg-modal-header); border-color: var(--border-color-medium);
+        }
+        .delete-modifier-btn {
+            background-color: transparent; border: none; color: var(--text-light); cursor: pointer;
+        }
+        .delete-modifier-btn:hover { color: var(--accent-red); }
+
+        /* --- Accordion Styles for Modifier List --- */
+        .modifier-item {
+            border-bottom: 1px solid var(--border-color-light);
+        }
+        .modifier-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0.75rem;
+            cursor: pointer;
+            background-color: var(--bg-white);
+            transition: background-color 0.2s;
+        }
+        .modifier-header:hover {
+            background-color: var(--bg-modal);
+        }
+        .modifier-details {
+            padding: 0.75rem;
+            background-color: var(--bg-modal);
+            display: none;
+        }
+        .modifier-item.open .modifier-details {
+            display: block;
+        }
+        .modifier-header .chevron {
+            transition: transform 0.3s ease;
+        }
+        .modifier-item.open .modifier-header .chevron {
+            transform: rotate(90deg);
+        }
+
+        /* --- Editor with Line Numbers --- */
+        .editor-wrapper {
+            display: flex;
+            flex-grow: 1;
+            border: 1px solid var(--border-color-light);
+            border-radius: var(--radius-md);
+            overflow: hidden; 
+            background-color: #f7f7f7;
+            min-height: 0;
+        }
+        #line-numbers {
+            font-family: var(--font-mono);
+            font-size: 0.8rem;
+            line-height: 1.5;
+            padding: 0.5rem 0.5rem 0.5rem 0.75rem;
+            color: #aaa;
+            text-align: right;
+            user-select: none;
+            overflow-y: hidden;
+            flex-shrink: 0;
+        }
+        #line-numbers span {
+            display: block;
+        }
+        #function-body-input {
+            flex-grow: 1;
+            min-height: 0;
+            height: auto;
+            width: 100%;
+            font-family: var(--font-mono);
+            font-size: 0.8rem;
+            line-height: 1.5;
+            border: none;
+            padding: 0.5rem;
+            resize: none;
+            outline: none;
+            background-color: var(--bg-white);
+            color: var(--text-dark);
+            overflow: auto; 
+            white-space: pre; 
+            word-wrap: normal;
+        }
+
 
         /* --- Responsive Design --- */
         @media (min-width: 640px) {
@@ -316,7 +454,7 @@
     </style>
 </head>
 <body>
-
+    <input type="file" id="modifier-file-input" accept=".json" style="display: none;">
     <iframe id="content-frame" src="about:blank"></iframe>
 
     <div id="repo-input-container" class="fixed inset-0 bg-opacity-50 flex flex-col items-center justify-center p-4" style="display: none; backdrop-filter: blur(8px); background-color: var(--bg-overlay);">
@@ -324,7 +462,7 @@
             <div class="bg-white rounded-xl shadow-2xl p-6">
                 <div class="flex items-center gap-3 border-b border-gray-200 pb-4 mb-4">
                      <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8 text-gray-700" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-                         <path d="M9 19c-4.3 1.4 -4.3-2.5 -6-3m12 5v-3.5c0-1 .1-1.4-.5-2c2.8-.3 5.5-1.4 5.5-6a4.6 4.6 0 0 0 -1.3-3.2a4.2 4.2 0 0 0 -.1-3.2s-1.1-.3-3.5 1.3a12.3 12.3 0 0 0 -6.2 0c-2.4-1.6-3.5-1.3-3.5-1.3a4.2 4.2 0 0 0 -.1 3.2a4.6 4.6 0 0 0 -1.3 3.2c0 4.6 2.7 5.7 5.5 6c-.6.6-.6 1.2-.5 2V21"/>
+                          <path d="M9 19c-4.3 1.4 -4.3-2.5 -6-3m12 5v-3.5c0-1 .1-1.4-.5-2c2.8-.3 5.5-1.4 5.5-6a4.6 4.6 0 0 0 -1.3-3.2a4.2 4.2 0 0 0 -.1-3.2s-1.1-.3-3.5 1.3a12.3 12.3 0 0 0 -6.2 0c-2.4-1.6-3.5-1.3-3.5-1.3a4.2 4.2 0 0 0 -.1 3.2a4.6 4.6 0 0 0 -1.3 3.2c0 4.6 2.7 5.7 5.5 6c-.6.6-.6 1.2-.5 2V21"/>
                      </svg>
                     <h1 class="text-xl font-semibold text-gray-800">Load a GitHub Repository</h1>
                 </div>
@@ -357,7 +495,7 @@
     </div>
 
     <div id="file-browser-modal-container" class="fixed inset-0 bg-opacity-50 flex items-start justify-center p-4 pt-8 sm:pt-16" style="display: none; background-color: var(--bg-overlay);">
-        <div id="file-browser-modal" class="bg-gray-50 rounded-xl shadow-2xl w-11-12 max-w-2xl max-h-80vh flex flex-col border border-gray-300">
+        <div id="file-browser-modal" class="bg-gray-50 rounded-xl shadow-2xl w-11-12 max-w-2xl max-h-85vh flex flex-col border border-gray-300">
             <div id="modal-title-bar" class="px-3 py-2 bg-gray-100 border-b border-gray-200 flex justify-between items-center rounded-t-xl cursor-move">
                 <div id="breadcrumb-nav"></div>
                 <div class="flex items-center gap-1">
@@ -386,6 +524,123 @@
         </div>
     </div>
 
+    <!-- --- MODIFIER PANEL --- -->
+    <div id="modifier-modal-container" class="fixed inset-0 bg-opacity-50 flex items-start justify-center p-4 pt-8 sm:pt-16" style="display: none; background-color: var(--bg-overlay);">
+        <div id="modifier-modal" class="bg-gray-50 rounded-xl shadow-2xl w-11-12 max-w-5xl max-h-85vh flex flex-col border border-gray-300">
+            <div id="modifier-title-bar" class="px-4 py-3 bg-gray-100 border-b border-gray-200 flex justify-between items-center rounded-t-xl cursor-move flex-shrink-0">
+                <div class="flex items-center gap-2">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-gray-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+                        <rect x="5" y="5" width="14" height="14" rx="1" ry="1" stroke-width="1"></rect>
+                        <rect x="8" y="8" width="8" height="8" rx="1" ry="1" stroke-width="1"></rect>
+                        <line x1="9" y1="1" x2="9" y2="4"></line>
+                        <line x1="15" y1="1" x2="15" y2="4"></line>
+                        <line x1="9" y1="20" x2="9" y2="23"></line>
+                        <line x1="15" y1="20" x2="15" y2="23"></line>
+                        <line x1="1" y1="9" x2="4" y2="9"></line>
+                        <line x1="1" y1="15" x2="4" y2="15"></line>
+                        <line x1="20" y1="9" x2="23" y2="9"></line>
+                        <line x1="20" y1="15" x2="23" y2="15"></line>
+                    </svg>
+                    <h2 class="text-lg font-semibold text-gray-800">Content Modifiers</h2>
+                </div>
+                <button id="close-modifier-modal-btn" title="Close modifiers" aria-label="Close modifiers" class="w-10 h-10 flex items-center justify-center text-gray-600 hover:text-gray-900 rounded-full hover:bg-red-500 hover:text-white transition-colors">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M6 18L18 6M6 6l12 12" /></svg>
+                </button>
+            </div>
+            
+            <div id="modifier-panel-content" class="flex-grow min-h-0 bg-white overflow-y-auto">
+                <!-- List will be rendered here by JS -->
+            </div>
+            <div id="modifier-editor-view" class="p-4 flex-grow min-h-0 flex flex-col bg-white" style="display: none;">
+                <!-- Top controls -->
+                <div class="flex-shrink-0">
+                    <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-3">
+                        <div class="sm:col-span-1">
+                            <label class="wizard-label" for="modifier-name-input">Modifier Name</label>
+                            <input type="text" id="modifier-name-input" class="wizard-input w-full">
+                        </div>
+                        <div class="sm:col-span-1">
+                            <label class="wizard-label" for="target-object-select">Target Type</label>
+                            <select id="target-object-select" class="wizard-select w-full">
+                                <option value="">Select a type...</option>
+                            </select>
+                        </div>
+                        <div class="sm:col-span-1">
+                            <label id="target-item-label" class="wizard-label" for="target-function-select">Target</label>
+                            <select id="target-function-select" class="wizard-select w-full" disabled>
+                                <option value="">Select an item...</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+                <!-- Editor section that grows -->
+                <div class="flex flex-col flex-grow mt-2 min-h-0">
+                    <label id="editor-label" class="wizard-label flex-shrink-0">Value</label>
+                    <div class="editor-wrapper">
+                        <div id="line-numbers"></div>
+                        <textarea id="function-body-input"></textarea>
+                    </div>
+                </div>
+                <!-- Bottom buttons -->
+                <div class="flex justify-end items-center mt-3 pt-3 border-t border-gray-200 flex-shrink-0">
+                    <div class="flex gap-2">
+                        <button id="cancel-modifier-edit-btn" class="px-4 py-2 text-sm font-semibold text-gray-700 bg-gray-200 rounded-md hover:bg-gray-300 transition-colors">Cancel</button>
+                        <button id="save-modifier-edit-btn" class="px-4 py-2 text-sm font-semibold text-white bg-blue-500 rounded-md hover:bg-blue-600 transition-colors">Save Changes</button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="px-3 py-2 bg-gray-100 border-t border-gray-200 rounded-b-xl flex justify-between items-center flex-shrink-0">
+                <div class="flex gap-2">
+                    <button id="import-modifiers-btn" class="modifier-action-btn">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>
+                        <span>Import</span>
+                    </button>
+                    <button id="export-modifiers-btn" class="modifier-action-btn">
+                         <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
+                        <span>Export</span>
+                    </button>
+                    <button id="copy-modded-html-btn" class="modifier-action-btn">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h12a2 2 0 002-2V7a2 2 0 00-2-2h-2m-4-1v8m0 0l-3-3m3 3l3-3" /></svg>
+                        <span>Copy Modded HTML</span>
+                    </button>
+                    <button id="reload-with-mods-btn" class="modifier-action-btn" style="color: var(--accent-blue); border-color: var(--accent-blue);">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                        <span>Apply & Reload</span>
+                    </button>
+                </div>
+                <button id="new-modifier-btn" class="modifier-action-btn" style="color: var(--accent-green); border-color: var(--accent-green);">
+                   <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" /></svg>
+                    <span>New Modifier</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- *** Custom Confirmation Modal *** -->
+    <div id="confirmation-modal-container" class="fixed inset-0 bg-opacity-50 flex items-center justify-center p-4" style="display: none; z-index: 3000; backdrop-filter: blur(8px); background-color: var(--bg-overlay);">
+        <div id="confirmation-modal" class="bg-white rounded-xl shadow-2xl w-11-12 max-w-sm fade-in">
+            <div class="p-6 text-center">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-12 w-12 mx-auto text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                </svg>
+                <h3 class="mt-4 text-lg font-semibold text-gray-800">Are you sure?</h3>
+                <p id="confirmation-modal-message" class="mt-2 text-sm text-gray-600">You will not be able to recover this item.</p>
+            </div>
+            <div class="bg-gray-50 px-4 py-3 flex justify-center gap-3 rounded-b-xl">
+                <button id="confirm-cancel-btn" class="px-4 py-2 text-sm font-semibold text-gray-700 bg-gray-200 rounded-md hover:bg-gray-300 transition-colors">
+                    Cancel
+                </button>
+                <button id="confirm-delete-btn" class="px-4 py-2 text-sm font-semibold text-white bg-red-500 rounded-md hover:bg-red-600 transition-colors">
+                    Delete
+                </button>
+            </div>
+        </div>
+    </div>
+
     <div id="navigation-controls" class="fixed bottom-2 left-half translate-x-negative-half flex items-center justify-center gap-2 p-1 rounded-full shadow-lg opacity-50 hover:opacity-100 transition-all" style="display: none;">
         <button id="prev-btn" title="Previous page" aria-label="Previous page" class="w-10 h-10 flex items-center justify-center rounded-full">
             <svg id="prev-arrow" xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -397,18 +652,27 @@
                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
              </svg>
         </button>
+        <button id="open-modifier-modal-btn" title="Open script modifiers" aria-label="Open script modifiers" class="w-10 h-10 flex items-center justify-center rounded-full">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.5L15.232 5.232z" /></svg>
+        </button>
         <div id="page-counter" class="font-mono text-sm px-2 flex items-center"></div>
         <button id="next-btn" title="Next page" aria-label="Next page" class="w-10 h-10 flex items-center justify-center rounded-full">
             <svg id="next-arrow" xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
             </svg>
+        </svg>
         </button>
     </div>
 
     <script>
         document.addEventListener('DOMContentLoaded', () => {
-            // App Configuration
-            const GITHUB_URL = 'https://github.com/oldskool978/Assistive-Tools/tree/main/BoardPages'; // Fallback repo
+            // --- Application State & Configuration ---
+            const GITHUB_URL = 'https://github.com/oldskool978/Assistive-Tools/tree/main/BoardPages'; // Default repo
+            const TEXT_CONTENT_KEY = '(Text Content)';
+            const STRING_LITERAL_KEY = '(String Constants)';
+            const NUMERICAL_CONSTANTS_KEY = '(Numerical Constants)';
+            const FUNCTIONS_KEY = '(Functions)';
+
             const ICONS = {
                 home: `<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" /></svg>`,
                 parent: `<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-3 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" style="stroke-width: 1.5;"><path stroke-linecap="round" stroke-linejoin="round" d="M9 11l-4 4m0 0l4 4m-4-4h12a4 4 0 004-4v-4" /></svg>`,
@@ -416,7 +680,7 @@
                 file: `<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-3 text-blue-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" style="stroke-width: 1.5;"><path stroke-linecap="round" stroke-linejoin="round" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" /></svg>`
             };
 
-            // DOM Element Cache
+            // --- DOM Element Cache ---
             const DOMElements = {
                 iframe: document.getElementById('content-frame'),
                 loadingIndicator: document.getElementById('loading-indicator'),
@@ -440,23 +704,433 @@
                 repoInputError: document.getElementById('repo-input-error'),
                 viewListBtn: document.getElementById('view-list-btn'),
                 viewGridBtn: document.getElementById('view-grid-btn'),
+                modifierFileInput: document.getElementById('modifier-file-input'),
+                modifierModalContainer: document.getElementById('modifier-modal-container'),
+                modifierModal: document.getElementById('modifier-modal'),
+                modifierTitleBar: document.getElementById('modifier-title-bar'),
+                openModifierModalBtn: document.getElementById('open-modifier-modal-btn'),
+                closeModifierModalBtn: document.getElementById('close-modifier-modal-btn'),
+                modifierPanelContent: document.getElementById('modifier-panel-content'),
+                modifierEditorView: document.getElementById('modifier-editor-view'),
+                modifierNameInput: document.getElementById('modifier-name-input'),
+                targetObjectSelect: document.getElementById('target-object-select'),
+                targetFunctionSelect: document.getElementById('target-function-select'),
+                targetItemLabel: document.getElementById('target-item-label'),
+                functionBodyInput: document.getElementById('function-body-input'),
+                editorLabel: document.getElementById('editor-label'),
+                saveModifierEditBtn: document.getElementById('save-modifier-edit-btn'),
+                cancelModifierEditBtn: document.getElementById('cancel-modifier-edit-btn'),
+                newModifierBtn: document.getElementById('new-modifier-btn'),
+                importModifiersBtn: document.getElementById('import-modifiers-btn'),
+                exportModifiersBtn: document.getElementById('export-modifiers-btn'),
+                copyModdedHtmlBtn: document.getElementById('copy-modded-html-btn'),
+                reloadWithModsBtn: document.getElementById('reload-with-mods-btn'),
+                lineNumbers: document.getElementById('line-numbers'),
+                confirmationModalContainer: document.getElementById('confirmation-modal-container'),
+                confirmationModalMessage: document.getElementById('confirmation-modal-message'),
+                confirmCancelBtn: document.getElementById('confirm-cancel-btn'),
+                confirmDeleteBtn: document.getElementById('confirm-delete-btn'),
             };
 
-            // Global State
+            // --- State Management ---
             const state = {
                 repoConfig: null,
                 currentDirectoryFiles: [],
                 currentIndex: 0,
                 currentPath: '',
-                isDragging: false,
-                dragOffsetX: 0,
-                dragOffsetY: 0,
+                currentHtmlContent: '', // Stores the original, unmodified HTML
+                dragInfo: { isDragging: false, element: null, offsetX: 0, offsetY: 0 },
                 isPageLoaded: false,
                 directoryCache: {},
                 viewMode: 'list',
+                modifiers: {},
+                editingModifierKey: null,
+                detectedScriptObjects: {}, // This will be populated by static analysis
             };
+            
+            // --- Confirmation Modal Logic ---
+            let confirmCallback = null;
 
-            // Utility Functions
+            function showConfirmationModal(message, onConfirm) {
+                const { confirmationModalContainer, confirmationModalMessage } = DOMElements;
+                confirmationModalMessage.textContent = message;
+                confirmationModalContainer.style.display = 'flex';
+                confirmCallback = onConfirm;
+            }
+
+            function hideConfirmationModal() {
+                DOMElements.confirmationModalContainer.style.display = 'none';
+                confirmCallback = null;
+            }
+
+            // --- Script Modification Logic ---
+            function getNewModifierTemplate() {
+                return {
+                    name: 'Untitled Modifier',
+                    targetObject: '',
+                    targetFunction: '',
+                    functionBody: '',
+                    enabled: true,
+                    type: 'function', // Default to function type
+                    targetIdentifier: '', // For storing var name
+                    originalDeclaration: '' // For precise replacement
+                };
+            }
+
+            function generateScriptFromModifier(modifier) {
+                if (modifier.type !== 'function' || !modifier.targetObject || !modifier.targetFunction || !modifier.functionBody) {
+                    return '';
+                }
+                const script = `
+<script>
+// --- Injected by HTML Modifier Tool: ${modifier.name} ---
+(function() {
+    const applyOverride = () => {
+        try {
+            const targetName = '${modifier.targetObject}';
+            const functionName = '${modifier.targetFunction}';
+            
+            let target = window;
+            let finalObject = window;
+
+            if (targetName !== '${FUNCTIONS_KEY}') {
+                const parts = targetName.split('.');
+                for(let i = 0; i < parts.length; i++) {
+                    target = target[parts[i]];
+                    if (typeof target === 'undefined') {
+                        setTimeout(applyOverride, 150); 
+                        return;
+                    }
+                }
+                finalObject = target;
+            }
+            
+            const originalFunction = finalObject[functionName];
+            if (typeof originalFunction !== 'function' && finalObject.prototype && typeof finalObject.prototype[functionName] === 'function') {
+                 const originalProtoFunction = finalObject.prototype[functionName];
+                 finalObject.prototype[functionName] = (function(original) { return ${modifier.functionBody}; })(originalProtoFunction);
+            } else {
+                 finalObject[functionName] = (function(original) { return ${modifier.functionBody}; })(originalFunction);
+            }
+        } catch (e) { /* Silently fail */ }
+    };
+    
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', applyOverride);
+    } else {
+        applyOverride();
+    }
+})();
+<\/script>
+                `.trim();
+                return script;
+            }
+
+            function renderModifierList() {
+                const { modifierPanelContent, modifierEditorView } = DOMElements;
+                modifierPanelContent.innerHTML = '';
+                modifierEditorView.style.display = 'none';
+                modifierPanelContent.style.display = 'block';
+
+                const fragment = document.createDocumentFragment();
+                if (Object.keys(state.modifiers).length === 0) {
+                    const emptyState = document.createElement('div');
+                    emptyState.className = 'text-center text-gray-500 p-8';
+                    emptyState.innerHTML = `<p>No modifiers defined.</p><p class="text-sm mt-2">Click "New Modifier" to create one or "Import" to load from a file.</p>`;
+                    fragment.appendChild(emptyState);
+                } else {
+                    Object.entries(state.modifiers).forEach(([key, modifier]) => {
+                        const item = document.createElement('div');
+                        item.className = 'modifier-item';
+                        
+                        let typeLabel = 'Function';
+                        if (modifier.type === 'text') typeLabel = 'Text';
+                        if (modifier.type === 'string') typeLabel = 'String';
+                        if (modifier.type === 'number') typeLabel = 'Number';
+
+                        const targetDisplay = modifier.targetIdentifier || modifier.targetFunction;
+
+                        item.innerHTML = `
+                            <div class="modifier-header">
+                                <div class="flex items-center gap-3 flex-grow min-w-0">
+                                     <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-gray-400 chevron flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" /></svg>
+                                    <div class="flex-grow min-w-0">
+                                        <p class="font-semibold text-gray-800 truncate" title="${modifier.name || 'Untitled'}">${modifier.name || 'Untitled'}</p>
+                                        <p class="text-xs text-gray-500 font-mono truncate" title="${targetDisplay}">${typeLabel}: ${targetDisplay}</p>
+                                    </div>
+                                </div>
+                                <div class="flex items-center gap-3 flex-shrink-0 pl-2">
+                                    <label class="toggle-switch">
+                                        <input type="checkbox" data-key="${key}" class="modifier-toggle" ${modifier.enabled ? 'checked' : ''}>
+                                        <span class="slider"></span>
+                                    </label>
+                                </div>
+                            </div>
+                            <div class="modifier-details">
+                                <button data-key="${key}" class="edit-modifier-btn px-3 py-1 text-xs font-semibold text-blue-600 bg-blue-100 rounded-md hover:bg-blue-200">Edit</button>
+                                <button data-key="${key}" class="delete-modifier-btn p-1 rounded-full hover:bg-red-100" title="Delete Modifier">
+                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                                </button>
+                            </div>
+                        `;
+                        fragment.appendChild(item);
+                    });
+                }
+                modifierPanelContent.appendChild(fragment);
+            }
+            
+            function updateLineNumbers(startLine = 1) {
+                const { lineNumbers, functionBodyInput } = DOMElements;
+                const lineCount = functionBodyInput.value.split('\n').length;
+                lineNumbers.innerHTML = Array.from({ length: lineCount }, (_, i) => `<span>${startLine + i}</span>`).join('');
+            }
+
+            function showModifierEditor(key) {
+                const modifier = state.modifiers[key];
+                if (!modifier) return;
+                
+                state.editingModifierKey = key;
+                const { 
+                    modifierPanelContent, modifierEditorView, modifierNameInput,
+                    targetObjectSelect, targetFunctionSelect, functionBodyInput
+                } = DOMElements;
+                
+                modifierPanelContent.style.display = 'none';
+                modifierEditorView.style.display = 'flex';
+                modifierNameInput.value = modifier.name || '';
+                functionBodyInput.value = modifier.functionBody || '';
+                
+                targetObjectSelect.innerHTML = '<option value="">Select a type...</option>';
+                
+                const typeOrder = [TEXT_CONTENT_KEY, STRING_LITERAL_KEY, NUMERICAL_CONSTANTS_KEY, FUNCTIONS_KEY];
+                const sortedObjectKeys = Object.keys(state.detectedScriptObjects)
+                    .filter(k => !typeOrder.includes(k))
+                    .sort();
+                
+                const allKeys = [...typeOrder.filter(k => state.detectedScriptObjects[k]), ...sortedObjectKeys];
+
+                allKeys.forEach(objName => {
+                    const option = document.createElement('option');
+                    option.value = objName;
+                    option.textContent = objName;
+                    targetObjectSelect.appendChild(option);
+                });
+
+                targetObjectSelect.value = modifier.targetObject;
+                targetObjectSelect.dispatchEvent(new Event('change'));
+                
+                setTimeout(() => {
+                    targetFunctionSelect.value = modifier.targetFunction;
+                    targetFunctionSelect.dispatchEvent(new Event('change'));
+                }, 0);
+            }
+
+            function analyzeContent() {
+                state.detectedScriptObjects = {};
+                if (!state.currentHtmlContent) return;
+
+                const getLineNumber = (charIndex) => {
+                    return state.currentHtmlContent.substring(0, charIndex).split('\n').length;
+                };
+
+                // --- Text Content Analysis ---
+                const parser = new DOMParser();
+                const doc = parser.parseFromString(state.currentHtmlContent, 'text/html');
+                const walker = document.createTreeWalker(doc.documentElement, NodeFilter.SHOW_TEXT, null, false);
+                const foundText = new Set();
+                let node;
+                while(node = walker.nextNode()) {
+                    const text = node.nodeValue.trim();
+                    if (text && text.length > 1 && node.parentElement.nodeName.toLowerCase() !== 'script' && node.parentElement.nodeName.toLowerCase() !== 'style') {
+                        foundText.add(text);
+                    }
+                }
+                 if (foundText.size > 0) {
+                    state.detectedScriptObjects[TEXT_CONTENT_KEY] = Array.from(foundText)
+                        .sort()
+                        .map(text => {
+                            const firstIndex = state.currentHtmlContent.indexOf(text);
+                            return { name: text, source: text, declaration: text, startLine: getLineNumber(firstIndex) };
+                        });
+                }
+
+                // --- Script Analysis (Functions, Strings, and Numbers) ---
+                const scriptContentRegex = /<script\b[^>]*>([\s\S]*?)<\/script>/gi;
+                const scripts = Array.from(state.currentHtmlContent.matchAll(scriptContentRegex));
+                if (scripts.length === 0) return;
+
+                const stringVarRegex = /(?:const|let|var)\s+([a-zA-Z0-9_$]+)\s*=\s*((["'`])(?:\\.|(?!\3).)*?\3)/g;
+                const numberVarRegex = /(?:const|let|var)\s+([a-zA-Z0-9_$]+)\s*=\s*([-+]?[0-9]*\.?[0-9]+(?:[eE][-+]?[0-9]+)?)/g;
+                const foundStrings = new Map();
+                const foundNumbers = new Map();
+
+                for (const scriptMatch of scripts) {
+                    const scriptContent = scriptMatch[1];
+                    const scriptStartIndex = scriptMatch.index + scriptMatch[0].indexOf('>') + 1;
+                    
+                    let stringMatch;
+                    while((stringMatch = stringVarRegex.exec(scriptContent)) !== null) {
+                        const fullDeclaration = stringMatch[0];
+                        const varName = stringMatch[1];
+                        const stringValue = stringMatch[2];
+                        const absoluteIndex = scriptStartIndex + stringMatch.index;
+                        if (varName && stringValue) {
+                             foundStrings.set(stringValue, { name: varName, source: stringValue, declaration: fullDeclaration, startLine: getLineNumber(absoluteIndex) });
+                        }
+                    }
+
+                    let numberMatch;
+                    while((numberMatch = numberVarRegex.exec(scriptContent)) !== null) {
+                        const fullDeclaration = numberMatch[0];
+                        const varName = numberMatch[1];
+                        const numberValue = numberMatch[2];
+                        const absoluteIndex = scriptStartIndex + numberMatch.index;
+                        if (varName && numberValue) {
+                            foundNumbers.set(numberValue, { name: varName, source: numberValue, declaration: fullDeclaration, startLine: getLineNumber(absoluteIndex) });
+                        }
+                    }
+                }
+                if(foundStrings.size > 0) {
+                    state.detectedScriptObjects[STRING_LITERAL_KEY] = Array.from(foundStrings.values()).sort((a, b) => a.name.localeCompare(b.name));
+                }
+                 if(foundNumbers.size > 0) {
+                    state.detectedScriptObjects[NUMERICAL_CONSTANTS_KEY] = Array.from(foundNumbers.values()).sort((a, b) => a.name.localeCompare(b.name));
+                }
+
+                const addDetectedFunction = (objectName, funcName, source, startLine) => {
+                    if (!objectName || !funcName || !source) return;
+                    objectName = objectName.trim();
+                    funcName = funcName.trim();
+                    if (!state.detectedScriptObjects[objectName]) {
+                        state.detectedScriptObjects[objectName] = [];
+                    }
+                    if (!state.detectedScriptObjects[objectName].some(f => f.name === funcName)) {
+                        state.detectedScriptObjects[objectName].push({ name: funcName, source: source.trim(), declaration: funcName, startLine });
+                    }
+                };
+                
+                const funcStartRegex = /(?:function\s+([a-zA-Z0-9_$]+)|([a-zA-Z0-9_$.'"]+)\s*[:=]\s*function(?:\s+[a-zA-Z0-9_$]+)?)\s*\([^)]*\)\s*\{/g;
+                for (const scriptMatch of scripts) {
+                    const scriptContent = scriptMatch[1];
+                    const scriptStartIndex = scriptMatch.index + scriptMatch[0].indexOf('>') + 1;
+                    let match;
+                    while ((match = funcStartRegex.exec(scriptContent)) !== null) {
+                        const startIndexInScript = match.index;
+                        const openBraceIndex = scriptContent.indexOf('{', startIndexInScript);
+                        if (openBraceIndex === -1) continue;
+
+                        let braceDepth = 1;
+                        let endIndexInScript = -1;
+                        for (let i = openBraceIndex + 1; i < scriptContent.length; i++) {
+                            if (scriptContent[i] === '{') braceDepth++;
+                            else if (scriptContent[i] === '}') braceDepth--;
+                            if (braceDepth === 0) {
+                                endIndexInScript = i + 1;
+                                break;
+                            }
+                        }
+
+                        if (endIndexInScript !== -1) {
+                            const fullSource = scriptContent.substring(startIndexInScript, endIndexInScript);
+                            let objectName, funcName;
+                            const absoluteIndex = scriptStartIndex + startIndexInScript;
+
+                            if (match[1]) {
+                                objectName = FUNCTIONS_KEY;
+                                funcName = match[1];
+                            } else {
+                                let key = match[2].trim().replace(/^(?:var|let|const)\s+/, '');
+                                const lastDot = key.lastIndexOf('.');
+                                if (lastDot > -1) {
+                                    objectName = key.substring(0, lastDot);
+                                    funcName = key.substring(lastDot + 1);
+                                } else {
+                                    objectName = FUNCTIONS_KEY;
+                                    funcName = key;
+                                }
+                                funcName = funcName.replace(/['"]/g, '');
+                            }
+                            addDetectedFunction(objectName, funcName, fullSource, getLineNumber(absoluteIndex));
+                        }
+                    }
+                }
+            }
+            
+            function getCompiledHtml() {
+                if (!state.currentHtmlContent) return '';
+                let moddedHtml = state.currentHtmlContent;
+
+                Object.values(state.modifiers).forEach(mod => {
+                    if (!mod.enabled) return;
+                    
+                    try {
+                        if ((mod.type === 'string' || mod.type === 'number') && mod.originalDeclaration) {
+                             const newDeclaration = mod.originalDeclaration.replace(mod.targetFunction, mod.functionBody);
+                             moddedHtml = moddedHtml.replace(mod.originalDeclaration, newDeclaration);
+                        } else if (mod.type === 'text' && mod.targetFunction) {
+                            moddedHtml = moddedHtml.replaceAll(mod.targetFunction, mod.functionBody);
+                        }
+                    } catch (e) {
+                        console.error(`Failed to apply modifier "${mod.name}" for compilation:`, e);
+                    }
+                });
+                return moddedHtml;
+            }
+
+            function applyModsAndReloadIframe() {
+                if (!state.currentHtmlContent) return;
+                
+                let moddedHtml = getCompiledHtml(); // Use the compiled HTML
+                const scriptsToInject = [];
+
+                Object.values(state.modifiers).forEach(mod => {
+                    if (!mod.enabled) return;
+                    try {
+                        if (mod.type === 'function' && mod.functionBody) {
+                           scriptsToInject.push(generateScriptFromModifier(mod));
+                        }
+                    } catch (e) {
+                        console.error(`Failed to generate script for modifier "${mod.name}":`, e);
+                    }
+                });
+
+                const injectionCode = scriptsToInject.join('\n');
+                if (injectionCode) {
+                    const headIndex = moddedHtml.toLowerCase().indexOf('</head>');
+                    if (headIndex !== -1) {
+                        moddedHtml = moddedHtml.slice(0, headIndex) + injectionCode + moddedHtml.slice(headIndex);
+                    } else {
+                        moddedHtml = injectionCode + moddedHtml;
+                    }
+                }
+                
+                DOMElements.iframe.srcdoc = moddedHtml;
+            }
+
+            // --- Utility & UI Functions ---
+            function copyToClipboard(text, successCallback, errorCallback) {
+                try {
+                    const textArea = document.createElement("textarea");
+                    textArea.style.position = 'fixed';
+                    textArea.style.top = '-9999px';
+                    textArea.style.left = '-9999px';
+                    textArea.value = text;
+                    document.body.appendChild(textArea);
+                    textArea.focus();
+                    textArea.select();
+                    const successful = document.execCommand('copy');
+                    document.body.removeChild(textArea);
+
+                    if (successful) {
+                        if (successCallback) successCallback();
+                    } else {
+                        throw new Error('Copy command was not successful');
+                    }
+                } catch (err) {
+                    if (errorCallback) errorCallback(err);
+                }
+            }
+            
             function showError(title, message) {
                 DOMElements.iframe.srcdoc = `<div style="display:flex; flex-direction:column; align-items:center; justify-content:center; height:100%; font-family:var(--font-sans); color:var(--text-error); padding: 2em; text-align:center;"><h1>${title}</h1><p>${message}</p></div>`;
                 DOMElements.loadingIndicator.style.display = 'none';
@@ -472,7 +1146,7 @@
                     if (pathParts.length < 2) return null;
                     const owner = pathParts[0];
                     const repo = pathParts[1];
-                    let branch = 'main';
+                    let branch = 'main'; // Default branch
                     let path = '';
                     const treeIndex = pathParts.indexOf('tree');
                     if (treeIndex !== -1 && pathParts.length > treeIndex + 1) {
@@ -483,12 +1157,10 @@
                     }
                     return { owner, repo, branch, path };
                 } catch (e) {
-                    console.error("URL parsing failed:", e);
                     return null;
                 }
             }
 
-            // UI Rendering
             function extractBodyStyle(html, property) {
                 const bodyStyleMatch = html.match(/<body[^>]*style\s*=\s*["']([^"']*)["']/i);
                 if (bodyStyleMatch && bodyStyleMatch[1]) {
@@ -516,7 +1188,6 @@
                 const { navControls, pageCounter } = DOMElements;
                 const allIcons = navControls.querySelectorAll('svg');
                 
-                // Reset to default styles
                 navControls.style.backgroundColor = '';
                 navControls.style.borderColor = '';
                 pageCounter.style.color = '';
@@ -533,7 +1204,6 @@
                     pageCounter.style.color = color;
                     allIcons.forEach(svg => svg.style.stroke = color);
                 } else {
-                    // Fallback to a neutral default
                     navControls.style.backgroundColor = 'rgba(249, 250, 251, 0.7)';
                     navControls.style.borderColor = 'rgba(0, 0, 0, 0.1)';
                     pageCounter.style.color = 'black';
@@ -559,7 +1229,7 @@
                 let currentPath = '';
 
                 pathParts.forEach((part, index) => {
-                    currentPath += (index > 0 ? '/' : '') + part;
+                    currentPath += (currentPath ? '/' : '') + part;
                     const separator = document.createElement('span');
                     separator.className = 'breadcrumb-separator';
                     separator.textContent = '/';
@@ -589,7 +1259,7 @@
                 try {
                     localStorage.setItem('explorerViewMode', mode);
                 } catch (e) {
-                    console.warn("Could not save view mode to localStorage:", e);
+                    // Silently fail
                 }
             }
 
@@ -600,12 +1270,7 @@
                 createBreadcrumbs();
                 setViewMode(state.viewMode);
 
-                const formatName = (name) => {
-                    return name
-                        .replace(/([a-z0-9])([A-Z])/g, '$1<wbr>$2')
-                        .replace(/([_-])/g, '$1<wbr>')
-                        .replace(/\./g, '<wbr>.');
-                };
+                const formatName = (name) => name.replace(/([a-z0-9])([A-Z])/g, '$1<wbr>$2').replace(/([_-])/g, '$1<wbr>').replace(/\./g, '<wbr>.');
 
                 const createListItem = (item) => {
                     const li = document.createElement('li');
@@ -634,19 +1299,16 @@
                 
                 fileList.innerHTML = '';
 
-                if (!fragment.hasChildNodes()) {
+                if (folders.length === 0 && files.length === 0) {
                     const emptyDiv = document.createElement('div');
                     emptyDiv.id = 'file-list-empty';
-                    emptyDiv.innerHTML = `
-                        <svg xmlns="http://www.w3.org/2000/svg" class="h-10 w-10 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1"><path stroke-linecap="round" stroke-linejoin="round" d="M5 19a2 2 0 01-2-2V7a2 2 0 012-2h4l2 2h4a2 2 0 012 2v1M5 19h14a2 2 0 002-2v-5a2 2 0 00-2-2H9a2 2 0 00-2 2v5a2 2 0 01-2 2z" /></svg>
-                        <p class="font-semibold">This folder is empty</p>
-                    `;
+                    emptyDiv.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" class="h-10 w-10 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1"><path stroke-linecap="round" stroke-linejoin="round" d="M5 19a2 2 0 01-2-2V7a2 2 0 012-2h4l2 2h4a2 2 0 012 2v1M5 19h14a2 2 0 002-2v-5a2 2 0 00-2-2H9a2 2 0 00-2 2v5a2 2 0 01-2 2z" /></svg><p class="font-semibold">No HTML files found here.</p>`;
                     fileList.appendChild(emptyDiv);
                 } else {
                     fileList.appendChild(fragment);
                 }
 
-                const totalItems = fileList.querySelectorAll('li').length;
+                const totalItems = folders.length + files.length;
                 fileCount.textContent = `${totalItems} item(s)`;
                 state.currentDirectoryFiles = files.map(item => item.path);
 
@@ -654,8 +1316,10 @@
                 setTimeout(() => fileList.classList.remove('fade-in'), 300);
             }
 
-            // Core Application Logic
+            // --- Core Application Logic ---
             async function loadPageByPath(filePath) {
+                state.modifiers = {};
+
                 const { owner, repo, branch } = state.repoConfig;
                 const url = `https://raw.githubusercontent.com/${owner}/${repo}/${branch}/${filePath}`;
                 
@@ -665,7 +1329,11 @@
                 try {
                     const response = await fetch(url);
                     if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-                    const htmlContent = await response.text();
+                    let htmlContent = await response.text();
+                    
+                    state.currentHtmlContent = htmlContent;
+
+                    analyzeContent();
 
                     if (htmlContent.includes('id="github-page-viewer-main"')) {
                         showError('Recursive Load Error', 'Cannot load the viewer script into itself.');
@@ -676,7 +1344,12 @@
                     const font = extractBodyStyle(htmlContent, 'font-family');
                     updateNavStyles(bgColor, font);
                     
+                    DOMElements.iframe.onload = () => {
+                        DOMElements.loadingIndicator.style.display = 'none';
+                    };
+
                     DOMElements.iframe.srcdoc = htmlContent;
+
                     state.currentIndex = state.currentDirectoryFiles.findIndex(p => p === filePath);
                     DOMElements.pageCounter.textContent = `${state.currentIndex + 1} / ${state.currentDirectoryFiles.length}`;
                     DOMElements.navControls.style.display = 'flex';
@@ -686,10 +1359,8 @@
                         DOMElements.closeModalBtn.classList.remove('opacity-50', 'cursor-not-allowed');
                     }
                 } catch (error) {
-                    console.error(`Error loading page ${filePath}:`, error);
                     showError('Error Loading Page', error.message);
                     updateNavStyles(null, null);
-                } finally {
                     DOMElements.loadingIndicator.style.display = 'none';
                 }
             }
@@ -721,16 +1392,23 @@
                     state.directoryCache[path] = contents;
                     populateFileBrowser(contents);
                 } catch (error) {
-                    console.error('Failed to fetch repository contents:', error);
                     showError('Error Fetching Repository', error.message);
                 } finally {
                     DOMElements.loadingIndicator.style.display = 'none';
                 }
             }
 
-            // Event Listeners
+            // --- Event Listener Binding ---
             function bindEventListeners() {
-                const { nextBtn, prevBtn, openModalBtn, closeModalBtn, copyLinkBtn, modalContainer, fileList, modalTitleBar, repoForm, breadcrumbNav, viewListBtn, viewGridBtn } = DOMElements;
+                const { 
+                    nextBtn, prevBtn, openModalBtn, closeModalBtn, copyLinkBtn, modalContainer, fileList, 
+                    modalTitleBar, repoForm, breadcrumbNav, viewListBtn, viewGridBtn,
+                    openModifierModalBtn, closeModifierModalBtn, modifierModalContainer, modifierPanelContent,
+                    saveModifierEditBtn, cancelModifierEditBtn, newModifierBtn,
+                    importModifiersBtn, exportModifiersBtn, copyModdedHtmlBtn, modifierFileInput,
+                    modifierTitleBar, targetObjectSelect, targetFunctionSelect, reloadWithModsBtn,
+                    targetItemLabel, editorLabel, functionBodyInput, lineNumbers
+                } = DOMElements;
 
                 nextBtn.addEventListener('click', () => {
                     if (state.currentDirectoryFiles.length < 2) return;
@@ -745,30 +1423,20 @@
                 
                 openModalBtn.addEventListener('click', () => { modalContainer.style.display = 'flex'; });
                 closeModalBtn.addEventListener('click', () => { if (state.isPageLoaded) modalContainer.style.display = 'none'; });
-                modalContainer.addEventListener('click', (e) => { if (e.target === modalContainer && state.isPageLoaded) modalContainer.style.display = 'none'; });
 
                 copyLinkBtn.addEventListener('click', (e) => {
                     e.stopPropagation();
+                    if (!state.repoConfig) return;
                     const { owner, repo, branch } = state.repoConfig;
                     const folderPath = state.currentPath ? `/tree/${branch}/${state.currentPath}` : '';
                     const repoUrl = `https://github.com/${owner}/${repo}${folderPath}`;
-                    const textArea = document.createElement('textarea');
-                    textArea.value = repoUrl;
-                    textArea.style.position = 'fixed';
-                    textArea.style.opacity = '0';
-                    document.body.appendChild(textArea);
-                    textArea.focus();
-                    textArea.select();
-                    try {
-                        if (document.execCommand('copy')) {
-                            const originalIcon = copyLinkBtn.innerHTML;
-                            copyLinkBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" /></svg>`;
-                            setTimeout(() => { copyLinkBtn.innerHTML = originalIcon; }, 2000);
-                        }
-                    } catch (err) {
-                        console.error('Failed to copy URL: ', err);
-                    }
-                    document.body.removeChild(textArea);
+                    copyToClipboard(repoUrl, () => {
+                        const originalIcon = copyLinkBtn.innerHTML;
+                        copyLinkBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" /></svg>`;
+                        setTimeout(() => { copyLinkBtn.innerHTML = originalIcon; }, 2000);
+                    }, err => {
+                         console.error("Failed to copy link: ", err);
+                    });
                 });
 
                 fileList.addEventListener('click', (e) => {
@@ -797,25 +1465,49 @@
                 viewListBtn.addEventListener('click', () => setViewMode('list'));
                 viewGridBtn.addEventListener('click', () => setViewMode('grid'));
                 
-                document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && modalContainer.style.display === 'flex' && state.isPageLoaded) closeModalBtn.click(); });
-
-                modalTitleBar.addEventListener('mousedown', (e) => {
-                    if (e.target.closest('button, a')) return;
-                    state.isDragging = true;
-                    state.dragOffsetX = e.clientX - DOMElements.modal.offsetLeft;
-                    state.dragOffsetY = e.clientY - DOMElements.modal.offsetTop;
-                    DOMElements.modal.style.position = 'absolute';
-                    document.body.style.userSelect = 'none';
-                });
-                document.addEventListener('mousemove', (e) => {
-                    if (state.isDragging) {
-                        DOMElements.modal.style.left = `${e.clientX - state.dragOffsetX}px`;
-                        DOMElements.modal.style.top = `${e.clientY - state.dragOffsetY}px`;
+                document.addEventListener('keydown', (e) => { 
+                    if (e.key === 'Escape') {
+                        if (modalContainer.style.display === 'flex' && state.isPageLoaded) closeModalBtn.click();
+                        if (modifierModalContainer.style.display === 'flex') closeModifierModalBtn.click();
+                        if (DOMElements.confirmationModalContainer.style.display === 'flex') hideConfirmationModal();
                     }
                 });
+
+                const startDrag = (e, element) => {
+                    if (e.target.closest('button, a, input, textarea, select')) return;
+                    
+                    state.dragInfo.isDragging = true;
+                    state.dragInfo.element = element;
+                    
+                    const rect = element.getBoundingClientRect();
+
+                    element.style.position = 'absolute';
+                    element.style.top = `${rect.top}px`;
+                    element.style.left = `${rect.left}px`;
+                    
+                    state.dragInfo.offsetX = e.clientX - rect.left;
+                    state.dragInfo.offsetY = e.clientY - rect.top;
+
+                    document.body.style.userSelect = 'none';
+                    document.body.style.cursor = 'move';
+                };
+                
+                modalTitleBar.addEventListener('mousedown', (e) => startDrag(e, DOMElements.modal));
+                modifierTitleBar.addEventListener('mousedown', (e) => startDrag(e, DOMElements.modifierModal));
+
+                document.addEventListener('mousemove', (e) => {
+                    if (state.dragInfo.isDragging) {
+                        state.dragInfo.element.style.top = `${e.clientY - state.dragInfo.offsetY}px`;
+                        state.dragInfo.element.style.left = `${e.clientX - state.dragInfo.offsetX}px`;
+                    }
+                });
+
                 document.addEventListener('mouseup', () => {
-                    state.isDragging = false;
-                    document.body.style.userSelect = '';
+                    if (state.dragInfo.isDragging) {
+                        state.dragInfo.isDragging = false;
+                        document.body.style.userSelect = '';
+                        document.body.style.cursor = '';
+                    }
                 });
 
                 repoForm.addEventListener('submit', (e) => {
@@ -826,16 +1518,235 @@
                         startViewerWithUrl(url);
                     }
                 });
+
+                openModifierModalBtn.addEventListener('click', () => {
+                    renderModifierList();
+                    modifierModalContainer.style.display = 'flex';
+                });
+                closeModifierModalBtn.addEventListener('click', () => {
+                    modifierModalContainer.style.display = 'none';
+                });
+
+                modifierPanelContent.addEventListener('click', (e) => {
+                    const header = e.target.closest('.modifier-header');
+                    if (header) {
+                        header.parentElement.classList.toggle('open');
+                    }
+
+                    const toggle = e.target.closest('.modifier-toggle');
+                    if (toggle) {
+                        const key = toggle.dataset.key;
+                        if(state.modifiers[key]) state.modifiers[key].enabled = toggle.checked;
+                        e.stopPropagation(); // Prevent accordion from toggling
+                    }
+                    const editBtn = e.target.closest('.edit-modifier-btn');
+                    if (editBtn) {
+                        showModifierEditor(editBtn.dataset.key);
+                    }
+                    const deleteBtn = e.target.closest('.delete-modifier-btn');
+                    if (deleteBtn) {
+                        const key = deleteBtn.dataset.key;
+                        const modifierName = state.modifiers[key].name || 'this modifier';
+                        showConfirmationModal(`Are you sure you want to delete "${modifierName}"? This action cannot be undone.`, () => {
+                            delete state.modifiers[key];
+                            renderModifierList();
+                        });
+                    }
+                });
+                saveModifierEditBtn.addEventListener('click', () => {
+                    if (state.editingModifierKey) {
+                        const key = state.editingModifierKey;
+                        const targetObject = DOMElements.targetObjectSelect.value;
+                        const targetFunctionValue = DOMElements.targetFunctionSelect.value;
+                        
+                        let type = 'function';
+                        let targetIdentifier = targetFunctionValue;
+                        let originalDeclaration = '';
+
+                        if (targetObject === TEXT_CONTENT_KEY) {
+                            type = 'text';
+                        } else if (targetObject === STRING_LITERAL_KEY) {
+                            type = 'string';
+                            const originalItem = state.detectedScriptObjects[STRING_LITERAL_KEY].find(i => i.source === targetFunctionValue);
+                            if (originalItem) {
+                                targetIdentifier = originalItem.name;
+                                originalDeclaration = originalItem.declaration;
+                            }
+                        } else if (targetObject === NUMERICAL_CONSTANTS_KEY) {
+                            type = 'number';
+                            const originalItem = state.detectedScriptObjects[NUMERICAL_CONSTANTS_KEY].find(i => i.source === targetFunctionValue);
+                            if (originalItem) {
+                                targetIdentifier = originalItem.name;
+                                originalDeclaration = originalItem.declaration;
+                            }
+                        } else {
+                             targetIdentifier = `${targetObject}.${targetFunctionValue}`;
+                        }
+
+                        state.modifiers[key] = {
+                            ...state.modifiers[key],
+                            name: DOMElements.modifierNameInput.value,
+                            targetObject: targetObject,
+                            targetFunction: targetFunctionValue,
+                            functionBody: DOMElements.functionBodyInput.value,
+                            type: type,
+                            targetIdentifier: targetIdentifier,
+                            originalDeclaration: originalDeclaration,
+                        };
+                        renderModifierList();
+                    }
+                });
+                cancelModifierEditBtn.addEventListener('click', () => {
+                    renderModifierList();
+                });
+                newModifierBtn.addEventListener('click', () => {
+                    const key = `modifier_${Date.now()}`;
+                    state.modifiers[key] = getNewModifierTemplate();
+                    showModifierEditor(key);
+                });
+
+                targetObjectSelect.addEventListener('change', (e) => {
+                    const { targetFunctionSelect } = DOMElements;
+                    const selectedType = e.target.value;
+                    targetFunctionSelect.innerHTML = '<option value="">Select an item...</option>';
+                    
+                    if (selectedType && state.detectedScriptObjects[selectedType]) {
+                        targetFunctionSelect.disabled = false;
+                        const items = state.detectedScriptObjects[selectedType];
+                        
+                        items.forEach(item => {
+                            const option = document.createElement('option');
+                            option.value = item.source;
+                            option.textContent = item.declaration || item.name;
+                            if (option.textContent.length > 75) {
+                                option.title = option.textContent;
+                                option.textContent = option.textContent.substring(0, 72) + '...';
+                            }
+                            targetFunctionSelect.appendChild(option);
+                        });
+                        
+                        if (selectedType === TEXT_CONTENT_KEY) {
+                            targetItemLabel.textContent = 'Target Text';
+                            editorLabel.textContent = 'New Text';
+                        } else if (selectedType === STRING_LITERAL_KEY) {
+                            targetItemLabel.textContent = 'Target Variable';
+                            editorLabel.textContent = 'New String Value';
+                        } else if (selectedType === NUMERICAL_CONSTANTS_KEY) {
+                            targetItemLabel.textContent = 'Target Variable';
+                            editorLabel.textContent = 'New Numerical Value';
+                        } else {
+                            targetItemLabel.textContent = 'Target Function';
+                            editorLabel.textContent = 'New Function Body';
+                        }
+
+                    } else {
+                        targetFunctionSelect.disabled = true;
+                    }
+                    functionBodyInput.value = '';
+                    updateLineNumbers();
+                });
+
+                targetFunctionSelect.addEventListener('change', (e) => {
+                    const itemValue = e.target.value;
+                    const objectName = targetObjectSelect.value;
+                    let startLine = 1;
+
+                    if (itemValue && objectName && state.detectedScriptObjects[objectName]) {
+                        const itemData = state.detectedScriptObjects[objectName].find(f => f.source === itemValue);
+                        
+                        if (itemData) {
+                            functionBodyInput.value = itemData.source;
+                            startLine = itemData.startLine || 1;
+                        } else {
+                            functionBodyInput.value = '';
+                        }
+                    } else {
+                        functionBodyInput.value = '';
+                    }
+                    updateLineNumbers(startLine);
+                });
+
+                functionBodyInput.addEventListener('input', () => {
+                    const startLine = parseInt(lineNumbers.querySelector('span')?.textContent || '1', 10);
+                    updateLineNumbers(startLine);
+                });
+                functionBodyInput.addEventListener('scroll', () => {
+                    lineNumbers.scrollTop = functionBodyInput.scrollTop;
+                });
+
+                importModifiersBtn.addEventListener('click', () => {
+                    modifierFileInput.click();
+                });
+                exportModifiersBtn.addEventListener('click', () => {
+                    if (Object.keys(state.modifiers).length === 0) return;
+                    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(state.modifiers, null, 2));
+                    const downloadAnchorNode = document.createElement('a');
+                    downloadAnchorNode.setAttribute("href", dataStr);
+                    downloadAnchorNode.setAttribute("download", "modifiers.json");
+                    document.body.appendChild(downloadAnchorNode);
+                    downloadAnchorNode.click();
+                    downloadAnchorNode.remove();
+                });
+
+                copyModdedHtmlBtn.addEventListener('click', () => {
+                    const moddedHtml = getCompiledHtml();
+                    if (!moddedHtml) return;
+                    
+                    copyToClipboard(moddedHtml, () => {
+                        const originalContent = copyModdedHtmlBtn.innerHTML;
+                        copyModdedHtmlBtn.innerHTML = `<span>Copied!</span>`;
+                        setTimeout(() => { copyModdedHtmlBtn.innerHTML = originalContent; }, 2000);
+                    }, err => {
+                        console.error("Failed to copy modded HTML: ", err);
+                    });
+                });
+                
+                reloadWithModsBtn.addEventListener('click', applyModsAndReloadIframe);
+
+                modifierFileInput.addEventListener('change', (event) => {
+                    const file = event.target.files[0];
+                    if (!file) return;
+                    const reader = new FileReader();
+                    reader.onload = (e) => {
+                        try {
+                            const json = JSON.parse(e.target.result);
+                            if (typeof json === 'object' && json !== null) {
+                                state.modifiers = json;
+                                renderModifierList();
+                            }
+                        } catch (err) {}
+                    };
+                    reader.readAsText(file);
+                    event.target.value = '';
+                });
+
+                DOMElements.confirmDeleteBtn.addEventListener('click', () => {
+                    if (typeof confirmCallback === 'function') {
+                        confirmCallback();
+                    }
+                    hideConfirmationModal();
+                });
+
+                DOMElements.confirmCancelBtn.addEventListener('click', hideConfirmationModal);
+                DOMElements.confirmationModalContainer.addEventListener('click', (e) => {
+                    if (e.target === DOMElements.confirmationModalContainer) {
+                        hideConfirmationModal();
+                    }
+                });
             }
 
-            // Initialization
+            // --- Initialization ---
             function updateURLHash() {
                 if (!state.repoConfig) return;
                 const { owner, repo, branch } = state.repoConfig;
                 const folderPath = state.currentPath ? `/tree/${branch}/${state.currentPath}` : '';
                 const fullUrl = `https://github.com/${owner}/${repo}${folderPath}`;
-                const hash = btoa(fullUrl);
-                history.replaceState(null, '', '#' + hash);
+                try {
+                    const hash = btoa(fullUrl);
+                    history.replaceState(null, '', '#' + hash);
+                } catch (e) {
+                    // Silently fail
+                }
             }
 
             async function startViewerWithUrl(url) {
@@ -873,9 +1784,9 @@
                         state.viewMode = savedViewMode;
                     }
                 } catch (e) {
-                    console.warn("Could not read view mode from localStorage:", e);
+                    // Silently fail
                 }
-
+                
                 const hash = window.location.hash.substring(1);
 
                 if (hash) {
@@ -883,7 +1794,6 @@
                         const decodedUrl = atob(hash);
                         startViewerWithUrl(decodedUrl);
                     } catch (e) {
-                        console.error("Failed to decode hash:", e);
                         DOMElements.repoInputContainer.style.display = 'flex';
                     }
                 } else if (GITHUB_URL && GITHUB_URL.trim() !== '') {
@@ -893,7 +1803,7 @@
                 }
             }
 
-            // Entry Point
+            // --- App Entry Point ---
             initializeViewer();
             bindEventListeners();
         });
