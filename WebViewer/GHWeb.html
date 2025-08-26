@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>GitHub Repository HTML Explorer</title>
     <style>
-        /* --- New: CSS Variables for Theming --- */
+        /* --- CSS Variables for Theming --- */
         :root {
             --bg-main: #f3f4f6;
             --bg-modal: #f9fafb;
@@ -155,6 +155,7 @@
         /* --- Interactivity --- */
         .cursor-move { cursor: move; }
         .cursor-not-allowed { cursor: not-allowed; }
+        .cursor-pointer { cursor: pointer; }
         .hover\:bg-red-500:hover { background-color: var(--accent-red-hover); }
         .hover\:text-white:hover { color: var(--text-white); }
         .hover\:bg-blue-100:hover { background-color: var(--accent-blue-light); }
@@ -181,6 +182,58 @@
         @keyframes pulse {
             0%, 80%, 100% { transform: scale(0); }
             40% { transform: scale(1.0); }
+        }
+
+        /* --- Breadcrumb & File Explorer Styles --- */
+        #breadcrumb-nav {
+            display: flex;
+            align-items: center;
+            gap: 0.25rem;
+            font-size: 0.875rem;
+            flex-grow: 1;
+            min-width: 0;
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
+            scrollbar-width: thin;
+            scrollbar-color: var(--border-color-medium) transparent;
+        }
+        #breadcrumb-nav::-webkit-scrollbar { height: 4px; }
+        #breadcrumb-nav::-webkit-scrollbar-track { background: transparent; }
+        #breadcrumb-nav::-webkit-scrollbar-thumb { background-color: var(--border-color-medium); border-radius: 4px; }
+
+        .breadcrumb-item {
+            display: flex;
+            align-items: center;
+            gap: 0.25rem;
+            color: var(--text-medium);
+            padding: 0.25rem 0.5rem;
+            border-radius: var(--radius-md);
+            white-space: nowrap;
+        }
+        .breadcrumb-item.is-link {
+            color: var(--accent-blue);
+            text-decoration: none;
+            cursor: pointer;
+        }
+        .breadcrumb-item.is-link:hover {
+            background-color: var(--accent-blue-light);
+        }
+        .breadcrumb-separator {
+            color: var(--text-light);
+        }
+        .breadcrumb-text {
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        #file-list-empty {
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            text-align: center;
+            padding: 2rem;
+            height: 100%;
+            color: var(--text-light);
         }
 
         /* --- Responsive Design --- */
@@ -234,8 +287,7 @@
     <div id="file-browser-modal-container" class="fixed inset-0 bg-opacity-50 flex items-start justify-center p-4 pt-8 sm:pt-16" style="display: none; background-color: var(--bg-overlay);">
         <div id="file-browser-modal" class="bg-gray-50 rounded-xl shadow-2xl w-11-12 max-w-2xl max-h-80vh flex flex-col border border-gray-300">
             <div id="modal-title-bar" class="px-3 py-2 bg-gray-100 border-b border-gray-200 flex justify-between items-center rounded-t-xl cursor-move">
-                <h2 id="modal-title" class="text-sm font-semibold text-gray-800 truncate flex-grow">File Explorer</h2>
-                <!-- New: Copy Link Button -->
+                <div id="breadcrumb-nav"></div>
                 <div class="flex items-center gap-1">
                     <button id="copy-link-btn" title="Copy link to this GitHub folder" class="w-10 h-10 flex items-center justify-center text-gray-600 hover:text-gray-900 rounded-full hover:bg-blue-100 transition-colors">
                         <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>
@@ -275,16 +327,16 @@
 
     <script>
         document.addEventListener('DOMContentLoaded', () => {
-            // --- Configuration ---
-            const GITHUB_URL = 'https://github.com/oldskool978/Assistive-Tools/tree/main/BoardPages'; // Updated: Default URL is now secondary to URL hash.
-
+            // App Configuration
+            const GITHUB_URL = 'https://github.com/oldskool978/Assistive-Tools/tree/main/BoardPages'; // Fallback repo
             const ICONS = {
+                home: `<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" /></svg>`,
                 parent: `<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-3 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" style="stroke-width: 1.5;"><path stroke-linecap="round" stroke-linejoin="round" d="M9 11l-4 4m0 0l4 4m-4-4h12a4 4 0 004-4v-4" /></svg>`,
                 folder: `<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-3 text-yellow-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" style="stroke-width: 1.5;"><path stroke-linecap="round" stroke-linejoin="round" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" /></svg>`,
                 file: `<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-3 text-blue-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" style="stroke-width: 1.5;"><path stroke-linecap="round" stroke-linejoin="round" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" /></svg>`
             };
 
-            // --- DOM References ---
+            // DOM Element Cache
             const DOMElements = {
                 iframe: document.getElementById('content-frame'),
                 loadingIndicator: document.getElementById('loading-indicator'),
@@ -294,10 +346,10 @@
                 modalContainer: document.getElementById('file-browser-modal-container'),
                 modal: document.getElementById('file-browser-modal'),
                 modalTitleBar: document.getElementById('modal-title-bar'),
-                modalTitle: document.getElementById('modal-title'),
+                breadcrumbNav: document.getElementById('breadcrumb-nav'),
                 openModalBtn: document.getElementById('open-modal-btn'),
                 closeModalBtn: document.getElementById('close-modal-btn'),
-                copyLinkBtn: document.getElementById('copy-link-btn'), // New
+                copyLinkBtn: document.getElementById('copy-link-btn'),
                 fileList: document.getElementById('file-list'),
                 fileCount: document.getElementById('file-count'),
                 prevBtn: document.getElementById('prev-btn'),
@@ -308,7 +360,7 @@
                 repoInputError: document.getElementById('repo-input-error'),
             };
 
-            // --- Application State ---
+            // Global State
             const state = {
                 repoConfig: null,
                 currentDirectoryFiles: [],
@@ -321,12 +373,13 @@
                 directoryCache: {},
             };
 
-            // --- Utilities ---
+            // Utility Functions
             function showError(title, message) {
                 DOMElements.iframe.srcdoc = `<div style="display:flex; flex-direction:column; align-items:center; justify-content:center; height:100%; font-family:var(--font-sans); color:var(--text-error); padding: 2em; text-align:center;"><h1>${title}</h1><p>${message}</p></div>`;
                 DOMElements.loadingIndicator.style.display = 'none';
             }
 
+            // Parses various GitHub URL formats into a structured object.
             function parseGitHubUrl(url) {
                 if (!url || typeof url !== 'string') return null;
                 try {
@@ -353,7 +406,7 @@
                 }
             }
 
-            // --- UI ---
+            // UI Rendering
             function extractBodyStyle(html, property) {
                 const bodyStyleMatch = html.match(/<body[^>]*style\s*=\s*["']([^"']*)["']/i);
                 if (bodyStyleMatch && bodyStyleMatch[1]) {
@@ -377,6 +430,7 @@
                 } catch (e) { return true; }
             }
 
+            // Adapts navigation controls style to the loaded page's background.
             function updateNavStyles(bgColor, font) {
                 const { navControls, pageCounter } = DOMElements;
                 const allIcons = navControls.querySelectorAll('svg');
@@ -394,15 +448,54 @@
                 }
                 pageCounter.style.fontFamily = font ? font : 'var(--font-mono)';
             }
+            
+            // Renders breadcrumb navigation for the current path.
+            function createBreadcrumbs() {
+                const { breadcrumbNav } = DOMElements;
+                breadcrumbNav.innerHTML = '';
+                const fragment = document.createDocumentFragment();
 
-            // Updated: Refactored to create DOM elements instead of using innerHTML for better security and structure.
+                const homeItem = document.createElement('a');
+                homeItem.className = 'breadcrumb-item is-link';
+                homeItem.dataset.path = '';
+                homeItem.title = "Go to root";
+                homeItem.innerHTML = ICONS.home;
+                fragment.appendChild(homeItem);
+
+                const pathParts = state.currentPath.split('/').filter(p => p);
+                let currentPath = '';
+
+                pathParts.forEach((part, index) => {
+                    currentPath += (index > 0 ? '/' : '') + part;
+                    
+                    const separator = document.createElement('span');
+                    separator.className = 'breadcrumb-separator';
+                    separator.textContent = '/';
+                    fragment.appendChild(separator);
+
+                    if (index < pathParts.length - 1) {
+                        const partItem = document.createElement('a');
+                        partItem.className = 'breadcrumb-item is-link';
+                        partItem.dataset.path = currentPath;
+                        partItem.innerHTML = `<span class="breadcrumb-text">${part}</span>`;
+                        fragment.appendChild(partItem);
+                    } else {
+                        const partItem = document.createElement('span');
+                        partItem.className = 'breadcrumb-item';
+                        partItem.innerHTML = `<span class="breadcrumb-text">${part}</span>`;
+                        fragment.appendChild(partItem);
+                    }
+                });
+                breadcrumbNav.appendChild(fragment);
+            }
+
+            // Populates file list, adds parent link, and handles empty directories.
             function populateFileBrowser(contents) {
-                const { fileList, fileCount, modalTitle } = DOMElements;
+                const { fileList, fileCount } = DOMElements;
                 const fragment = document.createDocumentFragment();
                 
-                modalTitle.textContent = `Explorer: /${state.currentPath || ''}`;
+                createBreadcrumbs();
 
-                // Helper to create list items
                 const createListItem = (item) => {
                     const li = document.createElement('li');
                     const a = document.createElement('a');
@@ -410,9 +503,7 @@
                     a.className = "flex items-center p-2 text-gray-800 hover:bg-blue-100 hover:text-gray-900 rounded-md transition-colors text-sm";
                     a.dataset.type = item.type;
                     if (item.path) a.dataset.path = item.path;
-                    
-                    a.innerHTML = ICONS[item.icon]; // Using innerHTML for SVG is acceptable here
-                    
+                    a.innerHTML = ICONS[item.icon];
                     const span = document.createElement('span');
                     span.className = 'truncate';
                     span.textContent = item.name;
@@ -428,20 +519,32 @@
                 const folders = contents.filter(item => item.type === 'dir').sort((a, b) => a.name.localeCompare(b.name));
                 const files = contents.filter(item => item.type === 'file' && item.name.toLowerCase().endsWith('.html')).sort((a, b) => a.name.localeCompare(b.name));
 
-                folders.forEach(item => fragment.appendChild(createListItem({ ...item, icon: 'folder' })));
-                files.forEach(item => fragment.appendChild(createListItem({ ...item, icon: 'file' })));
+                folders.forEach(item => fragment.appendChild(createListItem({ ...item, icon: 'folder', type: 'dir' })));
+                files.forEach(item => fragment.appendChild(createListItem({ ...item, icon: 'file', type: 'file' })));
                 
                 fileList.innerHTML = '';
-                fileList.appendChild(fragment);
 
-                fileCount.textContent = `${folders.length + files.length} item(s)`;
+                if (!fragment.hasChildNodes()) {
+                    const emptyDiv = document.createElement('div');
+                    emptyDiv.id = 'file-list-empty';
+                    emptyDiv.innerHTML = `
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-10 w-10 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1"><path stroke-linecap="round" stroke-linejoin="round" d="M5 19a2 2 0 01-2-2V7a2 2 0 012-2h4l2 2h4a2 2 0 012 2v1M5 19h14a2 2 0 002-2v-5a2 2 0 00-2-2H9a2 2 0 00-2 2v5a2 2 0 01-2 2z" /></svg>
+                        <p class="font-semibold">This folder is empty</p>
+                    `;
+                    fileList.appendChild(emptyDiv);
+                } else {
+                    fileList.appendChild(fragment);
+                }
+
+                const totalItems = fileList.querySelectorAll('li').length;
+                fileCount.textContent = `${totalItems} item(s)`;
                 state.currentDirectoryFiles = files.map(item => item.path);
 
                 fileList.classList.add('fade-in');
                 setTimeout(() => fileList.classList.remove('fade-in'), 300);
             }
 
-            // --- Core Logic ---
+            // Core Application Logic
             async function loadPageByPath(filePath) {
                 const { owner, repo, branch } = state.repoConfig;
                 const url = `https://raw.githubusercontent.com/${owner}/${repo}/${branch}/${filePath}`;
@@ -472,7 +575,6 @@
                         state.isPageLoaded = true;
                         DOMElements.closeModalBtn.classList.remove('opacity-50', 'cursor-not-allowed');
                     }
-
                 } catch (error) {
                     console.error(`Error loading page ${filePath}:`, error);
                     showError('Error Loading Page', error.message);
@@ -482,14 +584,17 @@
                 }
             }
             
+            // Fetches directory contents from GitHub API, with caching.
             async function fetchDirectory(path) {
                 if (state.directoryCache[path]) {
+                    state.currentPath = path;
+                    updateURLHash();
                     populateFileBrowser(state.directoryCache[path]);
                     return;
                 }
 
                 state.currentPath = path;
-                updateURLHash(); // New: Update URL hash on directory change
+                updateURLHash();
                 const { owner, repo } = state.repoConfig;
                 const API_URL = `https://api.github.com/repos/${owner}/${repo}/contents/${path}`;
                 DOMElements.loadingIndicator.style.display = 'flex';
@@ -505,9 +610,7 @@
                     }
                     const contents = await response.json();
                     state.directoryCache[path] = contents;
-                    
                     populateFileBrowser(contents);
-
                 } catch (error) {
                     console.error('Failed to fetch repository contents:', error);
                     showError('Error Fetching Repository', error.message);
@@ -516,9 +619,9 @@
                 }
             }
 
-            // --- Event Listeners ---
+            // Event Listeners
             function bindEventListeners() {
-                const { nextBtn, prevBtn, openModalBtn, closeModalBtn, copyLinkBtn, modalContainer, fileList, modalTitleBar, repoForm } = DOMElements;
+                const { nextBtn, prevBtn, openModalBtn, closeModalBtn, copyLinkBtn, modalContainer, fileList, modalTitleBar, repoForm, breadcrumbNav } = DOMElements;
 
                 nextBtn.addEventListener('click', () => {
                     if (state.currentDirectoryFiles.length < 2) return;
@@ -535,26 +638,20 @@
                 closeModalBtn.addEventListener('click', () => { if (state.isPageLoaded) modalContainer.style.display = 'none'; });
                 modalContainer.addEventListener('click', (e) => { if (e.target === modalContainer && state.isPageLoaded) modalContainer.style.display = 'none'; });
 
-                // Updated: Copy Link Button Listener to copy the direct GitHub URL.
                 copyLinkBtn.addEventListener('click', (e) => {
                     e.stopPropagation();
                     const { owner, repo, branch } = state.repoConfig;
                     const folderPath = state.currentPath ? `/tree/${branch}/${state.currentPath}` : '';
                     const repoUrl = `https://github.com/${owner}/${repo}${folderPath}`;
-
                     const textArea = document.createElement('textarea');
-                    textArea.value = repoUrl; // Changed to copy the direct GitHub URL
+                    textArea.value = repoUrl;
                     textArea.style.position = 'fixed';
-                    textArea.style.top = '0';
-                    textArea.style.left = '0';
                     textArea.style.opacity = '0';
                     document.body.appendChild(textArea);
                     textArea.focus();
                     textArea.select();
-
                     try {
-                        const successful = document.execCommand('copy');
-                        if (successful) {
+                        if (document.execCommand('copy')) {
                             const originalIcon = copyLinkBtn.innerHTML;
                             copyLinkBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" /></svg>`;
                             setTimeout(() => { copyLinkBtn.innerHTML = originalIcon; }, 2000);
@@ -562,7 +659,6 @@
                     } catch (err) {
                         console.error('Failed to copy URL: ', err);
                     }
-
                     document.body.removeChild(textArea);
                 });
 
@@ -581,10 +677,18 @@
                     }
                 });
                 
+                breadcrumbNav.addEventListener('click', (e) => {
+                    const link = e.target.closest('a[data-path]');
+                    if (link) {
+                        e.preventDefault();
+                        fetchDirectory(link.dataset.path);
+                    }
+                });
+                
                 document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && modalContainer.style.display === 'flex' && state.isPageLoaded) closeModalBtn.click(); });
 
                 modalTitleBar.addEventListener('mousedown', (e) => {
-                    if (e.target.closest('button')) return; // Ignore clicks on buttons in the title bar
+                    if (e.target.closest('button, a')) return;
                     state.isDragging = true;
                     state.dragOffsetX = e.clientX - DOMElements.modal.offsetLeft;
                     state.dragOffsetY = e.clientY - DOMElements.modal.offsetTop;
@@ -612,16 +716,13 @@
                 });
             }
 
-            // --- Initialization ---
-            // New: Updates the URL hash with the current repo and path.
+            // Initialization
             function updateURLHash() {
                 if (!state.repoConfig) return;
                 const { owner, repo, branch } = state.repoConfig;
                 const folderPath = state.currentPath ? `/tree/${branch}/${state.currentPath}` : '';
                 const fullUrl = `https://github.com/${owner}/${repo}${folderPath}`;
-                // Using btoa to encode the URL to avoid special characters in the hash.
                 const hash = btoa(fullUrl);
-                // Use replaceState to avoid creating new history entries for every navigation.
                 history.replaceState(null, '', '#' + hash);
             }
 
@@ -638,7 +739,6 @@
                 }
 
                 DOMElements.repoInputContainer.style.display = 'none';
-                
                 await fetchDirectory(state.repoConfig.path);
                 
                 if (state.currentDirectoryFiles.length > 0) {
@@ -653,7 +753,6 @@
                 }
             }
             
-            // Updated: Initialization logic now checks for a URL hash first.
             function initializeViewer() {
                 DOMElements.navControls.style.display = 'none';
                 const hash = window.location.hash.substring(1);
@@ -673,7 +772,7 @@
                 }
             }
 
-            // --- Entry Point ---
+            // Entry Point
             initializeViewer();
             bindEventListeners();
         });
