@@ -385,7 +385,7 @@
         }
         .modifier-details {
             padding: 0.75rem;
-            background-color: var(--bg-modal);
+            background-color: #f3f4f6; /* A slightly darker gray for contrast */
             display: none;
             border-top: 1px solid var(--border-color-light);
         }
@@ -399,7 +399,7 @@
             transform: rotate(90deg);
         }
 
-        /* --- NEW: Styles for Before/After view --- */
+        /* --- UPDATED: Styles for Before/After view --- */
         .code-snippet-container {
             display: grid;
             grid-template-columns: 1fr;
@@ -415,35 +415,32 @@
         .code-snippet {
             border-radius: var(--radius-md);
             overflow: hidden;
-            background-color: #f9fafb; /* bg-gray-50 */
+            background-color: var(--bg-modal);
             border: 1px solid var(--border-color-light);
+            display: flex;
+            flex-direction: column;
         }
         .code-snippet-header {
             padding: 0.25rem 0.75rem;
             font-weight: 600;
             font-family: var(--font-sans);
-        }
-        .code-snippet-header.before {
-            background-color: #fee2e2; /* bg-red-100 */
-            color: #991b1b; /* text-red-800 */
-            border-bottom: 1px solid #fecaca; /* border-red-200 */
-        }
-        .code-snippet-header.after {
-            background-color: #dcfce7; /* bg-green-100 */
-            color: #14532d; /* text-green-800 */
-            border-bottom: 1px solid #bbf7d0; /* border-green-200 */
+            background-color: var(--bg-modal-header);
+            border-bottom: 1px solid var(--border-color-light);
+            color: var(--text-medium); /* Unified color */
+            flex-shrink: 0;
         }
         .code-snippet pre {
             margin: 0;
-            padding: 0.75rem;
+            padding: 0.5rem 0.75rem;
             white-space: pre-wrap;
             word-wrap: break-word;
-            max-height: 200px;
+            max-height: 150px;
             overflow-y: auto;
             background-color: var(--bg-white);
+            flex-grow: 1;
         }
 
-        /* --- NEW: Adjustments for inline buttons --- */
+        /* --- Adjustments for inline buttons --- */
         .modifier-header .actions {
             display: flex;
             align-items: center;
