@@ -12,7 +12,6 @@
             --bg-modal-header: #f3f4f6;
             --bg-white: #ffffff;
             --bg-overlay: rgba(0, 0, 0, 0.5);
-            --bg-nav: rgba(31, 41, 55, 0.8);
             --bg-input-focus-ring: rgba(59, 130, 246, 0.5);
             
             --text-dark: #1f2937;
@@ -292,6 +291,22 @@
             background-color: var(--border-color-light);
         }
 
+        /* --- Navigation Controls Style --- */
+        #navigation-controls {
+            backdrop-filter: blur(8px);
+            -webkit-backdrop-filter: blur(8px);
+            border: 1px solid;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+            transition: background-color 0.3s, border-color 0.3s;
+        }
+        #navigation-controls button {
+            transition: transform 0.2s, background-color 0.2s;
+        }
+        #navigation-controls button:hover {
+            background-color: rgba(128, 128, 128, 0.2);
+            transform: scale(1.1);
+        }
+
 
         /* --- Responsive Design --- */
         @media (min-width: 640px) {
@@ -371,19 +386,19 @@
         </div>
     </div>
 
-    <div id="navigation-controls" class="fixed bottom-2 left-half translate-x-negative-half flex items-center justify-center gap-2 p-1 rounded-full shadow-lg opacity-50 hover:opacity-100 transition-all" style="display: none; background-color: var(--bg-nav);">
-        <button id="prev-btn" title="Previous page" aria-label="Previous page" class="w-10 h-10 flex items-center justify-center rounded-full text-white">
+    <div id="navigation-controls" class="fixed bottom-2 left-half translate-x-negative-half flex items-center justify-center gap-2 p-1 rounded-full shadow-lg opacity-50 hover:opacity-100 transition-all" style="display: none;">
+        <button id="prev-btn" title="Previous page" aria-label="Previous page" class="w-10 h-10 flex items-center justify-center rounded-full">
             <svg id="prev-arrow" xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
             </svg>
         </button>
-        <button id="open-modal-btn" title="Open file explorer" aria-label="Open file explorer" class="w-10 h-10 flex items-center justify-center rounded-full text-white">
+        <button id="open-modal-btn" title="Open file explorer" aria-label="Open file explorer" class="w-10 h-10 flex items-center justify-center rounded-full">
              <svg id="folder-icon" xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
              </svg>
         </button>
-        <div id="page-counter" class="font-mono text-sm px-2 text-white flex items-center"></div>
-        <button id="next-btn" title="Next page" aria-label="Next page" class="w-10 h-10 flex items-center justify-center rounded-full text-white">
+        <div id="page-counter" class="font-mono text-sm px-2 flex items-center"></div>
+        <button id="next-btn" title="Next page" aria-label="Next page" class="w-10 h-10 flex items-center justify-center rounded-full">
             <svg id="next-arrow" xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
             </svg>
@@ -500,18 +515,31 @@
             function updateNavStyles(bgColor, font) {
                 const { navControls, pageCounter } = DOMElements;
                 const allIcons = navControls.querySelectorAll('svg');
-                const defaultBg = getComputedStyle(document.documentElement).getPropertyValue('--bg-nav').trim();
-                const defaultTextColor = 'white';
+                
+                // Reset to default styles
+                navControls.style.backgroundColor = '';
+                navControls.style.borderColor = '';
+                pageCounter.style.color = '';
+                allIcons.forEach(svg => svg.style.stroke = '');
+
                 if (bgColor) {
-                    navControls.style.backgroundColor = bgColor;
-                    const textColor = isColorLight(bgColor) ? 'black' : 'white';
-                    pageCounter.style.color = textColor;
-                    allIcons.forEach(svg => svg.style.stroke = textColor);
+                    const useDarkTheme = !isColorLight(bgColor);
+                    const color = useDarkTheme ? 'white' : 'black';
+                    const borderColor = useDarkTheme ? 'rgba(255, 255, 255, 0.3)' : 'rgba(0, 0, 0, 0.1)';
+                    const backgroundColor = useDarkTheme ? 'rgba(0, 0, 0, 0.5)' : 'rgba(255, 255, 255, 0.7)';
+                    
+                    navControls.style.backgroundColor = backgroundColor;
+                    navControls.style.borderColor = borderColor;
+                    pageCounter.style.color = color;
+                    allIcons.forEach(svg => svg.style.stroke = color);
                 } else {
-                    navControls.style.backgroundColor = defaultBg;
-                    pageCounter.style.color = defaultTextColor;
-                    allIcons.forEach(svg => svg.style.stroke = defaultTextColor);
+                    // Fallback to a neutral default
+                    navControls.style.backgroundColor = 'rgba(249, 250, 251, 0.7)';
+                    navControls.style.borderColor = 'rgba(0, 0, 0, 0.1)';
+                    pageCounter.style.color = 'black';
+                    allIcons.forEach(svg => svg.style.stroke = 'black');
                 }
+                
                 pageCounter.style.fontFamily = font ? font : 'var(--font-mono)';
             }
             
