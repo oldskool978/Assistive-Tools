@@ -488,8 +488,8 @@
         #line-numbers {
             font-family: var(--font-mono);
             font-size: 0.8rem; /* Match Ace editor font size */
-            line-height: 1.5; /* Match Ace editor line height */
-            padding: 0.5rem 0.5rem 0.5rem 0.75rem;
+            padding-right: 0.5rem;
+            padding-left: 0.75rem;
             color: #aaa;
             text-align: right;
             user-select: none;
@@ -517,9 +517,7 @@
             display: none !important;
         }
         /* Adjust Ace editor's left padding to make space for our line numbers */
-        .ace_content {
-            padding-left: 45px !important; /* Adjust as needed */
-        }
+        /* This will be controlled by JS now */
 
 
         /* --- Responsive Design --- */
@@ -658,6 +656,7 @@
                         <div id="ace-editor"></div>
                     </div>
                 </div>
+                
                 <!-- Bottom buttons -->
                 <div class="flex justify-end items-center mt-3 pt-3 border-t border-gray-200 flex-shrink-0">
                     <div class="flex gap-2">
@@ -795,7 +794,7 @@
                 targetObjectSelect: document.getElementById('target-object-select'),
                 targetFunctionSelect: document.getElementById('target-function-select'),
                 targetItemLabel: document.getElementById('target-item-label'),
-                aceEditorDiv: document.getElementById('ace-editor'), // NEW: Ace editor div
+                aceEditorDiv: document.getElementById('ace-editor'),
                 editorLabel: document.getElementById('editor-label'),
                 saveModifierEditBtn: document.getElementById('save-modifier-edit-btn'),
                 cancelModifierEditBtn: document.getElementById('cancel-modifier-edit-btn'),
@@ -825,7 +824,8 @@
                 modifiers: {},
                 editingModifierKey: null,
                 detectedScriptObjects: {},
-                aceEditor: null, // NEW: To hold the Ace editor instance
+                aceEditor: null,
+                alignmentStyleTag: null, // To hold our dynamic stylesheet
             };
             
             // --- UI Modals & Interactions ---
@@ -998,6 +998,11 @@
                 const { lineNumbers } = DOMElements;
                 const lineCount = state.aceEditor.session.getLength();
                 lineNumbers.innerHTML = Array.from({ length: lineCount }, (_, i) => `<span>${startLine + i}</span>`).join('');
+                
+                // Dynamically adjust padding based on line number width
+                const lineWidth = DOMElements.lineNumbers.offsetWidth;
+                const newPadding = lineWidth + 8; // 8px margin
+                state.alignmentStyleTag.textContent = `.ace_content { padding-left: ${newPadding}px !important; }`;
             }
 
             function showModifierEditor(key) {
@@ -1022,7 +1027,6 @@
                     state.aceEditor.setOptions({
                         fontFamily: "var(--font-mono)",
                         fontSize: "0.8rem",
-                        lineHeight: 1.5,
                         useWorker: false, // Disable worker to avoid console errors in this environment
                         showPrintMargin: false,
                     });
@@ -1038,6 +1042,15 @@
                     });
                 }
                 
+                // Set final alignment values
+                const verticalOffset = 0;
+                const leading = 1.169;
+
+                DOMElements.lineNumbers.style.paddingTop = `${verticalOffset}px`;
+                DOMElements.lineNumbers.style.lineHeight = leading;
+                state.aceEditor.setOption('lineHeight', leading);
+
+
                 state.aceEditor.setValue(modifier.functionBody || '', -1); // -1 moves cursor to start
                 
                 targetObjectSelect.innerHTML = '<option value="">Select a type...</option>';
@@ -1978,6 +1991,10 @@
             }
             
             function initializeViewer() {
+                // Create a style tag for dynamic editor adjustments
+                state.alignmentStyleTag = document.createElement('style');
+                document.head.appendChild(state.alignmentStyleTag);
+
                 DOMElements.navControls.style.display = 'none';
                 try {
                     const savedViewMode = localStorage.getItem('explorerViewMode');
