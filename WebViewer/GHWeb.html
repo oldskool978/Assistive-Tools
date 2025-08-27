@@ -742,11 +742,10 @@
 
     <script>
         document.addEventListener('DOMContentLoaded', () => {
-            // --- Application Constants ---
-            // The default repository to load if no other is specified in the URL hash.
+            // Defines application-wide constants.
             const GITHUB_URL = 'https://github.com/oldskool978/Assistive-Tools/tree/main/BoardPages';
             
-            // Defines unique keys for each type of content the tool can parse and modify.
+            // Keys for identifying different types of modifiable content.
             const ELEMENT_CONTENT_KEY = '(Element Content)';
             const CSS_STYLES_KEY = '(CSS Styles)';
             const TEXT_CONTENT_KEY = '(Text Content)';
@@ -755,8 +754,7 @@
             const STRUCTURED_OBJECT_KEY = '(Structured Objects)';
             const FUNCTIONS_KEY = '(Functions)';
 
-            // --- Icon Definitions ---
-            // A centralized object for SVG icons used throughout the UI.
+            // SVG icon definitions for the UI.
             const ICONS = {
                 home: `<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" /></svg>`,
                 parent: `<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-3 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" style="stroke-width: 1.5;"><path stroke-linecap="round" stroke-linejoin="round" d="M9 11l-4 4m0 0l4 4m-4-4h12a4 4 0 004-4v-4" /></svg>`,
@@ -764,8 +762,7 @@
                 file: `<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-3 text-blue-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" style="stroke-width: 1.5;"><path stroke-linecap="round" stroke-linejoin="round" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" /></svg>`
             };
 
-            // --- DOM Element Cache ---
-            // Caches frequently accessed DOM elements to avoid repeated queries.
+            // Cached DOM element references.
             const DOMElements = {
                 iframe: document.getElementById('content-frame'),
                 loadingIndicator: document.getElementById('loading-indicator'),
@@ -817,8 +814,7 @@
                 confirmDeleteBtn: document.getElementById('confirm-delete-btn'),
             };
 
-            // --- Application State ---
-            // A single object to hold the dynamic state of the application.
+            // Holds the application's dynamic state.
             const state = {
                 repoConfig: null,
                 currentDirectoryFiles: [],
@@ -839,11 +835,7 @@
             // --- UI Modals & Interactions ---
             let confirmCallback = null;
 
-            /**
-             * Displays a confirmation modal with a specified message.
-             * @param {string} message - The text to display in the modal.
-             * @param {Function} onConfirm - The callback function to execute upon confirmation.
-             */
+            // Displays a confirmation modal with a specified message.
             function showConfirmationModal(message, onConfirm) {
                 const { confirmationModalContainer, confirmationModalMessage } = DOMElements;
                 confirmationModalMessage.textContent = message;
@@ -851,19 +843,13 @@
                 confirmCallback = onConfirm;
             }
 
-            /**
-             * Hides the confirmation modal.
-             */
+            // Hides the confirmation modal.
             function hideConfirmationModal() {
                 DOMElements.confirmationModalContainer.style.display = 'none';
                 confirmCallback = null;
             }
             
-            /**
-             * Escapes HTML special characters in a string to prevent rendering as HTML.
-             * @param {string} unsafe - The raw string.
-             * @returns {string} The escaped string.
-             */
+            // Escapes HTML special characters to prevent rendering as HTML.
             function escapeHtml(unsafe) {
                 if (typeof unsafe !== 'string') return '';
                 return unsafe
@@ -876,10 +862,7 @@
 
             // --- Modifier Logic ---
 
-            /**
-             * Creates a new, default modifier object.
-             * @returns {object} A template for a new modifier.
-             */
+            // Creates a new, default modifier object.
             function getNewModifierTemplate() {
                 return {
                     name: 'Untitled Modifier',
@@ -893,12 +876,7 @@
                 };
             }
 
-            /**
-             * Generates an executable script tag from a 'function' type modifier.
-             * This script is designed to override a function in the loaded page's context.
-             * @param {object} modifier - The modifier object.
-             * @returns {string} The generated <script> tag as a string.
-             */
+            // Generates an executable script tag from a 'function' type modifier to override a function.
             function generateScriptFromModifier(modifier) {
                 if (modifier.type !== 'function' || !modifier.targetObject || !modifier.targetFunction || !modifier.functionBody) {
                     return '';
@@ -946,9 +924,7 @@
                 return script;
             }
 
-            /**
-             * Renders the list of all created modifiers in the main panel.
-             */
+            // Renders the list of all created modifiers in the main panel.
             function renderModifierList() {
                 const { modifierPanelContent, modifierEditorView } = DOMElements;
                 modifierPanelContent.innerHTML = '';
@@ -1030,10 +1006,7 @@
                 modifierPanelContent.appendChild(fragment);
             }
             
-            /**
-             * Updates the custom line number display to match the Ace editor's content.
-             * @param {number} [startLine=1] - The starting line number.
-             */
+            // Updates the line number display to match the Ace editor's content.
             function updateLineNumbers(startLine = 1) {
                 if (!state.aceEditor) return;
                 const { lineNumbers } = DOMElements;
@@ -1045,10 +1018,7 @@
                 state.alignmentStyleTag.textContent = `.ace_content { padding-left: ${newPadding}px !important; }`;
             }
 
-            /**
-             * Shows the modifier editor view, pre-filled with a modifier's data.
-             * @param {string} key - The unique key of the modifier to edit.
-             */
+            // Shows the modifier editor view, pre-filled with a modifier's data.
             function showModifierEditor(key) {
                 const modifier = state.modifiers[key];
                 if (!modifier) return;
@@ -1094,11 +1064,11 @@
                 const itemValue = modifier.targetFunction;
                 let editorContent = modifier.functionBody || '';
                  if (objectName && itemValue && state.detectedScriptObjects[objectName]) {
-                    const findKey = (objectName === CSS_STYLES_KEY || objectName === ELEMENT_CONTENT_KEY || objectName === STRUCTURED_OBJECT_KEY) ? 'name' : 'source';
-                    const itemData = state.detectedScriptObjects[objectName].find(f => f[findKey] === itemValue);
-                    if(itemData && itemData.fullSource) {
-                        editorContent = itemData.fullSource;
-                    }
+                     const findKey = (objectName === CSS_STYLES_KEY || objectName === ELEMENT_CONTENT_KEY || objectName === STRUCTURED_OBJECT_KEY) ? 'name' : 'source';
+                     const itemData = state.detectedScriptObjects[objectName].find(f => f[findKey] === itemValue);
+                     if(itemData && itemData.fullSource) {
+                         editorContent = itemData.fullSource;
+                     }
                  }
 
                 state.aceEditor.setValue(editorContent, -1);
@@ -1129,11 +1099,7 @@
                 }, 0);
             }
 
-            /**
-             * Summarizes large arrays within a string of code for cleaner display.
-             * @param {string} sourceString - The source code of the object.
-             * @returns {string} The source code with large arrays collapsed.
-             */
+            // Summarizes large arrays within a string of code for cleaner display.
             function summarizeObjectSource(sourceString) {
                 const arrayRegex = /:(\s*)(new\s+\w+Array\s*\()?\s*(\[[\s\S]*?\])/g;
                 
@@ -1154,11 +1120,7 @@
                 });
             }
 
-            /**
-             * Generates a unique CSS selector for a given DOM element.
-             * @param {Element} el - The element to generate a selector for.
-             * @returns {string} The unique CSS selector.
-             */
+            // Generates a unique CSS selector for a given DOM element.
             function getUniqueSelector(el) {
                 if (!(el instanceof Element)) return;
                 const path = [];
@@ -1172,7 +1134,7 @@
                         let sib = el, nth = 1;
                         while (sib = sib.previousElementSibling) {
                             if (sib.nodeName.toLowerCase() == selector)
-                               nth++;
+                                nth++;
                         }
                         if (nth != 1)
                             selector += `:nth-of-type(${nth})`;
@@ -1183,10 +1145,7 @@
                 return path.join(' > ');
             }
 
-            /**
-             * Analyzes the current HTML content to find all modifiable targets.
-             * Populates the `state.detectedScriptObjects` object.
-             */
+            // Analyzes the current HTML content to find all modifiable targets.
             function analyzeContent() {
                 state.detectedScriptObjects = {};
                 if (!state.currentHtmlContent) return;
@@ -1198,30 +1157,46 @@
                 const parser = new DOMParser();
                 const doc = parser.parseFromString(state.currentHtmlContent, 'text/html');
                 
-                // Parser 1: Elements by Selector
-                const elementsForSelector = doc.querySelectorAll('h1, h2, h3, h4, h5, h6, p, li, a, span, div, button');
-                const elementSet = new Set(elementsForSelector);
-                const foundElementsBySelector = new Map();
-                
-                elementsForSelector.forEach(el => {
-                    if (el.closest('script, style')) return;
-                    const text = el.innerText.trim();
-                    if (!text) return;
-
-                    // This is the consolidation logic. If the element's parent is also a potential target,
-                    // skip this element to avoid redundancy and target the outermost container.
-                    if (el.parentElement && elementSet.has(el.parentElement)) {
-                        return;
+                // Parser 1: Element Content.
+                // Identifies significant content blocks, including those initially hidden for hover events.
+                const isLikelyHoverContainer = (el) => {
+                    const lowerCaseClassName = el.className.toString().toLowerCase();
+                    const hoverKeywords = ['tooltip', 'popover', 'dropdown', 'modal', 'hidden', 'popup'];
+                    
+                    if (el.style.display === 'none' || el.style.visibility === 'hidden' || el.style.opacity === '0') {
+                        return true;
+                    }
+                    
+                    if (hoverKeywords.some(keyword => lowerCaseClassName.includes(keyword))) {
+                        return true;
                     }
 
+                    return false;
+                };
+
+                const blockSelector = 'h1, h2, h3, h4, h5, h6, p, li, div, button, td, th, blockquote, pre, dt, dd, a, span';
+                const allElements = Array.from(doc.body.querySelectorAll(blockSelector));
+                const foundElementsBySelector = new Map();
+
+                for (const el of allElements) {
+                    if (el.closest('script, style') || el.innerText.trim().length === 0) {
+                        continue;
+                    }
+
+                    if (!isLikelyHoverContainer(el)) {
+                        const containsBlockChild = el.querySelector(blockSelector);
+                        if (containsBlockChild && containsBlockChild !== el) {
+                            continue;
+                        }
+                    }
+                    
                     const selector = getUniqueSelector(el);
                     if (selector && !foundElementsBySelector.has(selector)) {
-                        // Find the approximate index of the element's outerHTML for line number calculation.
-                        // This is an approximation but is more robust than searching for innerText.
+                        const text = el.innerText.trim();
                         const approxIndex = state.currentHtmlContent.indexOf(el.outerHTML);
                         const startLine = (approxIndex !== -1) ? getLineNumber(approxIndex) : 1;
 
-                         foundElementsBySelector.set(selector, {
+                        foundElementsBySelector.set(selector, {
                             name: selector,
                             source: text.substring(0, 70),
                             declaration: text.substring(0, 70),
@@ -1229,13 +1204,28 @@
                             startLine: startLine,
                         });
                     }
-                });
-                
-                if (foundElementsBySelector.size > 0) {
-                    state.detectedScriptObjects[ELEMENT_CONTENT_KEY] = Array.from(foundElementsBySelector.values()).sort((a,b) => a.name.localeCompare(b.name));
                 }
 
-                // Parser 2: Text Content (for text not inside other targeted elements)
+                const finalSelectors = Array.from(foundElementsBySelector.keys());
+                const elementsToRemove = new Set();
+                for (const selector of finalSelectors) {
+                    const el = doc.querySelector(selector);
+                    if (!el || !el.parentElement) continue;
+                    
+                    const parentSelector = getUniqueSelector(el.parentElement);
+                    if (foundElementsBySelector.has(parentSelector)) {
+                        elementsToRemove.add(selector);
+                    }
+                }
+                elementsToRemove.forEach(selector => foundElementsBySelector.delete(selector));
+
+                if (foundElementsBySelector.size > 0) {
+                    state.detectedScriptObjects[ELEMENT_CONTENT_KEY] = Array.from(foundElementsBySelector.values()).sort((a, b) => a.startLine - b.startLine || a.name.localeCompare(b.name));
+                }
+
+
+                // Parser 2: Text Content.
+                // Finds text nodes not contained within other targeted elements.
                 const walker = document.createTreeWalker(doc.documentElement, NodeFilter.SHOW_TEXT, null, false);
                 const foundText = new Set();
                 let node;
@@ -1254,7 +1244,8 @@
                         });
                 }
 
-                // Parser 3: CSS Styles
+                // Parser 3: CSS Styles.
+                // Extracts CSS rules from style tags.
                 const styleContentRegex = /<style\b[^>]*>([\s\S]*?)<\/style>/gi;
                 const styles = Array.from(state.currentHtmlContent.matchAll(styleContentRegex));
                 const foundCssRules = new Map();
@@ -1308,7 +1299,8 @@
                     state.detectedScriptObjects[CSS_STYLES_KEY] = Array.from(foundCssRules.values()).sort((a, b) => a.name.localeCompare(b.name));
                 }
 
-                // Parser 4: JavaScript Content
+                // Parser 4: JavaScript Content.
+                // Extracts variables, constants, objects, and functions from script tags.
                 const scriptContentRegex = /<script\b[^>]*>([\s\S]*?)<\/script>/gi;
                 const scripts = Array.from(state.currentHtmlContent.matchAll(scriptContentRegex));
                 if (scripts.length === 0) return;
@@ -1539,11 +1531,7 @@
                 }
             }
             
-            /**
-             * Applies all enabled modifiers to the raw HTML content.
-             * This function handles string replacements for all modifier types except functions.
-             * @returns {string} The modified HTML string.
-             */
+            // Applies all enabled modifiers to the raw HTML content.
             function getCompiledHtml() {
                 if (!state.currentHtmlContent) return '';
                 
@@ -1551,7 +1539,6 @@
                 const doc = parser.parseFromString(state.currentHtmlContent, 'text/html');
                 let domModified = false;
 
-                // Separate modifiers into DOM-based and string-based for ordered application.
                 const domModifiers = [];
                 const stringModifiers = [];
 
@@ -1564,7 +1551,7 @@
                     }
                 });
 
-                // Apply DOM-based modifications to the parsed document.
+                // Apply DOM-based modifications.
                 domModifiers.forEach(mod => {
                     try {
                         const element = doc.querySelector(mod.targetFunction);
@@ -1580,7 +1567,7 @@
                 // Serialize the potentially modified DOM back to a string.
                 let moddedHtml = domModified ? `<!DOCTYPE html>\n` + doc.documentElement.outerHTML : state.currentHtmlContent;
 
-                // Apply string-based modifications to the (potentially already modified) HTML string.
+                // Apply string-based modifications.
                 stringModifiers.forEach(mod => {
                     try {
                         if ((mod.type === 'string' || mod.type === 'number' || mod.type === 'object') && mod.originalDeclaration) {
@@ -1599,10 +1586,7 @@
                 return moddedHtml;
             }
 
-            /**
-             * Applies all active modifiers and reloads the iframe with the modified content.
-             * Function modifiers are injected as scripts, others are replaced directly in the HTML.
-             */
+            // Applies all active modifiers and reloads the iframe with the modified content.
             function applyModsAndReloadIframe() {
                 if (!state.currentHtmlContent) return;
                 
@@ -1635,12 +1619,7 @@
 
             // --- Utility & UI Functions ---
 
-            /**
-             * Copies a string to the user's clipboard.
-             * @param {string} text - The text to copy.
-             * @param {Function} successCallback - Executed on successful copy.
-             * @param {Function} errorCallback - Executed on failure.
-             */
+            // Copies a string to the user's clipboard.
             function copyToClipboard(text, successCallback, errorCallback) {
                 try {
                     const textArea = document.createElement("textarea");
@@ -1664,21 +1643,13 @@
                 }
             }
             
-            /**
-             * Displays an error message inside the main iframe.
-             * @param {string} title - The error title.
-             * @param {string} message - The error message.
-             */
+            // Displays an error message inside the main iframe.
             function showError(title, message) {
                 DOMElements.iframe.srcdoc = `<div style="display:flex; flex-direction:column; align-items:center; justify-content:center; height:100%; font-family:var(--font-sans); color:var(--text-error); padding: 2em; text-align:center;"><h1>${title}</h1><p>${message}</p></div>`;
                 DOMElements.loadingIndicator.style.display = 'none';
             }
 
-            /**
-             * Parses a GitHub URL into its constituent parts.
-             * @param {string} url - The full GitHub URL.
-             * @returns {object|null} An object with owner, repo, branch, and path, or null if invalid.
-             */
+            // Parses a GitHub URL into its constituent parts.
             function parseGitHubUrl(url) {
                 if (!url || typeof url !== 'string') return null;
                 try {
@@ -1704,12 +1675,7 @@
                 }
             }
 
-            /**
-             * Extracts a specific CSS property value from an HTML string's body tag.
-             * @param {string} html - The full HTML content.
-             * @param {string} property - The CSS property to extract (e.g., 'background-color').
-             * @returns {string|null} The property value or null if not found.
-             */
+            // Extracts a CSS property value from an HTML string's body tag.
             function extractBodyStyle(html, property) {
                 const bodyStyleMatch = html.match(/<body[^>]*style\s*=\s*["']([^"']*)["']/i);
                 if (bodyStyleMatch && bodyStyleMatch[1]) {
@@ -1720,11 +1686,7 @@
                 return null;
             }
 
-            /**
-             * Determines if a given color is light or dark based on luminance.
-             * @param {string} color - A CSS color string.
-             * @returns {boolean} True if the color is light, false if dark.
-             */
+            // Determines if a color is light or dark based on luminance.
             function isColorLight(color) {
                 try {
                     const tempDiv = document.createElement('div');
@@ -1738,11 +1700,7 @@
                 } catch (e) { return true; }
             }
 
-            /**
-             * Adapts the navigation controls' theme based on the loaded page's background color.
-             * @param {string|null} bgColor - The background color of the loaded page.
-             * @param {string|null} font - The font-family of the loaded page.
-             */
+            // Adapts the navigation controls' theme based on the loaded page's background color.
             function updateNavStyles(bgColor, font) {
                 const { navControls, pageCounter } = DOMElements;
                 const allIcons = navControls.querySelectorAll('svg');
@@ -1772,9 +1730,7 @@
                 pageCounter.style.fontFamily = font ? font : 'var(--font-mono)';
             }
             
-            /**
-             * Generates and populates the breadcrumb navigation bar.
-             */
+            // Generates and populates the breadcrumb navigation bar.
             function createBreadcrumbs() {
                 const { breadcrumbNav } = DOMElements;
                 breadcrumbNav.innerHTML = '';
@@ -1812,10 +1768,7 @@
                 breadcrumbNav.appendChild(fragment);
             }
 
-            /**
-             * Sets the view mode for the file browser (list or grid).
-             * @param {string} mode - The desired mode: 'list' or 'grid'.
-             */
+            // Sets the view mode for the file browser (list or grid).
             function setViewMode(mode) {
                 state.viewMode = mode;
                 const { fileList, viewListBtn, viewGridBtn } = DOMElements;
@@ -1829,10 +1782,7 @@
                 }
             }
 
-            /**
-             * Populates the file browser modal with directory contents.
-             * @param {Array} contents - The array of file/directory objects from the GitHub API.
-             */
+            // Populates the file browser modal with directory contents.
             function populateFileBrowser(contents) {
                 const { fileList, fileCount } = DOMElements;
                 const fragment = document.createDocumentFragment();
@@ -1888,10 +1838,7 @@
 
             // --- Core Application Logic ---
 
-            /**
-             * Fetches and displays an HTML file from the repository.
-             * @param {string} filePath - The full path to the file within the repository.
-             */
+            // Fetches and displays an HTML file from the repository.
             async function loadPageByPath(filePath) {
                 state.modifiers = {};
 
@@ -1940,10 +1887,7 @@
                 }
             }
             
-            /**
-             * Fetches the contents of a directory from the GitHub API.
-             * @param {string} path - The path to the directory to fetch.
-             */
+            // Fetches the contents of a directory from the GitHub API.
             async function fetchDirectory(path) {
                 if (state.directoryCache[path]) {
                     state.currentPath = path;
@@ -1979,9 +1923,7 @@
 
             // --- Event Listener Binding ---
 
-            /**
-             * Binds all necessary event listeners for the application UI.
-             */
+            // Binds all necessary event listeners for the application UI.
             function bindEventListeners() {
                 const { 
                     nextBtn, prevBtn, openModalBtn, closeModalBtn, copyLinkBtn, modalContainer, fileList, 
@@ -2221,13 +2163,13 @@
                     if (state.aceEditor) {
                          if (selectedType === CSS_STYLES_KEY) {
                             state.aceEditor.session.setMode("ace/mode/css");
-                         } else if (selectedType === TEXT_CONTENT_KEY) {
+                        } else if (selectedType === TEXT_CONTENT_KEY) {
                             state.aceEditor.session.setMode("ace/mode/text");
-                         } else if (selectedType === ELEMENT_CONTENT_KEY) {
+                        } else if (selectedType === ELEMENT_CONTENT_KEY) {
                             state.aceEditor.session.setMode("ace/mode/html");
-                         } else {
+                        } else {
                             state.aceEditor.session.setMode("ace/mode/javascript");
-                         }
+                        }
                     }
 
                     if (selectedType && state.detectedScriptObjects[selectedType]) {
@@ -2359,9 +2301,7 @@
 
             // --- Initialization ---
 
-            /**
-             * Updates the URL hash with the current repository and path.
-             */
+            // Updates the URL hash with the current repository and path.
             function updateURLHash() {
                 if (!state.repoConfig) return;
                 const { owner, repo, branch } = state.repoConfig;
@@ -2375,10 +2315,7 @@
                 }
             }
 
-            /**
-             * Initializes the viewer with a given GitHub URL.
-             * @param {string} url - The GitHub URL to load.
-             */
+            // Initializes the viewer with a given GitHub URL.
             async function startViewerWithUrl(url) {
                 state.repoConfig = parseGitHubUrl(url);
                 if (!state.repoConfig) {
@@ -2406,9 +2343,7 @@
                 }
             }
             
-            /**
-             * The main entry point for the application.
-             */
+            // The main entry point for the application.
             function initializeViewer() {
                 state.alignmentStyleTag = document.createElement('style');
                 document.head.appendChild(state.alignmentStyleTag);
