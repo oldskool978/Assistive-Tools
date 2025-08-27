@@ -537,7 +537,7 @@
                 <div class="flex items-center gap-3 border-b border-gray-200 pb-4 mb-4">
                      <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8 text-gray-700" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
                             <path d="M9 19c-4.3 1.4 -4.3-2.5 -6-3m12 5v-3.5c0-1 .1-1.4-.5-2c2.8-.3 5.5-1.4 5.5-6a4.6 4.6 0 0 0 -1.3-3.2a4.2 4.2 0 0 0 -.1-3.2s-1.1-.3-3.5 1.3a12.3 12.3 0 0 0 -6.2 0c-2.4-1.6-3.5-1.3-3.5-1.3a4.2 4.2 0 0 0 -.1 3.2a4.6 4.6 0 0 0 -1.3 3.2c0 4.6 2.7 5.7 5.5 6c-.6.6-.6 1.2-.5 2V21"/>
-                     </svg>
+                        </svg>
                     <h1 class="text-xl font-semibold text-gray-800">Load a GitHub Repository</h1>
                 </div>
                 <p class="text-gray-600 text-sm mb-4">Paste a public repository URL to begin exploring its HTML files.</p>
@@ -742,8 +742,15 @@
 
     <script>
         document.addEventListener('DOMContentLoaded', () => {
-            // --- State & Configuration ---
+            // --- Application Constants ---
+            // The default repository to load if no other is specified in the URL hash.
             const GITHUB_URL = 'https://github.com/oldskool978/Assistive-Tools/tree/main/BoardPages';
+            
+            // --- MODIFICATION: Added a new key for generic elements with IDs.
+            // Defines unique keys for each type of content the tool can parse and modify.
+            const ELEMENTS_BY_ID_KEY = '(Elements by ID)';
+            const LIST_ITEMS_KEY = '(List Items)';
+            const CSS_STYLES_KEY = '(CSS Styles)';
             const TEXT_CONTENT_KEY = '(Text Content)';
             const STRING_LITERAL_KEY = '(String Constants)';
             const NUMERICAL_CONSTANTS_KEY = '(Numerical Constants)';
@@ -751,6 +758,7 @@
             const FUNCTIONS_KEY = '(Functions)';
 
             // --- Icon Definitions ---
+            // A centralized object for SVG icons used throughout the UI.
             const ICONS = {
                 home: `<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" /></svg>`,
                 parent: `<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-3 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" style="stroke-width: 1.5;"><path stroke-linecap="round" stroke-linejoin="round" d="M9 11l-4 4m0 0l4 4m-4-4h12a4 4 0 004-4v-4" /></svg>`,
@@ -759,6 +767,7 @@
             };
 
             // --- DOM Element Cache ---
+            // Caches frequently accessed DOM elements to avoid repeated queries.
             const DOMElements = {
                 iframe: document.getElementById('content-frame'),
                 loadingIndicator: document.getElementById('loading-indicator'),
@@ -811,6 +820,7 @@
             };
 
             // --- Application State ---
+            // A single object to hold the dynamic state of the application.
             const state = {
                 repoConfig: null,
                 currentDirectoryFiles: [],
@@ -825,12 +835,17 @@
                 editingModifierKey: null,
                 detectedScriptObjects: {},
                 aceEditor: null,
-                alignmentStyleTag: null, // To hold our dynamic stylesheet
+                alignmentStyleTag: null,
             };
             
             // --- UI Modals & Interactions ---
             let confirmCallback = null;
 
+            /**
+             * Displays a confirmation modal with a specified message.
+             * @param {string} message - The text to display in the modal.
+             * @param {Function} onConfirm - The callback function to execute upon confirmation.
+             */
             function showConfirmationModal(message, onConfirm) {
                 const { confirmationModalContainer, confirmationModalMessage } = DOMElements;
                 confirmationModalMessage.textContent = message;
@@ -838,11 +853,19 @@
                 confirmCallback = onConfirm;
             }
 
+            /**
+             * Hides the confirmation modal.
+             */
             function hideConfirmationModal() {
                 DOMElements.confirmationModalContainer.style.display = 'none';
                 confirmCallback = null;
             }
             
+            /**
+             * Escapes HTML special characters in a string to prevent rendering as HTML.
+             * @param {string} unsafe - The raw string.
+             * @returns {string} The escaped string.
+             */
             function escapeHtml(unsafe) {
                 if (typeof unsafe !== 'string') return '';
                 return unsafe
@@ -854,6 +877,11 @@
             }
 
             // --- Modifier Logic ---
+
+            /**
+             * Creates a new, default modifier object.
+             * @returns {object} A template for a new modifier.
+             */
             function getNewModifierTemplate() {
                 return {
                     name: 'Untitled Modifier',
@@ -867,6 +895,12 @@
                 };
             }
 
+            /**
+             * Generates an executable script tag from a 'function' type modifier.
+             * This script is designed to override a function in the loaded page's context.
+             * @param {object} modifier - The modifier object.
+             * @returns {string} The generated <script> tag as a string.
+             */
             function generateScriptFromModifier(modifier) {
                 if (modifier.type !== 'function' || !modifier.targetObject || !modifier.targetFunction || !modifier.functionBody) {
                     return '';
@@ -914,6 +948,9 @@
                 return script;
             }
 
+            /**
+             * Renders the list of all created modifiers in the main panel.
+             */
             function renderModifierList() {
                 const { modifierPanelContent, modifierEditorView } = DOMElements;
                 modifierPanelContent.innerHTML = '';
@@ -936,16 +973,19 @@
                         if (modifier.type === 'string') typeLabel = 'String';
                         if (modifier.type === 'number') typeLabel = 'Number';
                         if (modifier.type === 'object') typeLabel = 'Object';
+                        if (modifier.type === 'css') typeLabel = 'CSS Style';
+                        if (modifier.type === 'list-item') typeLabel = 'List Item';
+                        if (modifier.type === 'element-by-id') typeLabel = 'Element Content';
 
                         const targetDisplay = modifier.targetIdentifier || modifier.targetFunction;
                         
                         let beforeCode = 'Original code not found.';
                         const originalObject = state.detectedScriptObjects[modifier.targetObject];
                         if (originalObject) {
-                            const findKey = (modifier.targetObject === STRUCTURED_OBJECT_KEY) ? 'name' : 'source';
+                            const findKey = (modifier.type === 'css' || modifier.type === 'list-item' || modifier.type === 'element-by-id' || modifier.targetObject === STRUCTURED_OBJECT_KEY) ? 'name' : 'source';
                             const originalItem = originalObject.find(i => i[findKey] === modifier.targetFunction);
                             if (originalItem) {
-                                beforeCode = originalItem.source;
+                                beforeCode = originalItem.fullSource || originalItem.source;
                             } else if (modifier.type === 'text') {
                                 beforeCode = modifier.targetFunction;
                             }
@@ -993,18 +1033,25 @@
                 modifierPanelContent.appendChild(fragment);
             }
             
+            /**
+             * Updates the custom line number display to match the Ace editor's content.
+             * @param {number} [startLine=1] - The starting line number.
+             */
             function updateLineNumbers(startLine = 1) {
                 if (!state.aceEditor) return;
                 const { lineNumbers } = DOMElements;
                 const lineCount = state.aceEditor.session.getLength();
                 lineNumbers.innerHTML = Array.from({ length: lineCount }, (_, i) => `<span>${startLine + i}</span>`).join('');
                 
-                // Dynamically adjust padding based on line number width
                 const lineWidth = DOMElements.lineNumbers.offsetWidth;
-                const newPadding = lineWidth + 8; // 8px margin
+                const newPadding = lineWidth + 8;
                 state.alignmentStyleTag.textContent = `.ace_content { padding-left: ${newPadding}px !important; }`;
             }
 
+            /**
+             * Shows the modifier editor view, pre-filled with a modifier's data.
+             * @param {string} key - The unique key of the modifier to edit.
+             */
             function showModifierEditor(key) {
                 const modifier = state.modifiers[key];
                 if (!modifier) return;
@@ -1019,7 +1066,6 @@
                 modifierEditorView.style.display = 'flex';
                 modifierNameInput.value = modifier.name || '';
 
-                // Initialize Ace Editor if it doesn't exist
                 if (!state.aceEditor) {
                     state.aceEditor = ace.edit(DOMElements.aceEditorDiv);
                     state.aceEditor.setTheme("ace/theme/chrome");
@@ -1027,22 +1073,19 @@
                     state.aceEditor.setOptions({
                         fontFamily: "var(--font-mono)",
                         fontSize: "0.8rem",
-                        useWorker: false, // Disable worker to avoid console errors in this environment
+                        useWorker: false,
                         showPrintMargin: false,
                     });
 
-                    // Sync scrolling with our custom line numbers
                     state.aceEditor.session.on('changeScrollTop', (scrollTop) => {
                         DOMElements.lineNumbers.scrollTop = scrollTop;
                     });
-                     // Sync content changes with our custom line numbers
                     state.aceEditor.session.on('change', () => {
                         const startLine = parseInt(DOMElements.lineNumbers.querySelector('span')?.textContent || '1', 10);
                         updateLineNumbers(startLine);
                     });
                 }
                 
-                // Set final alignment values
                 const verticalOffset = 0;
                 const leading = 1.169;
 
@@ -1050,12 +1093,22 @@
                 DOMElements.lineNumbers.style.lineHeight = leading;
                 state.aceEditor.setOption('lineHeight', leading);
 
+                const objectName = modifier.targetObject;
+                const itemValue = modifier.targetFunction;
+                let editorContent = modifier.functionBody || '';
+                 if (objectName && itemValue && state.detectedScriptObjects[objectName]) {
+                    const findKey = (objectName === CSS_STYLES_KEY || objectName === LIST_ITEMS_KEY || objectName === ELEMENTS_BY_ID_KEY || objectName === STRUCTURED_OBJECT_KEY) ? 'name' : 'source';
+                    const itemData = state.detectedScriptObjects[objectName].find(f => f[findKey] === itemValue);
+                    if(itemData && itemData.fullSource) {
+                        editorContent = itemData.fullSource;
+                    }
+                 }
 
-                state.aceEditor.setValue(modifier.functionBody || '', -1); // -1 moves cursor to start
+                state.aceEditor.setValue(editorContent, -1);
                 
                 targetObjectSelect.innerHTML = '<option value="">Select a type...</option>';
                 
-                const typeOrder = [TEXT_CONTENT_KEY, STRING_LITERAL_KEY, NUMERICAL_CONSTANTS_KEY, STRUCTURED_OBJECT_KEY, FUNCTIONS_KEY];
+                const typeOrder = [ELEMENTS_BY_ID_KEY, LIST_ITEMS_KEY, CSS_STYLES_KEY, TEXT_CONTENT_KEY, STRING_LITERAL_KEY, NUMERICAL_CONSTANTS_KEY, STRUCTURED_OBJECT_KEY, FUNCTIONS_KEY];
                 const sortedObjectKeys = Object.keys(state.detectedScriptObjects)
                     .filter(k => !typeOrder.includes(k))
                     .sort();
@@ -1075,11 +1128,39 @@
                 setTimeout(() => {
                     targetFunctionSelect.value = modifier.targetFunction;
                     targetFunctionSelect.dispatchEvent(new Event('change'));
-                    state.aceEditor.resize(); // Ensure editor is sized correctly
+                    state.aceEditor.resize();
                 }, 0);
             }
 
-            // --- Content Analysis ---
+            /**
+             * Summarizes large arrays within a string of code for cleaner display.
+             * @param {string} sourceString - The source code of the object.
+             * @returns {string} The source code with large arrays collapsed.
+             */
+            function summarizeObjectSource(sourceString) {
+                const arrayRegex = /:(\s*)(new\s+\w+Array\s*\()?\s*(\[[\s\S]*?\])/g;
+                
+                return sourceString.replace(arrayRegex, (match, prefix, constructor, arrayContent) => {
+                    const ARRAY_LENGTH_THRESHOLD = 150;
+                    const MIN_ELEMENTS_THRESHOLD = 10;
+                    
+                    const elements = arrayContent.slice(1, -1).split(',');
+                    
+                    if (arrayContent.length > ARRAY_LENGTH_THRESHOLD || elements.length > MIN_ELEMENTS_THRESHOLD) {
+                        const summary = `[... ${elements.length} elements ...]`;
+                        if (constructor) {
+                            return `:${prefix}${constructor}${summary})`;
+                        }
+                        return `:${prefix}${summary}`;
+                    }
+                    return match;
+                });
+            }
+
+            /**
+             * Analyzes the current HTML content to find all modifiable targets.
+             * Populates the `state.detectedScriptObjects` object.
+             */
             function analyzeContent() {
                 state.detectedScriptObjects = {};
                 if (!state.currentHtmlContent) return;
@@ -1088,9 +1169,51 @@
                     return state.currentHtmlContent.substring(0, charIndex).split('\n').length;
                 };
 
-                // Analyze text nodes.
                 const parser = new DOMParser();
                 const doc = parser.parseFromString(state.currentHtmlContent, 'text/html');
+                
+                // Parser 1: Elements by ID
+                const elementsWithIds = doc.querySelectorAll('[id]');
+                const foundElementsById = new Map();
+                if (elementsWithIds.length > 0) {
+                    elementsWithIds.forEach(el => {
+                        const id = el.id;
+                        if (id && !foundElementsById.has(id)) {
+                             foundElementsById.set(id, {
+                                name: id,
+                                source: `#${id} - ${el.innerText.trim().substring(0, 50)}...`,
+                                declaration: `#${id}`,
+                                fullSource: el.innerHTML,
+                            });
+                        }
+                    });
+                    if (foundElementsById.size > 0) {
+                        state.detectedScriptObjects[ELEMENTS_BY_ID_KEY] = Array.from(foundElementsById.values()).sort((a,b) => a.name.localeCompare(b.name));
+                    }
+                }
+
+                // Parser 2: List Items (<li>)
+                const listItems = doc.querySelectorAll('li');
+                const foundListItems = new Map();
+                if (listItems.length > 0) {
+                    listItems.forEach(li => {
+                        const text = li.innerText.trim().replace(/\s+/g, ' ');
+                        const html = li.innerHTML;
+                        if (text && !foundListItems.has(text)) {
+                             foundListItems.set(text, {
+                                name: text,
+                                source: text,
+                                declaration: text,
+                                fullSource: html,
+                            });
+                        }
+                    });
+                    if (foundListItems.size > 0) {
+                        state.detectedScriptObjects[LIST_ITEMS_KEY] = Array.from(foundListItems.values()).sort((a,b) => a.name.localeCompare(b.name));
+                    }
+                }
+
+                // Parser 3: Text Content
                 const walker = document.createTreeWalker(doc.documentElement, NodeFilter.SHOW_TEXT, null, false);
                 const foundText = new Set();
                 let node;
@@ -1109,12 +1232,68 @@
                         });
                 }
 
-                // Analyze script content.
+                // Parser 4: CSS Styles
+                const styleContentRegex = /<style\b[^>]*>([\s\S]*?)<\/style>/gi;
+                const styles = Array.from(state.currentHtmlContent.matchAll(styleContentRegex));
+                const foundCssRules = new Map();
+
+                for (const styleMatch of styles) {
+                    const styleContent = styleMatch[1];
+                    const styleStartIndex = styleMatch.index + styleMatch[0].indexOf('>') + 1;
+                    
+                    const ruleStartRegex = /([^{}]+?)\s*\{/g;
+                    let ruleMatch;
+
+                    while ((ruleMatch = ruleStartRegex.exec(styleContent)) !== null) {
+                        const selector = ruleMatch[1].trim();
+                        
+                        if (!selector || selector.startsWith('@') || selector.startsWith('/*')) continue;
+
+                        const startIndexInStyle = ruleMatch.index;
+                        const bodyStartIndex = startIndexInStyle + ruleMatch[0].length;
+                        let braceDepth = 1;
+                        let bodyEndIndex = -1;
+
+                        for (let i = bodyStartIndex; i < styleContent.length; i++) {
+                            if (styleContent[i] === '{') braceDepth++;
+                            else if (styleContent[i] === '}') braceDepth--;
+                            if (braceDepth === 0) {
+                                bodyEndIndex = i;
+                                break;
+                            }
+                        }
+
+                        if (bodyEndIndex !== -1) {
+                            const fullRule = styleContent.substring(startIndexInStyle, bodyEndIndex + 1).trim();
+                            const properties = `{${styleContent.substring(bodyStartIndex, bodyEndIndex).trim()}}`;
+                            const absoluteIndex = styleStartIndex + startIndexInStyle;
+
+                            if (!foundCssRules.has(selector)) {
+                                 foundCssRules.set(selector, {
+                                    name: selector,
+                                    source: properties,
+                                    declaration: selector,
+                                    fullSource: fullRule,
+                                    startLine: getLineNumber(absoluteIndex)
+                                });
+                            }
+                            ruleStartRegex.lastIndex = bodyEndIndex + 1;
+                        }
+                    }
+                }
+
+                if (foundCssRules.size > 0) {
+                    state.detectedScriptObjects[CSS_STYLES_KEY] = Array.from(foundCssRules.values()).sort((a, b) => a.name.localeCompare(b.name));
+                }
+
+                // Parser 5: JavaScript Content
                 const scriptContentRegex = /<script\b[^>]*>([\s\S]*?)<\/script>/gi;
                 const scripts = Array.from(state.currentHtmlContent.matchAll(scriptContentRegex));
                 if (scripts.length === 0) return;
 
                 const varDeclarationRegex = /(?:const|let|var)\s+([a-zA-Z0-9_$]+)\s*=/g;
+                const assignmentRegex = /([a-zA-Z0-9_$][\w.$]*)\s*=\s*(?![=>])/g;
+
                 const foundStrings = new Map();
                 const foundNumbers = new Map();
                 const foundObjects = new Map();
@@ -1122,12 +1301,15 @@
                 for (const scriptMatch of scripts) {
                     let scriptContent = scriptMatch[1];
                     const scriptStartIndex = scriptMatch.index + scriptMatch[0].indexOf('>') + 1;
-                    
-                    let varMatch;
-                    while((varMatch = varDeclarationRegex.exec(scriptContent)) !== null) {
-                        const varName = varMatch[1];
-                        const declarationStartIndex = varMatch.index;
-                        let assignmentIndex = declarationStartIndex + varMatch[0].length;
+                    const processedIndices = new Set();
+
+                    let match;
+                    while((match = varDeclarationRegex.exec(scriptContent)) !== null) {
+                        processedIndices.add(match.index);
+                        
+                        const varName = match[1];
+                        const declarationStartIndex = match.index;
+                        let assignmentIndex = declarationStartIndex + match[0].length;
                         
                         while(assignmentIndex < scriptContent.length && /\s/.test(scriptContent[assignmentIndex])) {
                             assignmentIndex++;
@@ -1137,24 +1319,33 @@
                         let valueEndIndex = -1;
                         let value = null;
                         let type = null;
+                        let fullSourceForObject = null;
 
-                        if (firstChar === '{' || firstChar === '[' || (scriptContent.substring(assignmentIndex, assignmentIndex + 4) === 'new ')) {
+                        if (firstChar === '{' || firstChar === '[' || scriptContent.substring(assignmentIndex, assignmentIndex + 3) === 'new') {
                             let openChar, closeChar;
-                             if (scriptContent.substring(assignmentIndex, assignmentIndex + 4) === 'new ') {
-                                const typedArrayMatch = scriptContent.substring(assignmentIndex).match(/^new\s+\w+Array\s*\((\[[\s\S]*?\])\)/);
-                                if(typedArrayMatch) {
-                                    openChar = '[';
-                                    closeChar = ']';
-                                    assignmentIndex += scriptContent.substring(assignmentIndex).indexOf('[');
+                            let startIndex = assignmentIndex;
+                            if (scriptContent.substring(assignmentIndex, assignmentIndex + 3) === 'new') {
+                                const constructorMatch = scriptContent.substring(assignmentIndex).match(/^new\s+[\w.]+\s*\(([\s\S]*)\)/);
+                                if (constructorMatch) {
+                                    const constructorBody = constructorMatch[1];
+                                    const firstBodyChar = constructorBody.trim()[0];
+                                    if (firstBodyChar === '{' || firstBodyChar === '[') {
+                                        openChar = firstBodyChar;
+                                        closeChar = firstBodyChar === '{' ? '}' : ']';
+                                        startIndex = assignmentIndex + constructorMatch[0].indexOf(openChar);
+                                    } else {
+                                        openChar = '(';
+                                        closeChar = ')';
+                                        startIndex = assignmentIndex + scriptContent.substring(assignmentIndex).indexOf(openChar);
+                                    }
                                 }
                             } else {
                                 openChar = firstChar;
                                 closeChar = firstChar === '{' ? '}' : ']';
                             }
-
-                            if(openChar) {
+                            if (openChar) {
                                 let balance = 1;
-                                for (let i = assignmentIndex + 1; i < scriptContent.length; i++) {
+                                for (let i = startIndex + 1; i < scriptContent.length; i++) {
                                     if (scriptContent[i] === openChar) balance++;
                                     if (scriptContent[i] === closeChar) balance--;
                                     if (balance === 0) {
@@ -1163,7 +1354,8 @@
                                     }
                                 }
                                 if (valueEndIndex !== -1) {
-                                    value = scriptContent.substring(declarationStartIndex + varMatch[0].length -1, valueEndIndex);
+                                    value = scriptContent.substring(assignmentIndex, valueEndIndex);
+                                    fullSourceForObject = value.trim();
                                     type = STRUCTURED_OBJECT_KEY;
                                 }
                             }
@@ -1191,10 +1383,72 @@
                             const fullDeclaration = scriptContent.substring(declarationStartIndex, valueEndIndex);
                             const absoluteIndex = scriptStartIndex + declarationStartIndex;
                             const item = { name: varName, source: value.trim(), declaration: fullDeclaration, startLine: getLineNumber(absoluteIndex) };
-                            
-                            if (type === STRUCTURED_OBJECT_KEY) foundObjects.set(varName, item);
-                            else if (type === STRING_LITERAL_KEY) foundStrings.set(value, item);
+                            if (type === STRUCTURED_OBJECT_KEY) {
+                                item.fullSource = fullSourceForObject;
+                                item.source = summarizeObjectSource(fullSourceForObject);
+                                foundObjects.set(varName, item);
+                            } else if (type === STRING_LITERAL_KEY) foundStrings.set(value, item);
                             else if (type === NUMERICAL_CONSTANTS_KEY) foundNumbers.set(value, item);
+                        }
+                    }
+                    
+                    while((match = assignmentRegex.exec(scriptContent)) !== null) {
+                        if (processedIndices.has(match.index)) continue;
+                        processedIndices.add(match.index);
+
+                        const varName = match[1];
+                        const declarationStartIndex = match.index;
+                        let assignmentIndex = declarationStartIndex + match[0].length;
+                        
+                        while(assignmentIndex < scriptContent.length && /\s/.test(scriptContent[assignmentIndex])) {
+                            assignmentIndex++;
+                        }
+                        
+                        const firstChar = scriptContent[assignmentIndex];
+                        
+                        if (firstChar === '{' || firstChar === '[' || scriptContent.substring(assignmentIndex, assignmentIndex + 3) === 'new') {
+                            let valueEndIndex = -1;
+                            let value = null;
+                            let openChar, closeChar;
+                            let startIndex = assignmentIndex;
+                            if (scriptContent.substring(assignmentIndex, assignmentIndex + 3) === 'new') {
+                                const constructorMatch = scriptContent.substring(assignmentIndex).match(/^new\s+[\w.]+\s*\(([\s\S]*)\)/);
+                                if (constructorMatch) {
+                                    const constructorBody = constructorMatch[1];
+                                    const firstBodyChar = constructorBody.trim()[0];
+                                    if (firstBodyChar === '{' || firstBodyChar === '[') {
+                                        openChar = firstBodyChar;
+                                        closeChar = firstBodyChar === '{' ? '}' : ']';
+                                        startIndex = assignmentIndex + constructorMatch[0].indexOf(openChar);
+                                    } else {
+                                        openChar = '(';
+                                        closeChar = ')';
+                                        startIndex = assignmentIndex + scriptContent.substring(assignmentIndex).indexOf(openChar);
+                                    }
+                                }
+                            } else {
+                                openChar = firstChar;
+                                closeChar = firstChar === '{' ? '}' : ']';
+                            }
+                            if (openChar) {
+                                let balance = 1;
+                                for (let i = startIndex + 1; i < scriptContent.length; i++) {
+                                    if (scriptContent[i] === openChar) balance++;
+                                    if (scriptContent[i] === closeChar) balance--;
+                                    if (balance === 0) {
+                                        valueEndIndex = i + 1;
+                                        break;
+                                    }
+                                }
+                                if (valueEndIndex !== -1) {
+                                    value = scriptContent.substring(assignmentIndex, valueEndIndex);
+                                    const fullDeclaration = scriptContent.substring(declarationStartIndex, valueEndIndex);
+                                    const absoluteIndex = scriptStartIndex + declarationStartIndex;
+                                    const fullSource = value.trim();
+                                    const item = { name: varName, source: summarizeObjectSource(fullSource), declaration: fullDeclaration, fullSource: fullSource, startLine: getLineNumber(absoluteIndex) };
+                                    foundObjects.set(varName, item);
+                                }
+                            }
                         }
                     }
                 }
@@ -1263,6 +1517,11 @@
                 }
             }
             
+            /**
+             * Applies all enabled modifiers to the raw HTML content.
+             * This function handles string replacements for all modifier types except functions.
+             * @returns {string} The modified HTML string.
+             */
             function getCompiledHtml() {
                 if (!state.currentHtmlContent) return '';
                 let moddedHtml = state.currentHtmlContent;
@@ -1276,6 +1535,17 @@
                              moddedHtml = moddedHtml.replace(mod.originalDeclaration, newDeclaration);
                         } else if (mod.type === 'text' && mod.targetFunction) {
                             moddedHtml = moddedHtml.replaceAll(mod.targetFunction, mod.functionBody);
+                        } else if (mod.type === 'css' && mod.originalDeclaration) {
+                            moddedHtml = moddedHtml.replace(mod.originalDeclaration, mod.functionBody);
+                        } else if (mod.type === 'list-item' && mod.originalDeclaration) {
+                            moddedHtml = moddedHtml.replace(mod.originalDeclaration, mod.functionBody);
+                        // --- MODIFICATION: Added replacement logic for elements by ID.
+                        } else if (mod.type === 'element-by-id' && mod.targetFunction) {
+                            const id = mod.targetFunction;
+                            // This regex finds the opening tag with the correct ID, captures it,
+                            // captures the content, and captures the closing tag.
+                            const elementRegex = new RegExp(`(<([a-zA-Z0-9-]+)[^>]*id\\s*=\\s*["']${id}["'][^>]*>)([\\s\\S]*?)(<\\/\\2>)`, 'i');
+                            moddedHtml = moddedHtml.replace(elementRegex, `$1${mod.functionBody}$4`);
                         }
                     } catch (e) {
                         console.error(`Failed to apply modifier "${mod.name}" for compilation:`, e);
@@ -1284,6 +1554,10 @@
                 return moddedHtml;
             }
 
+            /**
+             * Applies all active modifiers and reloads the iframe with the modified content.
+             * Function modifiers are injected as scripts, others are replaced directly in the HTML.
+             */
             function applyModsAndReloadIframe() {
                 if (!state.currentHtmlContent) return;
                 
@@ -1315,6 +1589,13 @@
             }
 
             // --- Utility & UI Functions ---
+
+            /**
+             * Copies a string to the user's clipboard.
+             * @param {string} text - The text to copy.
+             * @param {Function} successCallback - Executed on successful copy.
+             * @param {Function} errorCallback - Executed on failure.
+             */
             function copyToClipboard(text, successCallback, errorCallback) {
                 try {
                     const textArea = document.createElement("textarea");
@@ -1338,11 +1619,21 @@
                 }
             }
             
+            /**
+             * Displays an error message inside the main iframe.
+             * @param {string} title - The error title.
+             * @param {string} message - The error message.
+             */
             function showError(title, message) {
                 DOMElements.iframe.srcdoc = `<div style="display:flex; flex-direction:column; align-items:center; justify-content:center; height:100%; font-family:var(--font-sans); color:var(--text-error); padding: 2em; text-align:center;"><h1>${title}</h1><p>${message}</p></div>`;
                 DOMElements.loadingIndicator.style.display = 'none';
             }
 
+            /**
+             * Parses a GitHub URL into its constituent parts.
+             * @param {string} url - The full GitHub URL.
+             * @returns {object|null} An object with owner, repo, branch, and path, or null if invalid.
+             */
             function parseGitHubUrl(url) {
                 if (!url || typeof url !== 'string') return null;
                 try {
@@ -1368,6 +1659,12 @@
                 }
             }
 
+            /**
+             * Extracts a specific CSS property value from an HTML string's body tag.
+             * @param {string} html - The full HTML content.
+             * @param {string} property - The CSS property to extract (e.g., 'background-color').
+             * @returns {string|null} The property value or null if not found.
+             */
             function extractBodyStyle(html, property) {
                 const bodyStyleMatch = html.match(/<body[^>]*style\s*=\s*["']([^"']*)["']/i);
                 if (bodyStyleMatch && bodyStyleMatch[1]) {
@@ -1378,6 +1675,11 @@
                 return null;
             }
 
+            /**
+             * Determines if a given color is light or dark based on luminance.
+             * @param {string} color - A CSS color string.
+             * @returns {boolean} True if the color is light, false if dark.
+             */
             function isColorLight(color) {
                 try {
                     const tempDiv = document.createElement('div');
@@ -1391,6 +1693,11 @@
                 } catch (e) { return true; }
             }
 
+            /**
+             * Adapts the navigation controls' theme based on the loaded page's background color.
+             * @param {string|null} bgColor - The background color of the loaded page.
+             * @param {string|null} font - The font-family of the loaded page.
+             */
             function updateNavStyles(bgColor, font) {
                 const { navControls, pageCounter } = DOMElements;
                 const allIcons = navControls.querySelectorAll('svg');
@@ -1420,6 +1727,9 @@
                 pageCounter.style.fontFamily = font ? font : 'var(--font-mono)';
             }
             
+            /**
+             * Generates and populates the breadcrumb navigation bar.
+             */
             function createBreadcrumbs() {
                 const { breadcrumbNav } = DOMElements;
                 breadcrumbNav.innerHTML = '';
@@ -1457,6 +1767,10 @@
                 breadcrumbNav.appendChild(fragment);
             }
 
+            /**
+             * Sets the view mode for the file browser (list or grid).
+             * @param {string} mode - The desired mode: 'list' or 'grid'.
+             */
             function setViewMode(mode) {
                 state.viewMode = mode;
                 const { fileList, viewListBtn, viewGridBtn } = DOMElements;
@@ -1470,6 +1784,10 @@
                 }
             }
 
+            /**
+             * Populates the file browser modal with directory contents.
+             * @param {Array} contents - The array of file/directory objects from the GitHub API.
+             */
             function populateFileBrowser(contents) {
                 const { fileList, fileCount } = DOMElements;
                 const fragment = document.createDocumentFragment();
@@ -1524,6 +1842,11 @@
             }
 
             // --- Core Application Logic ---
+
+            /**
+             * Fetches and displays an HTML file from the repository.
+             * @param {string} filePath - The full path to the file within the repository.
+             */
             async function loadPageByPath(filePath) {
                 state.modifiers = {};
 
@@ -1572,6 +1895,10 @@
                 }
             }
             
+            /**
+             * Fetches the contents of a directory from the GitHub API.
+             * @param {string} path - The path to the directory to fetch.
+             */
             async function fetchDirectory(path) {
                 if (state.directoryCache[path]) {
                     state.currentPath = path;
@@ -1606,6 +1933,10 @@
             }
 
             // --- Event Listener Binding ---
+
+            /**
+             * Binds all necessary event listeners for the application UI.
+             */
             function bindEventListeners() {
                 const { 
                     nextBtn, prevBtn, openModalBtn, closeModalBtn, copyLinkBtn, modalContainer, fileList, 
@@ -1614,7 +1945,7 @@
                     saveModifierEditBtn, cancelModifierEditBtn, newModifierBtn,
                     importModifiersBtn, exportModifiersBtn, copyModdedHtmlBtn, modifierFileInput,
                     modifierTitleBar, targetObjectSelect, targetFunctionSelect, reloadWithModsBtn,
-                    targetItemLabel, editorLabel, lineNumbers
+                    targetItemLabel, editorLabel
                 } = DOMElements;
 
                 nextBtn.addEventListener('click', () => {
@@ -1774,7 +2105,28 @@
                         let targetIdentifier = targetFunctionValue;
                         let originalDeclaration = '';
 
-                        if (targetObject === TEXT_CONTENT_KEY) {
+                        if (targetObject === CSS_STYLES_KEY) {
+                            type = 'css';
+                            const originalItem = state.detectedScriptObjects[CSS_STYLES_KEY].find(i => i.name === targetFunctionValue);
+                            if (originalItem) {
+                                targetIdentifier = originalItem.name;
+                                originalDeclaration = originalItem.fullSource;
+                            }
+                        } else if (targetObject === LIST_ITEMS_KEY) {
+                            type = 'list-item';
+                            const originalItem = state.detectedScriptObjects[LIST_ITEMS_KEY].find(i => i.name === targetFunctionValue);
+                             if (originalItem) {
+                                targetIdentifier = originalItem.name;
+                                originalDeclaration = originalItem.fullSource;
+                            }
+                        } else if (targetObject === ELEMENTS_BY_ID_KEY) {
+                            type = 'element-by-id';
+                            const originalItem = state.detectedScriptObjects[ELEMENTS_BY_ID_KEY].find(i => i.name === targetFunctionValue);
+                             if (originalItem) {
+                                targetIdentifier = originalItem.name;
+                                originalDeclaration = originalItem.fullSource;
+                            }
+                        } else if (targetObject === TEXT_CONTENT_KEY) {
                             type = 'text';
                         } else if (targetObject === STRING_LITERAL_KEY) {
                             type = 'string';
@@ -1806,7 +2158,7 @@
                             name: DOMElements.modifierNameInput.value,
                             targetObject: targetObject,
                             targetFunction: targetFunctionValue,
-                            functionBody: state.aceEditor.getValue(), // Get value from Ace
+                            functionBody: state.aceEditor.getValue(),
                             type: type,
                             targetIdentifier: targetIdentifier,
                             originalDeclaration: originalDeclaration,
@@ -1828,13 +2180,25 @@
                     const selectedType = e.target.value;
                     targetFunctionSelect.innerHTML = '<option value="">Select an item...</option>';
                     
+                    if (state.aceEditor) {
+                         if (selectedType === CSS_STYLES_KEY) {
+                            state.aceEditor.session.setMode("ace/mode/css");
+                         } else if (selectedType === TEXT_CONTENT_KEY) {
+                            state.aceEditor.session.setMode("ace/mode/text");
+                         } else if (selectedType === LIST_ITEMS_KEY || selectedType === ELEMENTS_BY_ID_KEY) {
+                            state.aceEditor.session.setMode("ace/mode/html");
+                         } else {
+                            state.aceEditor.session.setMode("ace/mode/javascript");
+                         }
+                    }
+
                     if (selectedType && state.detectedScriptObjects[selectedType]) {
                         targetFunctionSelect.disabled = false;
                         const items = state.detectedScriptObjects[selectedType];
                         
                         items.forEach(item => {
                             const option = document.createElement('option');
-                            option.value = (selectedType === STRUCTURED_OBJECT_KEY) ? item.name : item.source;
+                            option.value = (selectedType === CSS_STYLES_KEY || selectedType === LIST_ITEMS_KEY || selectedType === ELEMENTS_BY_ID_KEY || selectedType === STRUCTURED_OBJECT_KEY) ? item.name : item.source;
                             option.textContent = item.declaration || item.name;
                             if (option.textContent.length > 75) {
                                 option.title = option.textContent;
@@ -1843,7 +2207,16 @@
                             targetFunctionSelect.appendChild(option);
                         });
                         
-                        if (selectedType === TEXT_CONTENT_KEY) {
+                        if (selectedType === CSS_STYLES_KEY) {
+                            targetItemLabel.textContent = 'Target Selector';
+                            editorLabel.textContent = 'New CSS Rule';
+                        } else if (selectedType === LIST_ITEMS_KEY) {
+                            targetItemLabel.textContent = 'Target List Item';
+                            editorLabel.textContent = 'New Content (HTML Allowed)';
+                        } else if (selectedType === ELEMENTS_BY_ID_KEY) {
+                            targetItemLabel.textContent = 'Target Element ID';
+                            editorLabel.textContent = 'New Inner Content (HTML Allowed)';
+                        } else if (selectedType === TEXT_CONTENT_KEY) {
                             targetItemLabel.textContent = 'Target Text';
                             editorLabel.textContent = 'New Text';
                         } else if (selectedType === STRING_LITERAL_KEY) {
@@ -1873,11 +2246,11 @@
                     let startLine = 1;
 
                     if (itemValue && objectName && state.detectedScriptObjects[objectName]) {
-                        const findKey = (objectName === STRUCTURED_OBJECT_KEY) ? 'name' : 'source';
+                        const findKey = (objectName === CSS_STYLES_KEY || objectName === LIST_ITEMS_KEY || objectName === ELEMENTS_BY_ID_KEY || objectName === STRUCTURED_OBJECT_KEY) ? 'name' : 'source';
                         const itemData = state.detectedScriptObjects[objectName].find(f => f[findKey] === itemValue);
                         
                         if (itemData) {
-                            if(state.aceEditor) state.aceEditor.setValue(itemData.source, -1);
+                            if(state.aceEditor) state.aceEditor.setValue(itemData.fullSource || itemData.source, -1);
                             startLine = itemData.startLine || 1;
                         } else {
                             if(state.aceEditor) state.aceEditor.setValue('', -1);
@@ -1950,6 +2323,10 @@
             }
 
             // --- Initialization ---
+
+            /**
+             * Updates the URL hash with the current repository and path.
+             */
             function updateURLHash() {
                 if (!state.repoConfig) return;
                 const { owner, repo, branch } = state.repoConfig;
@@ -1963,6 +2340,10 @@
                 }
             }
 
+            /**
+             * Initializes the viewer with a given GitHub URL.
+             * @param {string} url - The GitHub URL to load.
+             */
             async function startViewerWithUrl(url) {
                 state.repoConfig = parseGitHubUrl(url);
                 if (!state.repoConfig) {
@@ -1990,8 +2371,10 @@
                 }
             }
             
+            /**
+             * The main entry point for the application.
+             */
             function initializeViewer() {
-                // Create a style tag for dynamic editor adjustments
                 state.alignmentStyleTag = document.createElement('style');
                 document.head.appendChild(state.alignmentStyleTag);
 
