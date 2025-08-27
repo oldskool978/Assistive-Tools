@@ -4,6 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>GitHub Repository HTML Explorer</title>
+    <!-- --- Ace Editor Library --- -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.33.0/ace.js"></script>
     <style>
         /* --- CSS Variables for Theming --- */
         :root {
@@ -472,7 +474,7 @@
             color: #ef4444; /* text-red-500 */
         }
 
-        /* --- Editor with Line Numbers --- */
+        /* --- NEW: Editor with Line Numbers & Ace --- */
         .editor-wrapper {
             display: flex;
             flex-grow: 1;
@@ -481,38 +483,42 @@
             overflow: hidden; 
             background-color: #f7f7f7;
             min-height: 0;
+            position: relative; /* Needed for Ace editor */
         }
         #line-numbers {
             font-family: var(--font-mono);
-            font-size: 0.8rem;
-            line-height: 1.5;
+            font-size: 0.8rem; /* Match Ace editor font size */
+            line-height: 1.5; /* Match Ace editor line height */
             padding: 0.5rem 0.5rem 0.5rem 0.75rem;
             color: #aaa;
             text-align: right;
             user-select: none;
             overflow-y: hidden;
             flex-shrink: 0;
+            background-color: #f7f7f7;
+            z-index: 1; /* Keep on top */
         }
         #line-numbers span {
             display: block;
         }
-        #function-body-input {
+        #ace-editor {
             flex-grow: 1;
             min-height: 0;
-            height: auto;
+            height: 100%; /* Fill the wrapper */
             width: 100%;
-            font-family: var(--font-mono);
-            font-size: 0.8rem;
-            line-height: 1.5;
-            border: none;
-            padding: 0.5rem;
-            resize: none;
-            outline: none;
-            background-color: var(--bg-white);
-            color: var(--text-dark);
-            overflow: auto; 
-            white-space: pre; 
-            word-wrap: normal;
+            position: absolute; /* Ace needs absolute positioning */
+            top: 0;
+            right: 0;
+            bottom: 0;
+            left: 0;
+        }
+        /* Hide Ace's default gutter since we have our own */
+        .ace_gutter {
+            display: none !important;
+        }
+        /* Adjust Ace editor's left padding to make space for our line numbers */
+        .ace_content {
+            padding-left: 45px !important; /* Adjust as needed */
         }
 
 
@@ -532,7 +538,7 @@
             <div class="bg-white rounded-xl shadow-2xl p-6">
                 <div class="flex items-center gap-3 border-b border-gray-200 pb-4 mb-4">
                      <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8 text-gray-700" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-                           <path d="M9 19c-4.3 1.4 -4.3-2.5 -6-3m12 5v-3.5c0-1 .1-1.4-.5-2c2.8-.3 5.5-1.4 5.5-6a4.6 4.6 0 0 0 -1.3-3.2a4.2 4.2 0 0 0 -.1-3.2s-1.1-.3-3.5 1.3a12.3 12.3 0 0 0 -6.2 0c-2.4-1.6-3.5-1.3-3.5-1.3a4.2 4.2 0 0 0 -.1 3.2a4.6 4.6 0 0 0 -1.3 3.2c0 4.6 2.7 5.7 5.5 6c-.6.6-.6 1.2-.5 2V21"/>
+                            <path d="M9 19c-4.3 1.4 -4.3-2.5 -6-3m12 5v-3.5c0-1 .1-1.4-.5-2c2.8-.3 5.5-1.4 5.5-6a4.6 4.6 0 0 0 -1.3-3.2a4.2 4.2 0 0 0 -.1-3.2s-1.1-.3-3.5 1.3a12.3 12.3 0 0 0 -6.2 0c-2.4-1.6-3.5-1.3-3.5-1.3a4.2 4.2 0 0 0 -.1 3.2a4.6 4.6 0 0 0 -1.3 3.2c0 4.6 2.7 5.7 5.5 6c-.6.6-.6 1.2-.5 2V21"/>
                      </svg>
                     <h1 class="text-xl font-semibold text-gray-800">Load a GitHub Repository</h1>
                 </div>
@@ -648,7 +654,8 @@
                     <label id="editor-label" class="wizard-label flex-shrink-0">Value</label>
                     <div class="editor-wrapper">
                         <div id="line-numbers"></div>
-                        <textarea id="function-body-input"></textarea>
+                        <!-- ACE EDITOR WILL BE INITIALIZED HERE -->
+                        <div id="ace-editor"></div>
                     </div>
                 </div>
                 <!-- Bottom buttons -->
@@ -788,7 +795,7 @@
                 targetObjectSelect: document.getElementById('target-object-select'),
                 targetFunctionSelect: document.getElementById('target-function-select'),
                 targetItemLabel: document.getElementById('target-item-label'),
-                functionBodyInput: document.getElementById('function-body-input'),
+                aceEditorDiv: document.getElementById('ace-editor'), // NEW: Ace editor div
                 editorLabel: document.getElementById('editor-label'),
                 saveModifierEditBtn: document.getElementById('save-modifier-edit-btn'),
                 cancelModifierEditBtn: document.getElementById('cancel-modifier-edit-btn'),
@@ -818,6 +825,7 @@
                 modifiers: {},
                 editingModifierKey: null,
                 detectedScriptObjects: {},
+                aceEditor: null, // NEW: To hold the Ace editor instance
             };
             
             // --- UI Modals & Interactions ---
@@ -838,11 +846,11 @@
             function escapeHtml(unsafe) {
                 if (typeof unsafe !== 'string') return '';
                 return unsafe
-                     .replace(/&/g, "&amp;")
-                     .replace(/</g, "&lt;")
-                     .replace(/>/g, "&gt;")
-                     .replace(/"/g, "&quot;")
-                     .replace(/'/g, "&#039;");
+                         .replace(/&/g, "&amp;")
+                         .replace(/</g, "&lt;")
+                         .replace(/>/g, "&gt;")
+                         .replace(/"/g, "&quot;")
+                         .replace(/'/g, "&#039;");
             }
 
             // --- Modifier Logic ---
@@ -986,8 +994,9 @@
             }
             
             function updateLineNumbers(startLine = 1) {
-                const { lineNumbers, functionBodyInput } = DOMElements;
-                const lineCount = functionBodyInput.value.split('\n').length;
+                if (!state.aceEditor) return;
+                const { lineNumbers } = DOMElements;
+                const lineCount = state.aceEditor.session.getLength();
                 lineNumbers.innerHTML = Array.from({ length: lineCount }, (_, i) => `<span>${startLine + i}</span>`).join('');
             }
 
@@ -998,13 +1007,38 @@
                 state.editingModifierKey = key;
                 const { 
                     modifierPanelContent, modifierEditorView, modifierNameInput,
-                    targetObjectSelect, targetFunctionSelect, functionBodyInput
+                    targetObjectSelect, targetFunctionSelect
                 } = DOMElements;
                 
                 modifierPanelContent.style.display = 'none';
                 modifierEditorView.style.display = 'flex';
                 modifierNameInput.value = modifier.name || '';
-                functionBodyInput.value = modifier.functionBody || '';
+
+                // Initialize Ace Editor if it doesn't exist
+                if (!state.aceEditor) {
+                    state.aceEditor = ace.edit(DOMElements.aceEditorDiv);
+                    state.aceEditor.setTheme("ace/theme/chrome");
+                    state.aceEditor.session.setMode("ace/mode/javascript");
+                    state.aceEditor.setOptions({
+                        fontFamily: "var(--font-mono)",
+                        fontSize: "0.8rem",
+                        lineHeight: 1.5,
+                        useWorker: false, // Disable worker to avoid console errors in this environment
+                        showPrintMargin: false,
+                    });
+
+                    // Sync scrolling with our custom line numbers
+                    state.aceEditor.session.on('changeScrollTop', (scrollTop) => {
+                        DOMElements.lineNumbers.scrollTop = scrollTop;
+                    });
+                     // Sync content changes with our custom line numbers
+                    state.aceEditor.session.on('change', () => {
+                        const startLine = parseInt(DOMElements.lineNumbers.querySelector('span')?.textContent || '1', 10);
+                        updateLineNumbers(startLine);
+                    });
+                }
+                
+                state.aceEditor.setValue(modifier.functionBody || '', -1); // -1 moves cursor to start
                 
                 targetObjectSelect.innerHTML = '<option value="">Select a type...</option>';
                 
@@ -1028,6 +1062,7 @@
                 setTimeout(() => {
                     targetFunctionSelect.value = modifier.targetFunction;
                     targetFunctionSelect.dispatchEvent(new Event('change'));
+                    state.aceEditor.resize(); // Ensure editor is sized correctly
                 }, 0);
             }
 
@@ -1566,7 +1601,7 @@
                     saveModifierEditBtn, cancelModifierEditBtn, newModifierBtn,
                     importModifiersBtn, exportModifiersBtn, copyModdedHtmlBtn, modifierFileInput,
                     modifierTitleBar, targetObjectSelect, targetFunctionSelect, reloadWithModsBtn,
-                    targetItemLabel, editorLabel, functionBodyInput, lineNumbers
+                    targetItemLabel, editorLabel, lineNumbers
                 } = DOMElements;
 
                 nextBtn.addEventListener('click', () => {
@@ -1594,7 +1629,7 @@
                         copyLinkBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" /></svg>`;
                         setTimeout(() => { copyLinkBtn.innerHTML = originalIcon; }, 2000);
                     }, err => {
-                         console.error("Failed to copy link: ", err);
+                        console.error("Failed to copy link: ", err);
                     });
                 });
 
@@ -1633,7 +1668,7 @@
                 });
 
                 const startDrag = (e, element) => {
-                    if (e.target.closest('button, a, input, textarea, select')) return;
+                    if (e.target.closest('button, a, input, textarea, select, .ace_editor')) return;
                     
                     state.dragInfo.isDragging = true;
                     state.dragInfo.element = element;
@@ -1758,7 +1793,7 @@
                             name: DOMElements.modifierNameInput.value,
                             targetObject: targetObject,
                             targetFunction: targetFunctionValue,
-                            functionBody: DOMElements.functionBodyInput.value,
+                            functionBody: state.aceEditor.getValue(), // Get value from Ace
                             type: type,
                             targetIdentifier: targetIdentifier,
                             originalDeclaration: originalDeclaration,
@@ -1815,7 +1850,7 @@
                     } else {
                         targetFunctionSelect.disabled = true;
                     }
-                    functionBodyInput.value = '';
+                    if (state.aceEditor) state.aceEditor.setValue('', -1);
                     updateLineNumbers();
                 });
 
@@ -1829,23 +1864,15 @@
                         const itemData = state.detectedScriptObjects[objectName].find(f => f[findKey] === itemValue);
                         
                         if (itemData) {
-                            functionBodyInput.value = itemData.source;
+                            if(state.aceEditor) state.aceEditor.setValue(itemData.source, -1);
                             startLine = itemData.startLine || 1;
                         } else {
-                            functionBodyInput.value = '';
+                            if(state.aceEditor) state.aceEditor.setValue('', -1);
                         }
                     } else {
-                        functionBodyInput.value = '';
+                        if(state.aceEditor) state.aceEditor.setValue('', -1);
                     }
                     updateLineNumbers(startLine);
-                });
-
-                functionBodyInput.addEventListener('input', () => {
-                    const startLine = parseInt(lineNumbers.querySelector('span')?.textContent || '1', 10);
-                    updateLineNumbers(startLine);
-                });
-                functionBodyInput.addEventListener('scroll', () => {
-                    lineNumbers.scrollTop = functionBodyInput.scrollTop;
                 });
 
                 importModifiersBtn.addEventListener('click', () => {
