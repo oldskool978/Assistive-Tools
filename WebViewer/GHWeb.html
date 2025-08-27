@@ -746,10 +746,8 @@
             // The default repository to load if no other is specified in the URL hash.
             const GITHUB_URL = 'https://github.com/oldskool978/Assistive-Tools/tree/main/BoardPages';
             
-            // --- MODIFICATION: Added a new key for generic elements with IDs.
             // Defines unique keys for each type of content the tool can parse and modify.
-            const ELEMENTS_BY_ID_KEY = '(Elements by ID)';
-            const LIST_ITEMS_KEY = '(List Items)';
+            const ELEMENT_CONTENT_KEY = '(Element Content)';
             const CSS_STYLES_KEY = '(CSS Styles)';
             const TEXT_CONTENT_KEY = '(Text Content)';
             const STRING_LITERAL_KEY = '(String Constants)';
@@ -974,15 +972,14 @@
                         if (modifier.type === 'number') typeLabel = 'Number';
                         if (modifier.type === 'object') typeLabel = 'Object';
                         if (modifier.type === 'css') typeLabel = 'CSS Style';
-                        if (modifier.type === 'list-item') typeLabel = 'List Item';
-                        if (modifier.type === 'element-by-id') typeLabel = 'Element Content';
+                        if (modifier.type === 'element-content') typeLabel = 'Element Content';
 
                         const targetDisplay = modifier.targetIdentifier || modifier.targetFunction;
                         
                         let beforeCode = 'Original code not found.';
                         const originalObject = state.detectedScriptObjects[modifier.targetObject];
                         if (originalObject) {
-                            const findKey = (modifier.type === 'css' || modifier.type === 'list-item' || modifier.type === 'element-by-id' || modifier.targetObject === STRUCTURED_OBJECT_KEY) ? 'name' : 'source';
+                            const findKey = (modifier.type === 'css' || modifier.type === 'element-content' || modifier.targetObject === STRUCTURED_OBJECT_KEY) ? 'name' : 'source';
                             const originalItem = originalObject.find(i => i[findKey] === modifier.targetFunction);
                             if (originalItem) {
                                 beforeCode = originalItem.fullSource || originalItem.source;
@@ -1097,7 +1094,7 @@
                 const itemValue = modifier.targetFunction;
                 let editorContent = modifier.functionBody || '';
                  if (objectName && itemValue && state.detectedScriptObjects[objectName]) {
-                    const findKey = (objectName === CSS_STYLES_KEY || objectName === LIST_ITEMS_KEY || objectName === ELEMENTS_BY_ID_KEY || objectName === STRUCTURED_OBJECT_KEY) ? 'name' : 'source';
+                    const findKey = (objectName === CSS_STYLES_KEY || objectName === ELEMENT_CONTENT_KEY || objectName === STRUCTURED_OBJECT_KEY) ? 'name' : 'source';
                     const itemData = state.detectedScriptObjects[objectName].find(f => f[findKey] === itemValue);
                     if(itemData && itemData.fullSource) {
                         editorContent = itemData.fullSource;
@@ -1108,7 +1105,7 @@
                 
                 targetObjectSelect.innerHTML = '<option value="">Select a type...</option>';
                 
-                const typeOrder = [ELEMENTS_BY_ID_KEY, LIST_ITEMS_KEY, CSS_STYLES_KEY, TEXT_CONTENT_KEY, STRING_LITERAL_KEY, NUMERICAL_CONSTANTS_KEY, STRUCTURED_OBJECT_KEY, FUNCTIONS_KEY];
+                const typeOrder = [ELEMENT_CONTENT_KEY, CSS_STYLES_KEY, TEXT_CONTENT_KEY, STRING_LITERAL_KEY, NUMERICAL_CONSTANTS_KEY, STRUCTURED_OBJECT_KEY, FUNCTIONS_KEY];
                 const sortedObjectKeys = Object.keys(state.detectedScriptObjects)
                     .filter(k => !typeOrder.includes(k))
                     .sort();
@@ -1158,6 +1155,35 @@
             }
 
             /**
+             * Generates a unique CSS selector for a given DOM element.
+             * @param {Element} el - The element to generate a selector for.
+             * @returns {string} The unique CSS selector.
+             */
+            function getUniqueSelector(el) {
+                if (!(el instanceof Element)) return;
+                const path = [];
+                while (el.nodeType === Node.ELEMENT_NODE) {
+                    let selector = el.nodeName.toLowerCase();
+                    if (el.id) {
+                        selector = '#' + el.id;
+                        path.unshift(selector);
+                        break; // An ID is unique enough.
+                    } else {
+                        let sib = el, nth = 1;
+                        while (sib = sib.previousElementSibling) {
+                            if (sib.nodeName.toLowerCase() == selector)
+                               nth++;
+                        }
+                        if (nth != 1)
+                            selector += `:nth-of-type(${nth})`;
+                    }
+                    path.unshift(selector);
+                    el = el.parentNode;
+                }
+                return path.join(' > ');
+            }
+
+            /**
              * Analyzes the current HTML content to find all modifiable targets.
              * Populates the `state.detectedScriptObjects` object.
              */
@@ -1172,54 +1198,50 @@
                 const parser = new DOMParser();
                 const doc = parser.parseFromString(state.currentHtmlContent, 'text/html');
                 
-                // Parser 1: Elements by ID
-                const elementsWithIds = doc.querySelectorAll('[id]');
-                const foundElementsById = new Map();
-                if (elementsWithIds.length > 0) {
-                    elementsWithIds.forEach(el => {
-                        const id = el.id;
-                        if (id && !foundElementsById.has(id)) {
-                             foundElementsById.set(id, {
-                                name: id,
-                                source: `#${id} - ${el.innerText.trim().substring(0, 50)}...`,
-                                declaration: `#${id}`,
-                                fullSource: el.innerHTML,
-                            });
-                        }
-                    });
-                    if (foundElementsById.size > 0) {
-                        state.detectedScriptObjects[ELEMENTS_BY_ID_KEY] = Array.from(foundElementsById.values()).sort((a,b) => a.name.localeCompare(b.name));
+                // Parser 1: Elements by Selector
+                const elementsForSelector = doc.querySelectorAll('h1, h2, h3, h4, h5, h6, p, li, a, span, div, button');
+                const elementSet = new Set(elementsForSelector);
+                const foundElementsBySelector = new Map();
+                
+                elementsForSelector.forEach(el => {
+                    if (el.closest('script, style')) return;
+                    const text = el.innerText.trim();
+                    if (!text) return;
+
+                    // This is the consolidation logic. If the element's parent is also a potential target,
+                    // skip this element to avoid redundancy and target the outermost container.
+                    if (el.parentElement && elementSet.has(el.parentElement)) {
+                        return;
                     }
+
+                    const selector = getUniqueSelector(el);
+                    if (selector && !foundElementsBySelector.has(selector)) {
+                        // Find the approximate index of the element's outerHTML for line number calculation.
+                        // This is an approximation but is more robust than searching for innerText.
+                        const approxIndex = state.currentHtmlContent.indexOf(el.outerHTML);
+                        const startLine = (approxIndex !== -1) ? getLineNumber(approxIndex) : 1;
+
+                         foundElementsBySelector.set(selector, {
+                            name: selector,
+                            source: text.substring(0, 70),
+                            declaration: text.substring(0, 70),
+                            fullSource: el.innerHTML,
+                            startLine: startLine,
+                        });
+                    }
+                });
+                
+                if (foundElementsBySelector.size > 0) {
+                    state.detectedScriptObjects[ELEMENT_CONTENT_KEY] = Array.from(foundElementsBySelector.values()).sort((a,b) => a.name.localeCompare(b.name));
                 }
 
-                // Parser 2: List Items (<li>)
-                const listItems = doc.querySelectorAll('li');
-                const foundListItems = new Map();
-                if (listItems.length > 0) {
-                    listItems.forEach(li => {
-                        const text = li.innerText.trim().replace(/\s+/g, ' ');
-                        const html = li.innerHTML;
-                        if (text && !foundListItems.has(text)) {
-                             foundListItems.set(text, {
-                                name: text,
-                                source: text,
-                                declaration: text,
-                                fullSource: html,
-                            });
-                        }
-                    });
-                    if (foundListItems.size > 0) {
-                        state.detectedScriptObjects[LIST_ITEMS_KEY] = Array.from(foundListItems.values()).sort((a,b) => a.name.localeCompare(b.name));
-                    }
-                }
-
-                // Parser 3: Text Content
+                // Parser 2: Text Content (for text not inside other targeted elements)
                 const walker = document.createTreeWalker(doc.documentElement, NodeFilter.SHOW_TEXT, null, false);
                 const foundText = new Set();
                 let node;
                 while(node = walker.nextNode()) {
                     const text = node.nodeValue.trim();
-                    if (text && text.length > 1 && node.parentElement.nodeName.toLowerCase() !== 'script' && node.parentElement.nodeName.toLowerCase() !== 'style') {
+                    if (text && text.length > 1 && !node.parentElement.closest('script, style, h1, h2, h3, h4, p, li, a, button')) {
                         foundText.add(text);
                     }
                 }
@@ -1232,7 +1254,7 @@
                         });
                 }
 
-                // Parser 4: CSS Styles
+                // Parser 3: CSS Styles
                 const styleContentRegex = /<style\b[^>]*>([\s\S]*?)<\/style>/gi;
                 const styles = Array.from(state.currentHtmlContent.matchAll(styleContentRegex));
                 const foundCssRules = new Map();
@@ -1286,7 +1308,7 @@
                     state.detectedScriptObjects[CSS_STYLES_KEY] = Array.from(foundCssRules.values()).sort((a, b) => a.name.localeCompare(b.name));
                 }
 
-                // Parser 5: JavaScript Content
+                // Parser 4: JavaScript Content
                 const scriptContentRegex = /<script\b[^>]*>([\s\S]*?)<\/script>/gi;
                 const scripts = Array.from(state.currentHtmlContent.matchAll(scriptContentRegex));
                 if (scripts.length === 0) return;
@@ -1524,11 +1546,42 @@
              */
             function getCompiledHtml() {
                 if (!state.currentHtmlContent) return '';
-                let moddedHtml = state.currentHtmlContent;
+                
+                const parser = new DOMParser();
+                const doc = parser.parseFromString(state.currentHtmlContent, 'text/html');
+                let domModified = false;
+
+                // Separate modifiers into DOM-based and string-based for ordered application.
+                const domModifiers = [];
+                const stringModifiers = [];
 
                 Object.values(state.modifiers).forEach(mod => {
                     if (!mod.enabled) return;
-                    
+                    if (mod.type === 'element-content') {
+                        domModifiers.push(mod);
+                    } else {
+                        stringModifiers.push(mod);
+                    }
+                });
+
+                // Apply DOM-based modifications to the parsed document.
+                domModifiers.forEach(mod => {
+                    try {
+                        const element = doc.querySelector(mod.targetFunction);
+                        if (element) {
+                            element.innerHTML = mod.functionBody;
+                            domModified = true;
+                        }
+                    } catch(e) {
+                        console.error(`Failed to apply DOM modifier "${mod.name}":`, e);
+                    }
+                });
+
+                // Serialize the potentially modified DOM back to a string.
+                let moddedHtml = domModified ? `<!DOCTYPE html>\n` + doc.documentElement.outerHTML : state.currentHtmlContent;
+
+                // Apply string-based modifications to the (potentially already modified) HTML string.
+                stringModifiers.forEach(mod => {
                     try {
                         if ((mod.type === 'string' || mod.type === 'number' || mod.type === 'object') && mod.originalDeclaration) {
                              const newDeclaration = mod.originalDeclaration.replace(/=\s*[\s\S]*/, `= ${mod.functionBody}`);
@@ -1537,20 +1590,12 @@
                             moddedHtml = moddedHtml.replaceAll(mod.targetFunction, mod.functionBody);
                         } else if (mod.type === 'css' && mod.originalDeclaration) {
                             moddedHtml = moddedHtml.replace(mod.originalDeclaration, mod.functionBody);
-                        } else if (mod.type === 'list-item' && mod.originalDeclaration) {
-                            moddedHtml = moddedHtml.replace(mod.originalDeclaration, mod.functionBody);
-                        // --- MODIFICATION: Added replacement logic for elements by ID.
-                        } else if (mod.type === 'element-by-id' && mod.targetFunction) {
-                            const id = mod.targetFunction;
-                            // This regex finds the opening tag with the correct ID, captures it,
-                            // captures the content, and captures the closing tag.
-                            const elementRegex = new RegExp(`(<([a-zA-Z0-9-]+)[^>]*id\\s*=\\s*["']${id}["'][^>]*>)([\\s\\S]*?)(<\\/\\2>)`, 'i');
-                            moddedHtml = moddedHtml.replace(elementRegex, `$1${mod.functionBody}$4`);
                         }
                     } catch (e) {
-                        console.error(`Failed to apply modifier "${mod.name}" for compilation:`, e);
+                        console.error(`Failed to apply string modifier "${mod.name}":`, e);
                     }
                 });
+
                 return moddedHtml;
             }
 
@@ -2112,16 +2157,9 @@
                                 targetIdentifier = originalItem.name;
                                 originalDeclaration = originalItem.fullSource;
                             }
-                        } else if (targetObject === LIST_ITEMS_KEY) {
-                            type = 'list-item';
-                            const originalItem = state.detectedScriptObjects[LIST_ITEMS_KEY].find(i => i.name === targetFunctionValue);
-                             if (originalItem) {
-                                targetIdentifier = originalItem.name;
-                                originalDeclaration = originalItem.fullSource;
-                            }
-                        } else if (targetObject === ELEMENTS_BY_ID_KEY) {
-                            type = 'element-by-id';
-                            const originalItem = state.detectedScriptObjects[ELEMENTS_BY_ID_KEY].find(i => i.name === targetFunctionValue);
+                        } else if (targetObject === ELEMENT_CONTENT_KEY) {
+                            type = 'element-content';
+                            const originalItem = state.detectedScriptObjects[ELEMENT_CONTENT_KEY].find(i => i.name === targetFunctionValue);
                              if (originalItem) {
                                 targetIdentifier = originalItem.name;
                                 originalDeclaration = originalItem.fullSource;
@@ -2185,7 +2223,7 @@
                             state.aceEditor.session.setMode("ace/mode/css");
                          } else if (selectedType === TEXT_CONTENT_KEY) {
                             state.aceEditor.session.setMode("ace/mode/text");
-                         } else if (selectedType === LIST_ITEMS_KEY || selectedType === ELEMENTS_BY_ID_KEY) {
+                         } else if (selectedType === ELEMENT_CONTENT_KEY) {
                             state.aceEditor.session.setMode("ace/mode/html");
                          } else {
                             state.aceEditor.session.setMode("ace/mode/javascript");
@@ -2198,7 +2236,7 @@
                         
                         items.forEach(item => {
                             const option = document.createElement('option');
-                            option.value = (selectedType === CSS_STYLES_KEY || selectedType === LIST_ITEMS_KEY || selectedType === ELEMENTS_BY_ID_KEY || selectedType === STRUCTURED_OBJECT_KEY) ? item.name : item.source;
+                            option.value = (selectedType === CSS_STYLES_KEY || selectedType === ELEMENT_CONTENT_KEY || selectedType === STRUCTURED_OBJECT_KEY) ? item.name : item.source;
                             option.textContent = item.declaration || item.name;
                             if (option.textContent.length > 75) {
                                 option.title = option.textContent;
@@ -2210,11 +2248,8 @@
                         if (selectedType === CSS_STYLES_KEY) {
                             targetItemLabel.textContent = 'Target Selector';
                             editorLabel.textContent = 'New CSS Rule';
-                        } else if (selectedType === LIST_ITEMS_KEY) {
-                            targetItemLabel.textContent = 'Target List Item';
-                            editorLabel.textContent = 'New Content (HTML Allowed)';
-                        } else if (selectedType === ELEMENTS_BY_ID_KEY) {
-                            targetItemLabel.textContent = 'Target Element ID';
+                        } else if (selectedType === ELEMENT_CONTENT_KEY) {
+                            targetItemLabel.textContent = 'Target Element';
                             editorLabel.textContent = 'New Inner Content (HTML Allowed)';
                         } else if (selectedType === TEXT_CONTENT_KEY) {
                             targetItemLabel.textContent = 'Target Text';
@@ -2246,7 +2281,7 @@
                     let startLine = 1;
 
                     if (itemValue && objectName && state.detectedScriptObjects[objectName]) {
-                        const findKey = (objectName === CSS_STYLES_KEY || objectName === LIST_ITEMS_KEY || objectName === ELEMENTS_BY_ID_KEY || objectName === STRUCTURED_OBJECT_KEY) ? 'name' : 'source';
+                        const findKey = (objectName === CSS_STYLES_KEY || objectName === ELEMENT_CONTENT_KEY || objectName === STRUCTURED_OBJECT_KEY) ? 'name' : 'source';
                         const itemData = state.detectedScriptObjects[objectName].find(f => f[findKey] === itemValue);
                         
                         if (itemData) {
