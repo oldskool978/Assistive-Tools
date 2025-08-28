@@ -861,7 +861,7 @@
             // --- UI Modals & Interactions ---
             let confirmCallback = null;
 
-            // Shows a confirmation modal.
+            // Displays a confirmation modal.
             function showConfirmationModal(message, onConfirm) {
                 const { confirmationModalContainer, confirmationModalMessage } = DOMElements;
                 confirmationModalMessage.textContent = message;
@@ -875,7 +875,7 @@
                 confirmCallback = null;
             }
             
-            // Escapes special characters in an HTML string.
+            // Escapes special characters in a string for HTML.
             function escapeHtml(unsafe) {
                 if (typeof unsafe !== 'string') return '';
                 return unsafe
@@ -888,7 +888,7 @@
 
             // --- Modifier Logic ---
 
-            // Creates a new, default modifier object.
+            // Returns a new modifier object template.
             function getNewModifierTemplate() {
                 return {
                     name: 'Untitled Modifier',
@@ -902,7 +902,7 @@
                 };
             }
 
-            // Generates an executable script from a 'function' type modifier.
+            // Generates a script to override a function.
             function generateScriptFromModifier(modifier) {
                 if (modifier.type !== 'function' || !modifier.targetObject || !modifier.targetFunction || !modifier.functionBody) {
                     return '';
@@ -950,7 +950,7 @@
                 return script;
             }
 
-            // Renders the complete list of modifiers into the panel.
+            // Renders the modifier list UI.
             function renderModifierList() {
                 const { modifierPanelContent, modifierEditorView } = DOMElements;
                 modifierPanelContent.innerHTML = '';
@@ -1040,7 +1040,7 @@
                 modifierPanelContent.appendChild(fragment);
             }
             
-            // Syncs the line number display with the Ace editor's scroll.
+            // Syncs line numbers with the Ace editor scroll.
             function updateLineNumbers(startLine = 1) {
                 if (!state.aceEditor) return;
                 const { lineNumbers } = DOMElements;
@@ -1053,7 +1053,7 @@
                 state.aceEditor.resize();
             }
 
-            // Populates the editor with the selected target's source code.
+            // Populates the editor from a selected target.
             const populateEditorFromSelection = (objectName, itemValue) => {
                 let startLine = 1;
                 let editorContent = '';
@@ -1079,7 +1079,7 @@
                 updateLineNumbers(startLine);
             };
 
-            // Shows the modifier editor, pre-filled with a modifier's data.
+            // Shows the modifier editor view for a given key.
             function showModifierEditor(key) {
                 const modifier = state.modifiers[key];
                 if (!modifier) return;
@@ -1162,7 +1162,7 @@
                 }, 0);
             }
 
-            // Summarizes large arrays in source code for cleaner display.
+            // Summarizes large arrays in source code for display.
             function summarizeObjectSource(sourceString) {
                 const arrayRegex = /:(\s*)(new\s+\w+Array\s*\()?\s*(\[[\s\S]*?\])/g;
                 
@@ -1183,7 +1183,7 @@
                 });
             }
 
-            // Generates a unique CSS selector for a given DOM element.
+            // Generates a unique CSS selector for an element.
             function getUniqueSelector(el) {
                 if (!(el instanceof Element)) return;
                 const path = [];
@@ -1208,13 +1208,13 @@
                 return path.join(' > ');
             }
             
-            // Calculates the line number from a character index in the source HTML.
+            // Calculates a line number from a character index.
             const getLineNumberFromIndex = (charIndex) => {
                 if (charIndex === -1 || !state.currentHtmlContent) return 1;
                 return state.currentHtmlContent.substring(0, charIndex).split('\n').length;
             };
 
-            // Performs static analysis of the loaded HTML content.
+            // Analyzes the current HTML for editable content.
             function analyzeContent() {
                 state.detectedScriptObjects = {};
                 state.detectedScriptObjects[DYNAMIC_CONTENT_KEY] = [];
@@ -1230,8 +1230,7 @@
                     return `<${tagName} data-line="${lineNumber}"${attributes}>`;
                 });
 
-                const parser = new DOMParser();
-                const doc = parser.parseFromString(processedHtml, 'text/html');
+                const doc = new DOMParser().parseFromString(processedHtml, 'text/html');
                 
                 // Removes injected data-line attributes for clean display.
                 const cleanOuterHTML = (element) => {
@@ -1241,16 +1240,12 @@
                     return element.outerHTML;
                 };
 
-                // Finds potential modal/popup elements.
+                // Finds modal containers by traversing up from known identifiers.
                 const findModalElements = () => {
                     const modalSelectors = [
-                        'dialog', 
-                        '[role="dialog"]', 
-                        '[role="alertdialog"]', 
-                        '[aria-modal="true"]',
+                        'dialog', '[role="dialog"]', '[role="alertdialog"]', '[aria-modal="true"]',
                         '.modal', '.popup', '.overlay', '.modal-dialog', '.modal-content',
-                        '[id*="modal"]', '[class*="modal-"]', 
-                        '[id*="popup"]', '[class*="popup-"]',
+                        '[id*="modal"]', '[class*="modal-"]', '[id*="popup"]', '[class*="popup-"]',
                         '[id*="overlay"]', '[class*="overlay-"]'
                     ].join(', ');
                     
@@ -1258,51 +1253,54 @@
                     const processedElements = new Set();
 
                     doc.querySelectorAll(modalSelectors).forEach(el => {
-                        const container = el.closest(modalSelectors) || el;
-                        if (processedElements.has(container)) return;
+                        if (processedElements.has(el)) return;
 
-                        const selector = getUniqueSelector(container);
+                        let outermostContainer = el;
+                        while (outermostContainer.parentElement && outermostContainer.parentElement !== doc.body && outermostContainer.parentElement.matches(modalSelectors)) {
+                            outermostContainer = outermostContainer.parentElement;
+                        }
+
+                        if (processedElements.has(outermostContainer)) return;
+
+                        const selector = getUniqueSelector(outermostContainer);
                         if (!selector) return;
 
                         modalResults.push({
                             name: selector,
-                            source: container.innerText.trim().substring(0, 70).replace(/\s+/g, ' '),
-                            declaration: `Modal: ${container.tagName.toLowerCase()}${container.id ? '#' + container.id : ''}`,
-                            fullSource: cleanOuterHTML(container.cloneNode(true)),
-                            startLine: parseInt(container.dataset.line, 10) || 1,
+                            source: outermostContainer.innerText.trim().substring(0, 70).replace(/\s+/g, ' '),
+                            declaration: `Modal: ${outermostContainer.tagName.toLowerCase()}${outermostContainer.id ? '#' + outermostContainer.id : ''}`,
+                            fullSource: cleanOuterHTML(outermostContainer.cloneNode(true)),
+                            startLine: parseInt(outermostContainer.dataset.line, 10) || 1,
                         });
-                        processedElements.add(container);
+                        
+                        processedElements.add(outermostContainer);
+                        outermostContainer.querySelectorAll('*').forEach(child => processedElements.add(child));
                     });
 
                      if (modalResults.length > 0) {
-                        state.detectedScriptObjects[MODAL_CONTENT_KEY] = modalResults;
+                        const uniqueResults = new Map(modalResults.map(item => [item.name, item]));
+                        state.detectedScriptObjects[MODAL_CONTENT_KEY] = Array.from(uniqueResults.values());
                     }
+                    return processedElements;
                 };
-                findModalElements();
-
-                // Finds self-contained static content blocks.
+                
+                // Finds static content blocks.
                 const findStaticContentElements = () => {
                     const staticResults = [];
                     const processedElements = new Set();
-                    
-                    const modalExclusionSelectors = 'script, style, svg, nav, footer, a, button, dialog, [role="dialog"], .modal, .popup, [aria-modal="true"]';
+                    const exclusionSelectors = 'script, style, svg, nav, footer, a, button, dialog, [role="dialog"], .modal, .popup, [aria-modal="true"]';
 
-                    const allElements = Array.from(doc.body.querySelectorAll('article, section, div, blockquote, p, h1, h2, h3, h4, li'));
-
-                    for (const el of allElements) {
-                        if (processedElements.has(el) || el.closest(modalExclusionSelectors)) {
-                            continue;
-                        }
+                    doc.body.querySelectorAll('article, section, div, blockquote, p, h1, h2, h3, h4, li').forEach(el => {
+                        if (processedElements.has(el) || el.closest(exclusionSelectors)) return;
 
                         const textContent = el.innerText.trim();
-                        if (textContent.length < 25) continue;
+                        if (textContent.length < 25) return;
 
-                        const isBox = el.children.length > 1 && (el.querySelector('h1, h2, h3, h4, h5, h6') || el.querySelector('p, ul, ol, table'));
-                        const isSimpleBlock = ['P', 'BLOCKQUOTE', 'LI'].includes(el.tagName);
+                        const isSignificantBlock = el.children.length > 1 || ['P', 'BLOCKQUOTE', 'LI', 'H1', 'H2', 'H3', 'H4'].includes(el.tagName);
 
-                        if (isBox || isSimpleBlock) {
+                        if (isSignificantBlock) {
                             const selector = getUniqueSelector(el);
-                            if (!selector) continue;
+                            if (!selector) return;
 
                             staticResults.push({
                                 name: selector,
@@ -1315,34 +1313,77 @@
                             processedElements.add(el);
                             el.querySelectorAll('*').forEach(desc => processedElements.add(desc));
                         }
-                    }
+                    });
 
                     if (staticResults.length > 0) {
                         state.detectedScriptObjects[STATIC_CONTENT_KEY] = staticResults;
                     }
+                    return processedElements;
                 };
-                findStaticContentElements();
 
-                // Finds stray text nodes not captured in other blocks.
-                const walker = document.createTreeWalker(doc.documentElement, NodeFilter.SHOW_TEXT, null, false);
-                const foundText = new Set();
-                let node;
-                while(node = walker.nextNode()) {
-                    const text = node.nodeValue.trim();
-                    if (text && text.length > 1 && !node.parentElement.closest('script, style, h1, h2, h3, h4, p, li, a, button')) {
-                        foundText.add(text);
+                // Finds text nodes and attributes not contained in other blocks.
+                const findTextContent = (processedElements) => {
+                    const foundText = [];
+                    const inlineTags = ['B', 'I', 'STRONG', 'EM', 'SPAN', 'BR'];
+
+                    // 1. Semantic Grouping of Text Nodes
+                    const walker = doc.createTreeWalker(doc.body, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT, null, false);
+                    let currentNode;
+                    while (currentNode = walker.nextNode()) {
+                        if (processedElements.has(currentNode)) continue;
+
+                        if (currentNode.nodeType === Node.TEXT_NODE && currentNode.nodeValue.trim().length > 1) {
+                            let group = [currentNode];
+                            let sibling = currentNode.nextSibling;
+                            
+                            while (sibling && (sibling.nodeType === Node.TEXT_NODE || (sibling.nodeType === Node.ELEMENT_NODE && inlineTags.includes(sibling.tagName)))) {
+                                if (processedElements.has(sibling)) break;
+                                group.push(sibling);
+                                processedElements.add(sibling);
+                                sibling = sibling.nextSibling;
+                            }
+                            
+                            const parent = currentNode.parentElement;
+                            const text = parent.innerText.trim();
+                            const firstIndex = state.currentHtmlContent.indexOf(text.split('\n')[0]);
+                            
+                            let name = `Text in <${parent.tagName.toLowerCase()}>`;
+                            const precedingHeader = parent.closest('section, article, div')?.querySelector('h1, h2, h3');
+                            if(precedingHeader) name = `Text following "${precedingHeader.innerText.trim()}"`;
+
+                            foundText.push({ name, source: text, declaration: text, startLine: getLineNumberFromIndex(firstIndex) });
+                            processedElements.add(currentNode);
+                            processedElements.add(parent);
+                        }
                     }
-                }
-                 if (foundText.size > 0) {
-                    state.detectedScriptObjects[TEXT_CONTENT_KEY] = Array.from(foundText)
-                        .sort()
-                        .map(text => {
-                            const firstIndex = state.currentHtmlContent.indexOf(text);
-                            return { name: text, source: text, declaration: text, startLine: getLineNumberFromIndex(firstIndex) };
-                        });
-                }
 
-                // Finds all CSS rules within <style> tags.
+                    // 2. Attribute Text Parsing
+                    doc.querySelectorAll('[title], [alt], [placeholder]').forEach(el => {
+                        if (processedElements.has(el)) return;
+                        
+                        ['title', 'alt', 'placeholder'].forEach(attr => {
+                            if (el.hasAttribute(attr)) {
+                                const text = el.getAttribute(attr);
+                                if (text) {
+                                    const name = `${attr.charAt(0).toUpperCase() + attr.slice(1)} for <${el.tagName.toLowerCase()}>`;
+                                    foundText.push({ name, source: text, declaration: text, startLine: parseInt(el.dataset.line, 10) || 1 });
+                                }
+                            }
+                        });
+                        processedElements.add(el);
+                    });
+
+                    if (foundText.length > 0) {
+                        state.detectedScriptObjects[TEXT_CONTENT_KEY] = foundText;
+                    }
+                };
+
+                const modalElements = findModalElements();
+                const staticElements = findStaticContentElements();
+                const processedElements = new Set([...modalElements, ...staticElements]);
+                findTextContent(processedElements);
+
+                // Finds all CSS rules in style tags.
                 const styleContentRegex = /<style\b[^>]*>([\s\S]*?)<\/style>/gi;
                 const styles = Array.from(state.currentHtmlContent.matchAll(styleContentRegex));
                 const foundCssRules = new Map();
@@ -1395,7 +1436,7 @@
                     state.detectedScriptObjects[CSS_STYLES_KEY] = Array.from(foundCssRules.values()).sort((a, b) => a.name.localeCompare(b.name));
                 }
 
-                // Finds all JavaScript variables, objects, and functions.
+                // Finds all script variables, objects, and functions.
                 const scriptContentRegex = /<script\b[^>]*>([\s\S]*?)<\/script>/gi;
                 const scripts = Array.from(state.currentHtmlContent.matchAll(scriptContentRegex));
                 if (scripts.length === 0) return;
@@ -1634,7 +1675,7 @@
                 }
             }
             
-            // Applies all enabled modifiers to the raw HTML content.
+            // Applies all enabled modifiers to the current HTML.
             function getCompiledHtml() {
                 if (!state.currentHtmlContent) return '';
                 
@@ -1725,7 +1766,7 @@
             }
 
 
-            // Applies all active modifiers and reloads the iframe.
+            // Applies modifiers and reloads the iframe.
             function applyModsAndReloadIframe() {
                 if (!state.currentHtmlContent) return;
                 
@@ -1737,7 +1778,7 @@
 
             // --- Utility & UI Functions ---
 
-            // Copies a string to the clipboard.
+            // Copies text to the clipboard.
             function copyToClipboard(text, successCallback, errorCallback) {
                 try {
                     const textArea = document.createElement("textarea");
@@ -1761,13 +1802,13 @@
                 }
             }
             
-            // Displays an error message in the iframe.
+            // Displays an error in the iframe.
             function showError(title, message) {
                 DOMElements.iframe.srcdoc = `<div style="display:flex; flex-direction:column; align-items:center; justify-content:center; height:100%; font-family:var(--font-sans); color:var(--text-error); padding: 2em; text-align:center;"><h1>${title}</h1><p>${message}</p></div>`;
                 DOMElements.loadingIndicator.style.display = 'none';
             }
 
-            // Parses a GitHub URL into its constituent parts.
+            // Parses a GitHub URL.
             function parseGitHubUrl(url) {
                 if (!url || typeof url !== 'string') return null;
                 try {
@@ -1793,7 +1834,7 @@
                 }
             }
 
-            // Extracts a CSS property value from the body tag.
+            // Extracts a style property from the body tag.
             function extractBodyStyle(html, property) {
                 const bodyStyleMatch = html.match(/<body[^>]*style\s*=\s*["']([^"']*)["']/i);
                 if (bodyStyleMatch && bodyStyleMatch[1]) {
@@ -1804,7 +1845,7 @@
                 return null;
             }
 
-            // Determines if a color is light or dark.
+            // Checks if a color is light or dark.
             function isColorLight(color) {
                 try {
                     const tempDiv = document.createElement('div');
@@ -1818,7 +1859,7 @@
                 } catch (e) { return true; }
             }
 
-            // Adapts navigation controls theme to the loaded page's background.
+            // Adapts navigation controls to the page theme.
             function updateNavStyles(bgColor, font) {
                 const { navControls, pageCounter } = DOMElements;
                 const allIcons = navControls.querySelectorAll('svg');
@@ -1848,7 +1889,7 @@
                 pageCounter.style.fontFamily = font ? font : 'var(--font-mono)';
             }
             
-            // Generates and populates the breadcrumb navigation.
+            // Generates breadcrumb navigation.
             function createBreadcrumbs() {
                 const { breadcrumbNav } = DOMElements;
                 breadcrumbNav.innerHTML = '';
@@ -1886,7 +1927,7 @@
                 breadcrumbNav.appendChild(fragment);
             }
 
-            // Sets the file browser view mode (list or grid).
+            // Sets the file browser view mode.
             function setViewMode(mode) {
                 state.viewMode = mode;
                 const { fileList, viewListBtn, viewGridBtn } = DOMElements;
@@ -1900,7 +1941,7 @@
                 }
             }
 
-            // Populates the file browser with directory contents.
+            // Populates the file browser.
             function populateFileBrowser(contents) {
                 const { fileList, fileCount } = DOMElements;
                 const fragment = document.createDocumentFragment();
@@ -1956,7 +1997,7 @@
 
             // --- Core Application Logic ---
 
-            // Fetches, renders, and analyzes an HTML file.
+            // Loads and renders a page by its path.
             async function loadPageByPath(filePath) {
                 state.modifiers = {};
 
@@ -2005,7 +2046,7 @@
                 }
             }
             
-            // Fetches directory contents from the GitHub API.
+            // Fetches directory contents from GitHub API.
             async function fetchDirectory(path) {
                 if (state.directoryCache[path]) {
                     state.currentPath = path;
@@ -2041,7 +2082,7 @@
 
             // --- Event Listener Binding ---
 
-            // Binds all primary UI event listeners.
+            // Binds all UI event listeners.
             function bindEventListeners() {
                 const { 
                     nextBtn, prevBtn, openModalBtn, closeModalBtn, copyLinkBtn, modalContainer, fileList, 
@@ -2462,7 +2503,7 @@
 
             // --- Initialization ---
 
-            // Updates the URL hash with the current repository and path.
+            // Updates the URL hash with the current path.
             function updateURLHash() {
                 if (!state.repoConfig) return;
                 const { owner, repo, branch } = state.repoConfig;
@@ -2476,7 +2517,7 @@
                 }
             }
 
-            // Initializes the viewer with a given GitHub URL.
+            // Initializes the viewer with a URL.
             async function startViewerWithUrl(url) {
                 state.repoConfig = parseGitHubUrl(url);
                 if (!state.repoConfig) {
@@ -2506,7 +2547,7 @@
             
             // --- Inspector Mode & Spy Script ---
             
-            // Injects the spy script into the iframe to enable Inspector Mode.
+            // Injects the inspector script into the iframe.
             function injectSpyScript() {
                 const iframeDoc = DOMElements.iframe.contentDocument;
                 if (!iframeDoc) return;
@@ -2630,14 +2671,14 @@
                 iframeDoc.head.appendChild(script);
             }
             
-            // Activates Inspector Mode.
+            // Activates inspector mode.
             function activateInspectorMode() {
                 DOMElements.modifierModalContainer.style.display = 'none';
                 DOMElements.inspectorOverlay.style.display = 'block';
                 injectSpyScript();
             }
 
-            // Deactivates Inspector Mode.
+            // Deactivates inspector mode.
             function deactivateInspectorMode() {
                 DOMElements.inspectorOverlay.style.display = 'none';
                 DOMElements.iframe.contentWindow.postMessage({ type: 'STOP_INSPECTION' }, '*');
@@ -2648,7 +2689,7 @@
                 DOMElements.targetObjectSelect.dispatchEvent(new Event('change'));
             }
 
-            // The main entry point for the application.
+            // Initializes the application.
             function initializeViewer() {
                 DOMElements.navControls.style.display = 'none';
                 try {
