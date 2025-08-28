@@ -369,10 +369,25 @@
             background-color: var(--bg-modal-header); border-color: var(--border-color-medium);
         }
 
-        /* --- Accordion Styles for Modifier List --- */
+        /* --- Accordion & Drag-and-Drop Styles for Modifier List --- */
         .modifier-item {
             border-bottom: 1px solid var(--border-color-light);
+            transition: background-color 0.2s, box-shadow 0.2s, border-top 0.1s, border-bottom 0.1s;
         }
+        /* Style for the item being dragged */
+        .modifier-item.dragging {
+            opacity: 0.5;
+            background-color: var(--accent-blue-light);
+            box-shadow: var(--shadow-lg);
+        }
+        /* NEW: Styles for drop indicators */
+        .modifier-item.drag-over-top {
+            border-top: 2px solid var(--accent-blue);
+        }
+        .modifier-item.drag-over-bottom {
+            border-bottom: 2px solid var(--accent-blue);
+        }
+
         .modifier-header {
             display: flex;
             align-items: center;
@@ -400,6 +415,16 @@
         .modifier-item.open .modifier-header .chevron {
             transform: rotate(90deg);
         }
+        /* NEW: Drag handle style */
+        .drag-handle {
+            cursor: grab;
+            color: var(--text-light);
+            padding: 0 0.5rem;
+        }
+        .drag-handle:active {
+            cursor: grabbing;
+        }
+
 
         /* --- UPDATED: Styles for Before/After view --- */
         .code-snippet-container {
@@ -532,7 +557,7 @@
         <div class="w-full max-w-lg fade-in">
             <div class="bg-white rounded-xl shadow-2xl p-6">
                 <div class="flex items-center gap-3 border-b border-gray-200 pb-4 mb-4">
-                     <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8 text-gray-700" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                       <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8 text-gray-700" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
                             <path d="M9 19c-4.3 1.4 -4.3-2.5 -6-3m12 5v-3.5c0-1 .1-1.4-.5-2c2.8-.3 5.5-1.4 5.5-6a4.6 4.6 0 0 0 -1.3-3.2a4.2 4.2 0 0 0 -.1-3.2s-1.1-.3-3.5 1.3a12.3 12.3 0 0 0 -6.2 0c-2.4-1.6-3.5-1.3-3.5-1.3a4.2 4.2 0 0 0 -.1 3.2a4.6 4.6 0 0 0 -1.3 3.2c0 4.6 2.7 5.7 5.5 6c-.6.6-.6 1.2-.5 2V21"/>
                         </svg>
                     <h1 class="text-xl font-semibold text-gray-800">Load a GitHub Repository</h1>
@@ -967,6 +992,8 @@
                     Object.entries(state.modifiers).forEach(([key, modifier]) => {
                         const item = document.createElement('div');
                         item.className = 'modifier-item';
+                        item.dataset.key = key; // Add key for drag-and-drop identification
+                        item.draggable = true; // Make the item draggable
                         
                         let typeLabel = 'Function';
                         if (modifier.type === 'text') typeLabel = 'Text';
@@ -1002,6 +1029,9 @@
                         item.innerHTML = `
                             <div class="modifier-header">
                                 <div class="flex items-center gap-3 flex-grow min-w-0">
+                                    <span class="drag-handle">
+                                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h16" /></svg>
+                                    </span>
                                     <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-gray-400 chevron flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" /></svg>
                                     <div class="flex-grow min-w-0">
                                         <p class="font-semibold text-gray-800 truncate" title="${escapeHtml(modifier.name || 'Untitled')}">${escapeHtml(modifier.name || 'Untitled')}</p>
@@ -2216,9 +2246,10 @@
 
                 modifierPanelContent.addEventListener('click', (e) => {
                     const header = e.target.closest('.modifier-header');
-                    const isActionButton = e.target.closest('.action-btn, .toggle-switch');
+                    // Do not toggle accordion if a button, toggle, or drag handle was clicked
+                    const isInteractiveElement = e.target.closest('.action-btn, .toggle-switch, .drag-handle');
 
-                    if (header && !isActionButton) {
+                    if (header && !isInteractiveElement) {
                         header.parentElement.classList.toggle('open');
                     }
 
@@ -2245,6 +2276,88 @@
                     }
                 });
                 
+                // --- NEW: Robust Drag and Drop Logic for Modifiers ---
+                let draggedItem = null;
+
+                modifierPanelContent.addEventListener('dragstart', (e) => {
+                    const target = e.target.closest('.modifier-item');
+                    if (!target) return;
+                    draggedItem = target;
+                    
+                    setTimeout(() => {
+                        draggedItem.classList.add('dragging');
+                    }, 0);
+                    e.dataTransfer.effectAllowed = 'move';
+                    e.dataTransfer.setData('text/plain', draggedItem.dataset.key);
+                });
+
+                modifierPanelContent.addEventListener('dragend', () => {
+                    if (!draggedItem) return;
+                    draggedItem.classList.remove('dragging');
+                    document.querySelectorAll('.modifier-item.drag-over-top, .modifier-item.drag-over-bottom').forEach(el => {
+                        el.classList.remove('drag-over-top', 'drag-over-bottom');
+                    });
+                    draggedItem = null;
+                });
+
+                modifierPanelContent.addEventListener('dragover', (e) => {
+                    e.preventDefault();
+                    const targetItem = e.target.closest('.modifier-item');
+                    
+                    document.querySelectorAll('.modifier-item.drag-over-top, .modifier-item.drag-over-bottom').forEach(el => {
+                        el.classList.remove('drag-over-top', 'drag-over-bottom');
+                    });
+
+                    if (!targetItem || targetItem === draggedItem) return;
+
+                    const rect = targetItem.getBoundingClientRect();
+                    const isAfter = e.clientY > rect.top + rect.height / 2;
+
+                    if (isAfter) {
+                        targetItem.classList.add('drag-over-bottom');
+                    } else {
+                        targetItem.classList.add('drag-over-top');
+                    }
+                });
+
+                modifierPanelContent.addEventListener('drop', (e) => {
+                    e.preventDefault();
+                    if (!draggedItem) return;
+
+                    const targetItem = e.target.closest('.modifier-item');
+                    const parent = draggedItem.parentNode;
+
+                    // Clean up all visual indicators
+                    document.querySelectorAll('.modifier-item.drag-over-top, .modifier-item.drag-over-bottom').forEach(el => {
+                        el.classList.remove('drag-over-top', 'drag-over-bottom');
+                    });
+                    
+                    // Case 1: Dropped on a valid target item (but not itself)
+                    if (targetItem && targetItem !== draggedItem) {
+                        const rect = targetItem.getBoundingClientRect();
+                        const isAfter = e.clientY > rect.top + rect.height / 2;
+                        if (isAfter) {
+                            parent.insertBefore(draggedItem, targetItem.nextSibling);
+                        } else {
+                            parent.insertBefore(draggedItem, targetItem);
+                        }
+                    } 
+                    // Case 2: Dropped in the container but not on another item (append to end)
+                    else if (!targetItem) {
+                        parent.appendChild(draggedItem);
+                    }
+                    // Case 3 (implicit): Dropped on itself, do nothing.
+
+                    // Sync state with the new DOM order
+                    const newKeyOrder = Array.from(parent.querySelectorAll('.modifier-item')).map(item => item.dataset.key);
+                    const reorderedModifiers = {};
+                    newKeyOrder.forEach(key => {
+                        reorderedModifiers[key] = state.modifiers[key];
+                    });
+                    state.modifiers = reorderedModifiers;
+                });
+
+
                 saveModifierEditBtn.addEventListener('click', () => {
                     if (state.editingModifierKey) {
                         const key = state.editingModifierKey;
