@@ -516,9 +516,6 @@
         .ace_gutter {
             display: none !important;
         }
-        /* Adjust Ace editor's left padding to make space for our line numbers */
-        /* This will be controlled by JS now */
-
 
         /* --- Responsive Design --- */
         @media (min-width: 640px) {
@@ -859,7 +856,6 @@
                 editingModifierKey: null,
                 detectedScriptObjects: {},
                 aceEditor: null,
-                alignmentStyleTag: null,
             };
             
             // --- UI Modals & Interactions ---
@@ -1051,9 +1047,13 @@
                 const lineCount = state.aceEditor.session.getLength();
                 lineNumbers.innerHTML = Array.from({ length: lineCount }, (_, i) => `<span>${startLine + i}</span>`).join('');
                 
+                // --- FIX: Use Ace's built-in renderer padding ---
+                // This correctly adjusts the editor's internal coordinate system,
+                // fixing the mouse selection offset issue.
                 const lineWidth = DOMElements.lineNumbers.offsetWidth;
-                const newPadding = lineWidth + 8;
-                state.alignmentStyleTag.textContent = `.ace_content { padding-left: ${newPadding}px !important; }`;
+                const newPadding = lineWidth + 8; // 8px for a small margin
+                state.aceEditor.renderer.setPadding(newPadding);
+                state.aceEditor.resize(); // Force Ace to recalculate its layout
             }
 
             // Populates the editor with the selected target's source code.
@@ -1118,6 +1118,8 @@
                 }
                 
                 const verticalOffset = 0;
+                // This leading value is a good approximation but can drift over many lines
+                // due to browser font rendering inconsistencies.
                 const leading = 1.169;
 
                 DOMElements.lineNumbers.style.paddingTop = `${verticalOffset}px`;
@@ -2130,6 +2132,7 @@
                     
                     const rect = element.getBoundingClientRect();
 
+                    // Ensure the element is positioned absolutely for dragging
                     element.style.position = 'absolute';
                     element.style.top = `${rect.top}px`;
                     element.style.left = `${rect.left}px`;
@@ -2541,10 +2544,31 @@
                             highlightElement.style.height = \`\${rect.height}px\`;
                         };
 
-                        // The click handler is now just for user interaction, the observer does the real work.
+                        // --- FIX: Made the click handler less intrusive ---
+                        // It now only captures the element and sends the message,
+                        // without preventing the page's default click behavior.
+                        // This allows the page to function normally during inspection.
                         const clickHandler = (e) => {
+                            const target = e.target;
+                            if (!target || target === highlightElement || target.id === 'modifier-spy-script') return;
+                            
+                            // We still stop the event here to prevent navigating away
+                            // or triggering unwanted actions *while* capturing.
                             e.preventDefault();
                             e.stopPropagation();
+
+                            const selector = getUniqueSelector(target);
+                            const html = target.outerHTML;
+                            const text = (target.innerText || '').trim().substring(0, 70).replace(/\\s+/g, ' ');
+
+                            const payload = {
+                                name: selector,
+                                source: text,
+                                declaration: \`Dynamic Element: \${text}\`,
+                                fullSource: html,
+                            };
+                            
+                            window.parent.postMessage({ type: 'CAPTURED_DYNAMIC_CONTENT', payload: payload }, '*');
                         };
 
                         function getUniqueSelector(el) {
@@ -2589,7 +2613,7 @@
                                                      declaration: \`Dynamic Modal: \${text}\`,
                                                      fullSource: html,
                                                  };
-                                                 
+                                                
                                                  window.parent.postMessage({ type: 'CAPTURED_DYNAMIC_CONTENT', payload: payload }, '*');
                                             }
                                         }
@@ -2638,9 +2662,6 @@
 
             // The main entry point for the application.
             function initializeViewer() {
-                state.alignmentStyleTag = document.createElement('style');
-                document.head.appendChild(state.alignmentStyleTag);
-
                 DOMElements.navControls.style.display = 'none';
                 try {
                     const savedViewMode = localStorage.getItem('explorerViewMode');
