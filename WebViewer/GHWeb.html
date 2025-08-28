@@ -646,6 +646,13 @@
                             </select>
                         </div>
                     </div>
+                     <!-- NEW: Analyzer Controls -->
+                    <div class="flex justify-end mt-2" id="analyzer-controls" style="display: none;">
+                        <button id="start-inspector-btn" class="modifier-action-btn" style="color: var(--accent-blue); border-color: var(--accent-blue);">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+                            <span>Start Inline Analyzer</span>
+                        </button>
+                    </div>
                 </div>
                 <!-- Editor section that grows -->
                 <div class="flex flex-col flex-grow mt-2 min-h-0">
@@ -739,14 +746,31 @@
         </svg>
         </button>
     </div>
+    
+    <!-- NEW: Inspector Mode Overlay -->
+    <div id="inspector-mode-overlay" class="fixed inset-0" style="display: none; z-index: 1999; pointer-events: none;">
+        <div id="inspector-controls" class="absolute top-4 right-4 bg-gray-800 text-white p-4 rounded-lg shadow-lg text-center" style="pointer-events: auto;">
+            <div id="inspector-drag-handle" class="cursor-move pb-2 mb-2 border-b border-gray-600">
+                <h4 class="font-semibold">Inline Analyzer Active</h4>
+                <p class="text-xs text-gray-400">Click elements to capture.</p>
+            </div>
+            <button id="stop-inspector-btn" class="w-full mt-2 px-4 py-2 text-sm font-semibold text-gray-800 bg-white rounded-md hover:bg-gray-200 transition-colors">
+                Stop Analyzing
+            </button>
+        </div>
+    </div>
+
 
     <script>
         document.addEventListener('DOMContentLoaded', () => {
-            // Defines application-wide constants.
+            // --- Application Constants ---
             const GITHUB_URL = 'https://github.com/oldskool978/Assistive-Tools/tree/main/BoardPages';
             
-            // Keys for identifying different types of modifiable content.
-            const ELEMENT_CONTENT_KEY = '(Element Content)';
+            // Content type keys for categorization.
+            const MODAL_CONTENT_KEY = '(Potential Modals & Popups)';
+            const STATIC_CONTENT_KEY = '(Static Content)'; 
+            const DYNAMIC_CONTENT_KEY = '(Dynamic Content)';
+            const HTML_IN_JS_KEY = '(HTML-in-JS Constants)';
             const CSS_STYLES_KEY = '(CSS Styles)';
             const TEXT_CONTENT_KEY = '(Text Content)';
             const STRING_LITERAL_KEY = '(String Constants)';
@@ -754,7 +778,7 @@
             const STRUCTURED_OBJECT_KEY = '(Structured Objects)';
             const FUNCTIONS_KEY = '(Functions)';
 
-            // SVG icon definitions for the UI.
+            // SVG icon markup.
             const ICONS = {
                 home: `<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" /></svg>`,
                 parent: `<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-3 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" style="stroke-width: 1.5;"><path stroke-linecap="round" stroke-linejoin="round" d="M9 11l-4 4m0 0l4 4m-4-4h12a4 4 0 004-4v-4" /></svg>`,
@@ -762,7 +786,7 @@
                 file: `<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-3 text-blue-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" style="stroke-width: 1.5;"><path stroke-linecap="round" stroke-linejoin="round" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" /></svg>`
             };
 
-            // Cached DOM element references.
+            // Centralized DOM element cache.
             const DOMElements = {
                 iframe: document.getElementById('content-frame'),
                 loadingIndicator: document.getElementById('loading-indicator'),
@@ -812,9 +836,15 @@
                 confirmationModalMessage: document.getElementById('confirmation-modal-message'),
                 confirmCancelBtn: document.getElementById('confirm-cancel-btn'),
                 confirmDeleteBtn: document.getElementById('confirm-delete-btn'),
+                inspectorOverlay: document.getElementById('inspector-mode-overlay'),
+                inspectorControls: document.getElementById('inspector-controls'),
+                inspectorDragHandle: document.getElementById('inspector-drag-handle'),
+                stopInspectorBtn: document.getElementById('stop-inspector-btn'),
+                analyzerControls: document.getElementById('analyzer-controls'),
+                startInspectorBtn: document.getElementById('start-inspector-btn'),
             };
 
-            // Holds the application's dynamic state.
+            // Application state.
             const state = {
                 repoConfig: null,
                 currentDirectoryFiles: [],
@@ -835,7 +865,7 @@
             // --- UI Modals & Interactions ---
             let confirmCallback = null;
 
-            // Displays a confirmation modal with a specified message.
+            // Shows confirmation modal.
             function showConfirmationModal(message, onConfirm) {
                 const { confirmationModalContainer, confirmationModalMessage } = DOMElements;
                 confirmationModalMessage.textContent = message;
@@ -843,13 +873,13 @@
                 confirmCallback = onConfirm;
             }
 
-            // Hides the confirmation modal.
+            // Hides confirmation modal.
             function hideConfirmationModal() {
                 DOMElements.confirmationModalContainer.style.display = 'none';
                 confirmCallback = null;
             }
             
-            // Escapes HTML special characters to prevent rendering as HTML.
+            // Escapes HTML special characters in a string.
             function escapeHtml(unsafe) {
                 if (typeof unsafe !== 'string') return '';
                 return unsafe
@@ -876,7 +906,7 @@
                 };
             }
 
-            // Generates an executable script tag from a 'function' type modifier to override a function.
+            // Generates an executable script from a 'function' type modifier.
             function generateScriptFromModifier(modifier) {
                 if (modifier.type !== 'function' || !modifier.targetObject || !modifier.targetFunction || !modifier.functionBody) {
                     return '';
@@ -924,7 +954,7 @@
                 return script;
             }
 
-            // Renders the list of all created modifiers in the main panel.
+            // Renders the complete list of modifiers.
             function renderModifierList() {
                 const { modifierPanelContent, modifierEditorView } = DOMElements;
                 modifierPanelContent.innerHTML = '';
@@ -948,21 +978,29 @@
                         if (modifier.type === 'number') typeLabel = 'Number';
                         if (modifier.type === 'object') typeLabel = 'Object';
                         if (modifier.type === 'css') typeLabel = 'CSS Style';
-                        if (modifier.type === 'element-content') typeLabel = 'Element Content';
+                        if (modifier.type === 'html-in-js') typeLabel = 'HTML in JS';
+                        if (modifier.type === 'static-content') typeLabel = 'Static Content';
+                        if (modifier.type === 'dynamic-content') typeLabel = 'Dynamic Content';
+                        if (modifier.type === 'modal-content') typeLabel = 'Modal Content';
 
                         const targetDisplay = modifier.targetIdentifier || modifier.targetFunction;
                         
                         let beforeCode = 'Original code not found.';
-                        const originalObject = state.detectedScriptObjects[modifier.targetObject];
-                        if (originalObject) {
-                            const findKey = (modifier.type === 'css' || modifier.type === 'element-content' || modifier.targetObject === STRUCTURED_OBJECT_KEY) ? 'name' : 'source';
-                            const originalItem = originalObject.find(i => i[findKey] === modifier.targetFunction);
-                            if (originalItem) {
-                                beforeCode = originalItem.fullSource || originalItem.source;
-                            } else if (modifier.type === 'text') {
-                                beforeCode = modifier.targetFunction;
+                        if (modifier.originalDeclaration) {
+                            beforeCode = modifier.originalDeclaration;
+                        } else {
+                            const originalObject = state.detectedScriptObjects[modifier.targetObject];
+                            if (originalObject) {
+                                const findKey = (['css', 'static-content', 'dynamic-content', 'modal-content', 'html-in-js'].includes(modifier.type) || modifier.targetObject === STRUCTURED_OBJECT_KEY) ? 'name' : 'source';
+                                const originalItem = originalObject.find(i => i[findKey] === modifier.targetFunction);
+                                if (originalItem) {
+                                    beforeCode = originalItem.fullSource || originalItem.source;
+                                } else if (modifier.type === 'text') {
+                                    beforeCode = modifier.targetFunction;
+                                }
                             }
                         }
+
                         const afterCode = modifier.functionBody;
 
                         item.innerHTML = `
@@ -1006,7 +1044,7 @@
                 modifierPanelContent.appendChild(fragment);
             }
             
-            // Updates the line number display to match the Ace editor's content.
+            // Syncs the line number display with the Ace editor's scroll.
             function updateLineNumbers(startLine = 1) {
                 if (!state.aceEditor) return;
                 const { lineNumbers } = DOMElements;
@@ -1017,6 +1055,32 @@
                 const newPadding = lineWidth + 8;
                 state.alignmentStyleTag.textContent = `.ace_content { padding-left: ${newPadding}px !important; }`;
             }
+
+            // Populates the editor with the selected target's source code.
+            const populateEditorFromSelection = (objectName, itemValue) => {
+                let startLine = 1;
+                let editorContent = '';
+
+                if (itemValue && objectName && state.detectedScriptObjects[objectName]) {
+                    let itemData;
+                    switch (objectName) {
+                        case TEXT_CONTENT_KEY:
+                        case STRING_LITERAL_KEY:
+                        case NUMERICAL_CONSTANTS_KEY:
+                            itemData = state.detectedScriptObjects[objectName].find(f => f.source === itemValue);
+                            break;
+                        default:
+                            itemData = state.detectedScriptObjects[objectName].find(f => f.name === itemValue);
+                    }
+                    
+                    if (itemData) {
+                        editorContent = itemData.fullSource || itemData.source;
+                        startLine = itemData.startLine || 1;
+                    }
+                }
+                if(state.aceEditor) state.aceEditor.setValue(editorContent, -1);
+                updateLineNumbers(startLine);
+            };
 
             // Shows the modifier editor view, pre-filled with a modifier's data.
             function showModifierEditor(key) {
@@ -1059,28 +1123,18 @@
                 DOMElements.lineNumbers.style.paddingTop = `${verticalOffset}px`;
                 DOMElements.lineNumbers.style.lineHeight = leading;
                 state.aceEditor.setOption('lineHeight', leading);
-
-                const objectName = modifier.targetObject;
-                const itemValue = modifier.targetFunction;
-                let editorContent = modifier.functionBody || '';
-                 if (objectName && itemValue && state.detectedScriptObjects[objectName]) {
-                     const findKey = (objectName === CSS_STYLES_KEY || objectName === ELEMENT_CONTENT_KEY || objectName === STRUCTURED_OBJECT_KEY) ? 'name' : 'source';
-                     const itemData = state.detectedScriptObjects[objectName].find(f => f[findKey] === itemValue);
-                     if(itemData && itemData.fullSource) {
-                         editorContent = itemData.fullSource;
-                     }
-                 }
-
-                state.aceEditor.setValue(editorContent, -1);
                 
                 targetObjectSelect.innerHTML = '<option value="">Select a type...</option>';
                 
-                const typeOrder = [ELEMENT_CONTENT_KEY, CSS_STYLES_KEY, TEXT_CONTENT_KEY, STRING_LITERAL_KEY, NUMERICAL_CONSTANTS_KEY, STRUCTURED_OBJECT_KEY, FUNCTIONS_KEY];
+                const typeOrder = [DYNAMIC_CONTENT_KEY, MODAL_CONTENT_KEY, STATIC_CONTENT_KEY, HTML_IN_JS_KEY, CSS_STYLES_KEY, TEXT_CONTENT_KEY, STRING_LITERAL_KEY, NUMERICAL_CONSTANTS_KEY, STRUCTURED_OBJECT_KEY, FUNCTIONS_KEY];
                 const sortedObjectKeys = Object.keys(state.detectedScriptObjects)
                     .filter(k => !typeOrder.includes(k))
                     .sort();
                 
-                const allKeys = [...typeOrder.filter(k => state.detectedScriptObjects[k]), ...sortedObjectKeys];
+                const allKeys = [...typeOrder.filter(k => {
+                    if (k === DYNAMIC_CONTENT_KEY) return true; 
+                    return state.detectedScriptObjects[k] && state.detectedScriptObjects[k].length > 0;
+                }), ...sortedObjectKeys];
 
                 allKeys.forEach(objName => {
                     const option = document.createElement('option');
@@ -1094,7 +1148,22 @@
                 
                 setTimeout(() => {
                     targetFunctionSelect.value = modifier.targetFunction;
-                    targetFunctionSelect.dispatchEvent(new Event('change'));
+                    
+                    if (modifier.functionBody) {
+                        if(state.aceEditor) state.aceEditor.setValue(modifier.functionBody, -1);
+                        const objectName = targetObjectSelect.value;
+                        const itemValue = targetFunctionSelect.value;
+                        let startLine = 1;
+                        if (itemValue && objectName && state.detectedScriptObjects[objectName]) {
+                            const findKey = (['css', 'static-content', 'dynamic-content', 'modal-content', 'html-in-js'].includes(objectName) || objectName === STRUCTURED_OBJECT_KEY) ? 'name' : 'source';
+                            const itemData = state.detectedScriptObjects[objectName].find(f => f[findKey] === itemValue);
+                            if (itemData) startLine = itemData.startLine || 1;
+                        }
+                        updateLineNumbers(startLine);
+                    } else {
+                        populateEditorFromSelection(targetObjectSelect.value, targetFunctionSelect.value);
+                    }
+
                     state.aceEditor.resize();
                 }, 0);
             }
@@ -1144,88 +1213,123 @@
                 }
                 return path.join(' > ');
             }
+            
+            // Calculates the line number of a character index in the source HTML.
+            const getLineNumberFromIndex = (charIndex) => {
+                if (charIndex === -1 || !state.currentHtmlContent) return 1;
+                return state.currentHtmlContent.substring(0, charIndex).split('\n').length;
+            };
 
-            // Analyzes the current HTML content to find all modifiable targets.
+            // Performs a static analysis of the loaded HTML content.
             function analyzeContent() {
                 state.detectedScriptObjects = {};
+                state.detectedScriptObjects[DYNAMIC_CONTENT_KEY] = [];
+
                 if (!state.currentHtmlContent) return;
 
-                const getLineNumber = (charIndex) => {
-                    return state.currentHtmlContent.substring(0, charIndex).split('\n').length;
-                };
+                // Pre-processes raw HTML to inject line-number attributes for accurate tracking.
+                let processedHtml = state.currentHtmlContent.replace(/<([a-zA-Z1-6]+)([^>]*?)>/g, (match, tagName, attributes, offset) => {
+                    const lineNumber = getLineNumberFromIndex(offset);
+                    if (tagName.toLowerCase() === 'script' || tagName.toLowerCase() === 'style') {
+                        return match;
+                    }
+                    return `<${tagName} data-line="${lineNumber}"${attributes}>`;
+                });
 
                 const parser = new DOMParser();
-                const doc = parser.parseFromString(state.currentHtmlContent, 'text/html');
+                const doc = parser.parseFromString(processedHtml, 'text/html');
                 
-                // Parser 1: Element Content.
-                // Identifies significant content blocks, including those initially hidden for hover events.
-                const isLikelyHoverContainer = (el) => {
-                    const lowerCaseClassName = el.className.toString().toLowerCase();
-                    const hoverKeywords = ['tooltip', 'popover', 'dropdown', 'modal', 'hidden', 'popup'];
-                    
-                    if (el.style.display === 'none' || el.style.visibility === 'hidden' || el.style.opacity === '0') {
-                        return true;
-                    }
-                    
-                    if (hoverKeywords.some(keyword => lowerCaseClassName.includes(keyword))) {
-                        return true;
-                    }
-
-                    return false;
+                // Removes injected data-line attributes before displaying or saving code.
+                const cleanOuterHTML = (element) => {
+                    if (!element || typeof element.removeAttribute !== 'function') return '';
+                    element.removeAttribute('data-line');
+                    element.querySelectorAll('[data-line]').forEach(el => el.removeAttribute('data-line'));
+                    return element.outerHTML;
                 };
 
-                const blockSelector = 'h1, h2, h3, h4, h5, h6, p, li, div, button, td, th, blockquote, pre, dt, dd, a, span';
-                const allElements = Array.from(doc.body.querySelectorAll(blockSelector));
-                const foundElementsBySelector = new Map();
+                // Finds potential modal/popup elements based on common patterns.
+                const findModalElements = () => {
+                    const modalSelectors = [
+                        'dialog', 
+                        '[role="dialog"]', 
+                        '[role="alertdialog"]', 
+                        '[aria-modal="true"]',
+                        '.modal', '.popup', '.overlay', '.modal-dialog', '.modal-content',
+                        '[id*="modal"]', '[class*="modal-"]', 
+                        '[id*="popup"]', '[class*="popup-"]',
+                        '[id*="overlay"]', '[class*="overlay-"]'
+                    ].join(', ');
+                    
+                    const modalResults = [];
+                    const processedElements = new Set();
 
-                for (const el of allElements) {
-                    if (el.closest('script, style') || el.innerText.trim().length === 0) {
-                        continue;
+                    doc.querySelectorAll(modalSelectors).forEach(el => {
+                        const container = el.closest(modalSelectors) || el;
+                        if (processedElements.has(container)) return;
+
+                        const selector = getUniqueSelector(container);
+                        if (!selector) return;
+
+                        modalResults.push({
+                            name: selector,
+                            source: container.innerText.trim().substring(0, 70).replace(/\s+/g, ' '),
+                            declaration: `Modal: ${container.tagName.toLowerCase()}${container.id ? '#' + container.id : ''}`,
+                            fullSource: cleanOuterHTML(container.cloneNode(true)),
+                            startLine: parseInt(container.dataset.line, 10) || 1,
+                        });
+                        processedElements.add(container);
+                    });
+
+                     if (modalResults.length > 0) {
+                        state.detectedScriptObjects[MODAL_CONTENT_KEY] = modalResults;
                     }
+                };
+                findModalElements();
 
-                    if (!isLikelyHoverContainer(el)) {
-                        const containsBlockChild = el.querySelector(blockSelector);
-                        if (containsBlockChild && containsBlockChild !== el) {
+                // Finds self-contained static content blocks.
+                const findStaticContentElements = () => {
+                    const staticResults = [];
+                    const processedElements = new Set();
+                    
+                    const modalExclusionSelectors = 'script, style, svg, nav, footer, a, button, dialog, [role="dialog"], .modal, .popup, [aria-modal="true"]';
+
+                    const allElements = Array.from(doc.body.querySelectorAll('article, section, div, blockquote, p, h1, h2, h3, h4, li'));
+
+                    for (const el of allElements) {
+                        if (processedElements.has(el) || el.closest(modalExclusionSelectors)) {
                             continue;
                         }
+
+                        const textContent = el.innerText.trim();
+                        if (textContent.length < 25) continue;
+
+                        const isBox = el.children.length > 1 && (el.querySelector('h1, h2, h3, h4, h5, h6') || el.querySelector('p, ul, ol, table'));
+                        const isSimpleBlock = ['P', 'BLOCKQUOTE', 'LI'].includes(el.tagName);
+
+                        if (isBox || isSimpleBlock) {
+                            const selector = getUniqueSelector(el);
+                            if (!selector) continue;
+
+                            staticResults.push({
+                                name: selector,
+                                source: textContent.substring(0, 70).replace(/\s+/g, ' '),
+                                declaration: `Static Block: ${el.tagName.toLowerCase()}${el.id ? '#' + el.id : ''}`,
+                                fullSource: cleanOuterHTML(el.cloneNode(true)),
+                                startLine: parseInt(el.dataset.line, 10) || 1,
+                            });
+
+                            processedElements.add(el);
+                            el.querySelectorAll('*').forEach(desc => processedElements.add(desc));
+                        }
                     }
-                    
-                    const selector = getUniqueSelector(el);
-                    if (selector && !foundElementsBySelector.has(selector)) {
-                        const text = el.innerText.trim();
-                        const approxIndex = state.currentHtmlContent.indexOf(el.outerHTML);
-                        const startLine = (approxIndex !== -1) ? getLineNumber(approxIndex) : 1;
 
-                        foundElementsBySelector.set(selector, {
-                            name: selector,
-                            source: text.substring(0, 70),
-                            declaration: text.substring(0, 70),
-                            fullSource: el.innerHTML,
-                            startLine: startLine,
-                        });
+                    if (staticResults.length > 0) {
+                        state.detectedScriptObjects[STATIC_CONTENT_KEY] = staticResults;
                     }
-                }
+                };
+                findStaticContentElements();
 
-                const finalSelectors = Array.from(foundElementsBySelector.keys());
-                const elementsToRemove = new Set();
-                for (const selector of finalSelectors) {
-                    const el = doc.querySelector(selector);
-                    if (!el || !el.parentElement) continue;
-                    
-                    const parentSelector = getUniqueSelector(el.parentElement);
-                    if (foundElementsBySelector.has(parentSelector)) {
-                        elementsToRemove.add(selector);
-                    }
-                }
-                elementsToRemove.forEach(selector => foundElementsBySelector.delete(selector));
-
-                if (foundElementsBySelector.size > 0) {
-                    state.detectedScriptObjects[ELEMENT_CONTENT_KEY] = Array.from(foundElementsBySelector.values()).sort((a, b) => a.startLine - b.startLine || a.name.localeCompare(b.name));
-                }
-
-
-                // Parser 2: Text Content.
-                // Finds text nodes not contained within other targeted elements.
+                // Finds stray text nodes not captured in blocks.
                 const walker = document.createTreeWalker(doc.documentElement, NodeFilter.SHOW_TEXT, null, false);
                 const foundText = new Set();
                 let node;
@@ -1240,12 +1344,11 @@
                         .sort()
                         .map(text => {
                             const firstIndex = state.currentHtmlContent.indexOf(text);
-                            return { name: text, source: text, declaration: text, startLine: getLineNumber(firstIndex) };
+                            return { name: text, source: text, declaration: text, startLine: getLineNumberFromIndex(firstIndex) };
                         });
                 }
 
-                // Parser 3: CSS Styles.
-                // Extracts CSS rules from style tags.
+                // Finds all CSS rules within <style> tags.
                 const styleContentRegex = /<style\b[^>]*>([\s\S]*?)<\/style>/gi;
                 const styles = Array.from(state.currentHtmlContent.matchAll(styleContentRegex));
                 const foundCssRules = new Map();
@@ -1259,7 +1362,6 @@
 
                     while ((ruleMatch = ruleStartRegex.exec(styleContent)) !== null) {
                         const selector = ruleMatch[1].trim();
-                        
                         if (!selector || selector.startsWith('@') || selector.startsWith('/*')) continue;
 
                         const startIndexInStyle = ruleMatch.index;
@@ -1287,7 +1389,7 @@
                                     source: properties,
                                     declaration: selector,
                                     fullSource: fullRule,
-                                    startLine: getLineNumber(absoluteIndex)
+                                    startLine: getLineNumberFromIndex(absoluteIndex)
                                 });
                             }
                             ruleStartRegex.lastIndex = bodyEndIndex + 1;
@@ -1299,14 +1401,15 @@
                     state.detectedScriptObjects[CSS_STYLES_KEY] = Array.from(foundCssRules.values()).sort((a, b) => a.name.localeCompare(b.name));
                 }
 
-                // Parser 4: JavaScript Content.
-                // Extracts variables, constants, objects, and functions from script tags.
+                // Finds all JavaScript variables, objects, and functions.
                 const scriptContentRegex = /<script\b[^>]*>([\s\S]*?)<\/script>/gi;
                 const scripts = Array.from(state.currentHtmlContent.matchAll(scriptContentRegex));
                 if (scripts.length === 0) return;
 
                 const varDeclarationRegex = /(?:const|let|var)\s+([a-zA-Z0-9_$]+)\s*=/g;
                 const assignmentRegex = /([a-zA-Z0-9_$][\w.$]*)\s*=\s*(?![=>])/g;
+                const htmlInJsRegex = /([\w.$]+)\s*=\s*`([\s\S]*?)`/g;
+                const foundHtmlInJs = new Map();
 
                 const foundStrings = new Map();
                 const foundNumbers = new Map();
@@ -1316,9 +1419,31 @@
                     let scriptContent = scriptMatch[1];
                     const scriptStartIndex = scriptMatch.index + scriptMatch[0].indexOf('>') + 1;
                     const processedIndices = new Set();
-
                     let match;
+
+                    while((match = htmlInJsRegex.exec(scriptContent)) !== null) {
+                        const varName = match[1];
+                        const htmlContent = match[2];
+                        if (htmlContent.includes('<') && htmlContent.includes('>')) {
+                            const fullDeclaration = match[0];
+                            const absoluteIndex = scriptStartIndex + match.index;
+                            
+                            const item = {
+                                name: varName,
+                                source: htmlContent,
+                                declaration: fullDeclaration,
+                                fullSource: htmlContent,
+                                startLine: getLineNumberFromIndex(absoluteIndex)
+                            };
+                            foundHtmlInJs.set(varName, item);
+                            for(let i = match.index; i < match.index + fullDeclaration.length; i++) {
+                                processedIndices.add(i);
+                            }
+                        }
+                    }
+
                     while((match = varDeclarationRegex.exec(scriptContent)) !== null) {
+                        if (processedIndices.has(match.index)) continue;
                         processedIndices.add(match.index);
                         
                         const varName = match[1];
@@ -1361,7 +1486,7 @@
                                 let balance = 1;
                                 for (let i = startIndex + 1; i < scriptContent.length; i++) {
                                     if (scriptContent[i] === openChar) balance++;
-                                    if (scriptContent[i] === closeChar) balance--;
+                                    else if (scriptContent[i] === closeChar) balance--;
                                     if (balance === 0) {
                                         valueEndIndex = i + 1;
                                         break;
@@ -1373,7 +1498,7 @@
                                     type = STRUCTURED_OBJECT_KEY;
                                 }
                             }
-                        } else if (firstChar === '"' || firstChar === "'" || firstChar === "`") {
+                        } else if (firstChar === '"' || firstChar === "'") { // Exclude backticks now
                             let i = assignmentIndex + 1;
                             while(i < scriptContent.length) {
                                 if (scriptContent[i] === '\\') { i += 2; continue; }
@@ -1396,7 +1521,7 @@
                         if (value && valueEndIndex !== -1) {
                             const fullDeclaration = scriptContent.substring(declarationStartIndex, valueEndIndex);
                             const absoluteIndex = scriptStartIndex + declarationStartIndex;
-                            const item = { name: varName, source: value.trim(), declaration: fullDeclaration, startLine: getLineNumber(absoluteIndex) };
+                            const item = { name: varName, source: value.trim(), declaration: fullDeclaration, startLine: getLineNumberFromIndex(absoluteIndex) };
                             if (type === STRUCTURED_OBJECT_KEY) {
                                 item.fullSource = fullSourceForObject;
                                 item.source = summarizeObjectSource(fullSourceForObject);
@@ -1420,35 +1545,18 @@
                         
                         const firstChar = scriptContent[assignmentIndex];
                         
-                        if (firstChar === '{' || firstChar === '[' || scriptContent.substring(assignmentIndex, assignmentIndex + 3) === 'new') {
+                        if (firstChar === '{' || firstChar === '[') {
                             let valueEndIndex = -1;
                             let value = null;
-                            let openChar, closeChar;
+                            let openChar = firstChar;
+                            let closeChar = firstChar === '{' ? '}' : ']';
                             let startIndex = assignmentIndex;
-                            if (scriptContent.substring(assignmentIndex, assignmentIndex + 3) === 'new') {
-                                const constructorMatch = scriptContent.substring(assignmentIndex).match(/^new\s+[\w.]+\s*\(([\s\S]*)\)/);
-                                if (constructorMatch) {
-                                    const constructorBody = constructorMatch[1];
-                                    const firstBodyChar = constructorBody.trim()[0];
-                                    if (firstBodyChar === '{' || firstBodyChar === '[') {
-                                        openChar = firstBodyChar;
-                                        closeChar = firstBodyChar === '{' ? '}' : ']';
-                                        startIndex = assignmentIndex + constructorMatch[0].indexOf(openChar);
-                                    } else {
-                                        openChar = '(';
-                                        closeChar = ')';
-                                        startIndex = assignmentIndex + scriptContent.substring(assignmentIndex).indexOf(openChar);
-                                    }
-                                }
-                            } else {
-                                openChar = firstChar;
-                                closeChar = firstChar === '{' ? '}' : ']';
-                            }
+                            
                             if (openChar) {
                                 let balance = 1;
                                 for (let i = startIndex + 1; i < scriptContent.length; i++) {
                                     if (scriptContent[i] === openChar) balance++;
-                                    if (scriptContent[i] === closeChar) balance--;
+                                    else if (scriptContent[i] === closeChar) balance--;
                                     if (balance === 0) {
                                         valueEndIndex = i + 1;
                                         break;
@@ -1459,7 +1567,7 @@
                                     const fullDeclaration = scriptContent.substring(declarationStartIndex, valueEndIndex);
                                     const absoluteIndex = scriptStartIndex + declarationStartIndex;
                                     const fullSource = value.trim();
-                                    const item = { name: varName, source: summarizeObjectSource(fullSource), declaration: fullDeclaration, fullSource: fullSource, startLine: getLineNumber(absoluteIndex) };
+                                    const item = { name: varName, source: summarizeObjectSource(fullSource), declaration: fullDeclaration, fullSource: fullSource, startLine: getLineNumberFromIndex(absoluteIndex) };
                                     foundObjects.set(varName, item);
                                 }
                             }
@@ -1467,6 +1575,7 @@
                     }
                 }
                 
+                if(foundHtmlInJs.size > 0) state.detectedScriptObjects[HTML_IN_JS_KEY] = Array.from(foundHtmlInJs.values()).sort((a,b) => a.name.localeCompare(b.name));
                 if(foundStrings.size > 0) state.detectedScriptObjects[STRING_LITERAL_KEY] = Array.from(foundStrings.values()).sort((a,b) => a.name.localeCompare(b.name));
                 if(foundNumbers.size > 0) state.detectedScriptObjects[NUMERICAL_CONSTANTS_KEY] = Array.from(foundNumbers.values()).sort((a,b) => a.name.localeCompare(b.name));
                 if(foundObjects.size > 0) state.detectedScriptObjects[STRUCTURED_OBJECT_KEY] = Array.from(foundObjects.values()).sort((a,b) => a.name.localeCompare(b.name));
@@ -1525,7 +1634,7 @@
                                 }
                                 funcName = funcName.replace(/['"]/g, '');
                             }
-                            addDetectedFunction(objectName, funcName, fullSource, getLineNumber(absoluteIndex));
+                            addDetectedFunction(objectName, funcName, fullSource, getLineNumberFromIndex(absoluteIndex));
                         }
                     }
                 }
@@ -1535,72 +1644,76 @@
             function getCompiledHtml() {
                 if (!state.currentHtmlContent) return '';
                 
-                const parser = new DOMParser();
-                const doc = parser.parseFromString(state.currentHtmlContent, 'text/html');
-                let domModified = false;
+                let moddedHtml = state.currentHtmlContent;
 
-                const domModifiers = [];
-                const stringModifiers = [];
+                const htmlModifiers = [];
+                const otherModifiers = [];
 
+                // Separate modifiers into HTML structural changes and other types.
                 Object.values(state.modifiers).forEach(mod => {
                     if (!mod.enabled) return;
-                    if (mod.type === 'element-content') {
-                        domModifiers.push(mod);
+                    if (['static-content', 'modal-content', 'dynamic-content'].includes(mod.type)) {
+                        htmlModifiers.push(mod);
                     } else {
-                        stringModifiers.push(mod);
+                        otherModifiers.push(mod);
                     }
                 });
 
-                // Apply DOM-based modifications.
-                domModifiers.forEach(mod => {
+                // Apply non-HTML modifiers first using string replacement.
+                otherModifiers.forEach(mod => {
                     try {
-                        const element = doc.querySelector(mod.targetFunction);
-                        if (element) {
-                            element.innerHTML = mod.functionBody;
-                            domModified = true;
-                        }
-                    } catch(e) {
-                        console.error(`Failed to apply DOM modifier "${mod.name}":`, e);
-                    }
-                });
-
-                // Serialize the potentially modified DOM back to a string.
-                let moddedHtml = domModified ? `<!DOCTYPE html>\n` + doc.documentElement.outerHTML : state.currentHtmlContent;
-
-                // Apply string-based modifications.
-                stringModifiers.forEach(mod => {
-                    try {
-                        if ((mod.type === 'string' || mod.type === 'number' || mod.type === 'object') && mod.originalDeclaration) {
-                             const newDeclaration = mod.originalDeclaration.replace(/=\s*[\s\S]*/, `= ${mod.functionBody}`);
-                             moddedHtml = moddedHtml.replace(mod.originalDeclaration, newDeclaration);
+                        if ((['string', 'number', 'object', 'css', 'html-in-js'].includes(mod.type)) && mod.originalDeclaration) {
+                            let replaced = false;
+                            moddedHtml = moddedHtml.replace(mod.originalDeclaration, () => {
+                                if (replaced) return mod.originalDeclaration; // Replace only once.
+                                replaced = true;
+                                if (mod.type === 'html-in-js') {
+                                    return `${mod.targetIdentifier} = \`${mod.functionBody}\``;
+                                }
+                                return mod.functionBody;
+                            });
                         } else if (mod.type === 'text' && mod.targetFunction) {
                             moddedHtml = moddedHtml.replaceAll(mod.targetFunction, mod.functionBody);
-                        } else if (mod.type === 'css' && mod.originalDeclaration) {
-                            moddedHtml = moddedHtml.replace(mod.originalDeclaration, mod.functionBody);
                         }
                     } catch (e) {
-                        console.error(`Failed to apply string modifier "${mod.name}":`, e);
+                        console.error(`Failed to apply modifier "${mod.name}":`, e);
                     }
                 });
 
-                return moddedHtml;
-            }
+                // Apply HTML structural changes using DOM parsing for robustness.
+                if (htmlModifiers.length > 0) {
+                    const parser = new DOMParser();
+                    const doc = parser.parseFromString(moddedHtml, 'text/html');
+                    let modified = false;
 
-            // Applies all active modifiers and reloads the iframe with the modified content.
-            function applyModsAndReloadIframe() {
-                if (!state.currentHtmlContent) return;
-                
-                let moddedHtml = getCompiledHtml();
-                const scriptsToInject = [];
-
-                Object.values(state.modifiers).forEach(mod => {
-                    if (!mod.enabled) return;
-                    try {
-                        if (mod.type === 'function' && mod.functionBody) {
-                           scriptsToInject.push(generateScriptFromModifier(mod));
+                    htmlModifiers.forEach(mod => {
+                        try {
+                            const elementToReplace = doc.querySelector(mod.targetIdentifier); 
+                            if (elementToReplace) {
+                                const tempContainer = doc.createElement('div');
+                                tempContainer.innerHTML = mod.functionBody;
+                                elementToReplace.replaceWith(...tempContainer.childNodes);
+                                modified = true;
+                            }
+                        } catch (e) {
+                            console.error(`Failed to apply HTML modifier "${mod.name}":`, e);
                         }
-                    } catch (e) {
-                        console.error(`Failed to generate script for modifier "${mod.name}":`, e);
+                    });
+
+                    if (modified) {
+                        moddedHtml = doc.documentElement.outerHTML;
+                    }
+                }
+
+                // Inject function-override scripts.
+                const scriptsToInject = [];
+                 Object.values(state.modifiers).forEach(mod => {
+                    if (mod.enabled && mod.type === 'function' && mod.functionBody) {
+                        try {
+                           scriptsToInject.push(generateScriptFromModifier(mod));
+                        } catch (e) {
+                            console.error(`Failed to generate script for modifier "${mod.name}":`, e);
+                        }
                     }
                 });
 
@@ -1614,12 +1727,23 @@
                     }
                 }
                 
+                return moddedHtml;
+            }
+
+
+            // Applies all active modifiers and reloads the iframe.
+            function applyModsAndReloadIframe() {
+                if (!state.currentHtmlContent) return;
+                
+                let moddedHtml = getCompiledHtml();
+                
+                DOMElements.iframe.onload = () => {};
                 DOMElements.iframe.srcdoc = moddedHtml;
             }
 
             // --- Utility & UI Functions ---
 
-            // Copies a string to the user's clipboard.
+            // Copies a string to the clipboard.
             function copyToClipboard(text, successCallback, errorCallback) {
                 try {
                     const textArea = document.createElement("textarea");
@@ -1643,7 +1767,7 @@
                 }
             }
             
-            // Displays an error message inside the main iframe.
+            // Displays an error message in the iframe.
             function showError(title, message) {
                 DOMElements.iframe.srcdoc = `<div style="display:flex; flex-direction:column; align-items:center; justify-content:center; height:100%; font-family:var(--font-sans); color:var(--text-error); padding: 2em; text-align:center;"><h1>${title}</h1><p>${message}</p></div>`;
                 DOMElements.loadingIndicator.style.display = 'none';
@@ -1675,7 +1799,7 @@
                 }
             }
 
-            // Extracts a CSS property value from an HTML string's body tag.
+            // Extracts a CSS property value from the body tag.
             function extractBodyStyle(html, property) {
                 const bodyStyleMatch = html.match(/<body[^>]*style\s*=\s*["']([^"']*)["']/i);
                 if (bodyStyleMatch && bodyStyleMatch[1]) {
@@ -1686,7 +1810,7 @@
                 return null;
             }
 
-            // Determines if a color is light or dark based on luminance.
+            // Determines if a color is light or dark.
             function isColorLight(color) {
                 try {
                     const tempDiv = document.createElement('div');
@@ -1700,7 +1824,7 @@
                 } catch (e) { return true; }
             }
 
-            // Adapts the navigation controls' theme based on the loaded page's background color.
+            // Adapts navigation controls theme to the loaded page's background.
             function updateNavStyles(bgColor, font) {
                 const { navControls, pageCounter } = DOMElements;
                 const allIcons = navControls.querySelectorAll('svg');
@@ -1730,7 +1854,7 @@
                 pageCounter.style.fontFamily = font ? font : 'var(--font-mono)';
             }
             
-            // Generates and populates the breadcrumb navigation bar.
+            // Generates and populates the breadcrumb navigation.
             function createBreadcrumbs() {
                 const { breadcrumbNav } = DOMElements;
                 breadcrumbNav.innerHTML = '';
@@ -1768,7 +1892,7 @@
                 breadcrumbNav.appendChild(fragment);
             }
 
-            // Sets the view mode for the file browser (list or grid).
+            // Sets the file browser view mode (list or grid).
             function setViewMode(mode) {
                 state.viewMode = mode;
                 const { fileList, viewListBtn, viewGridBtn } = DOMElements;
@@ -1782,7 +1906,7 @@
                 }
             }
 
-            // Populates the file browser modal with directory contents.
+            // Populates the file browser with directory contents.
             function populateFileBrowser(contents) {
                 const { fileList, fileCount } = DOMElements;
                 const fragment = document.createDocumentFragment();
@@ -1838,7 +1962,7 @@
 
             // --- Core Application Logic ---
 
-            // Fetches and displays an HTML file from the repository.
+            // Fetches, renders, and analyzes an HTML file.
             async function loadPageByPath(filePath) {
                 state.modifiers = {};
 
@@ -1887,7 +2011,7 @@
                 }
             }
             
-            // Fetches the contents of a directory from the GitHub API.
+            // Fetches directory contents from the GitHub API.
             async function fetchDirectory(path) {
                 if (state.directoryCache[path]) {
                     state.currentPath = path;
@@ -1923,7 +2047,7 @@
 
             // --- Event Listener Binding ---
 
-            // Binds all necessary event listeners for the application UI.
+            // Binds all primary UI event listeners.
             function bindEventListeners() {
                 const { 
                     nextBtn, prevBtn, openModalBtn, closeModalBtn, copyLinkBtn, modalContainer, fileList, 
@@ -1932,7 +2056,7 @@
                     saveModifierEditBtn, cancelModifierEditBtn, newModifierBtn,
                     importModifiersBtn, exportModifiersBtn, copyModdedHtmlBtn, modifierFileInput,
                     modifierTitleBar, targetObjectSelect, targetFunctionSelect, reloadWithModsBtn,
-                    targetItemLabel, editorLabel
+                    targetItemLabel, editorLabel, stopInspectorBtn, inspectorDragHandle, startInspectorBtn
                 } = DOMElements;
 
                 nextBtn.addEventListener('click', () => {
@@ -2019,6 +2143,8 @@
                 
                 modalTitleBar.addEventListener('mousedown', (e) => startDrag(e, DOMElements.modal));
                 modifierTitleBar.addEventListener('mousedown', (e) => startDrag(e, DOMElements.modifierModal));
+                inspectorDragHandle.addEventListener('mousedown', (e) => startDrag(e, DOMElements.inspectorControls));
+
 
                 document.addEventListener('mousemove', (e) => {
                     if (state.dragInfo.isDragging) {
@@ -2082,56 +2208,49 @@
                         e.stopPropagation();
                     }
                 });
+                
                 saveModifierEditBtn.addEventListener('click', () => {
                     if (state.editingModifierKey) {
                         const key = state.editingModifierKey;
                         const targetObject = DOMElements.targetObjectSelect.value;
                         const targetFunctionValue = DOMElements.targetFunctionSelect.value;
                         
+                        if (!targetObject || !targetFunctionValue) {
+                            console.error("Target type and item must be selected.");
+                            return; 
+                        }
+
                         let type = 'function';
                         let targetIdentifier = targetFunctionValue;
                         let originalDeclaration = '';
 
-                        if (targetObject === CSS_STYLES_KEY) {
-                            type = 'css';
-                            const originalItem = state.detectedScriptObjects[CSS_STYLES_KEY].find(i => i.name === targetFunctionValue);
-                            if (originalItem) {
-                                targetIdentifier = originalItem.name;
-                                originalDeclaration = originalItem.fullSource;
-                            }
-                        } else if (targetObject === ELEMENT_CONTENT_KEY) {
-                            type = 'element-content';
-                            const originalItem = state.detectedScriptObjects[ELEMENT_CONTENT_KEY].find(i => i.name === targetFunctionValue);
-                             if (originalItem) {
-                                targetIdentifier = originalItem.name;
-                                originalDeclaration = originalItem.fullSource;
-                            }
-                        } else if (targetObject === TEXT_CONTENT_KEY) {
-                            type = 'text';
-                        } else if (targetObject === STRING_LITERAL_KEY) {
-                            type = 'string';
-                            const originalItem = state.detectedScriptObjects[STRING_LITERAL_KEY].find(i => i.source === targetFunctionValue);
-                            if (originalItem) {
-                                targetIdentifier = originalItem.name;
-                                originalDeclaration = originalItem.declaration;
-                            }
-                        } else if (targetObject === NUMERICAL_CONSTANTS_KEY) {
-                            type = 'number';
-                            const originalItem = state.detectedScriptObjects[NUMERICAL_CONSTANTS_KEY].find(i => i.source === targetFunctionValue);
-                            if (originalItem) {
-                                targetIdentifier = originalItem.name;
-                                originalDeclaration = originalItem.declaration;
-                            }
-                        } else if (targetObject === STRUCTURED_OBJECT_KEY) {
-                            type = 'object';
-                            const originalItem = state.detectedScriptObjects[STRUCTURED_OBJECT_KEY].find(i => i.name === targetFunctionValue);
-                            if (originalItem) {
-                                targetIdentifier = originalItem.name;
-                                originalDeclaration = originalItem.declaration;
-                            }
-                        } else {
-                             targetIdentifier = `${targetObject}.${targetFunctionValue}`;
+                        const nameBasedTypes = [CSS_STYLES_KEY, STATIC_CONTENT_KEY, MODAL_CONTENT_KEY, DYNAMIC_CONTENT_KEY, HTML_IN_JS_KEY, STRUCTURED_OBJECT_KEY, FUNCTIONS_KEY];
+                        const sourceBasedTypes = [TEXT_CONTENT_KEY, STRING_LITERAL_KEY, NUMERICAL_CONSTANTS_KEY];
+                        
+                        let originalItem;
+                        if (nameBasedTypes.includes(targetObject)) {
+                            originalItem = state.detectedScriptObjects[targetObject]?.find(i => i.name === targetFunctionValue);
+                        } else if (sourceBasedTypes.includes(targetObject)) {
+                            originalItem = state.detectedScriptObjects[targetObject]?.find(i => i.source === targetFunctionValue);
                         }
+
+                        if (!originalItem) {
+                            console.error(`Could not find a matching original item for "${targetFunctionValue}" in "${targetObject}". Modifier not saved.`);
+                            return;
+                        }
+
+                        originalDeclaration = originalItem.fullSource || originalItem.source;
+                        targetIdentifier = originalItem.name;
+
+                        const staticTypes = [STATIC_CONTENT_KEY, MODAL_CONTENT_KEY, DYNAMIC_CONTENT_KEY];
+                        if (staticTypes.includes(targetObject)) {
+                            type = targetObject.toLowerCase().replace(/[()]/g, '').replace(/\s/g, '-');
+                        } else if (targetObject === CSS_STYLES_KEY) { type = 'css'; }
+                        else if (targetObject === HTML_IN_JS_KEY) { type = 'html-in-js'; }
+                        else if (targetObject === TEXT_CONTENT_KEY) { type = 'text'; }
+                        else if (targetObject === STRING_LITERAL_KEY) { type = 'string'; }
+                        else if (targetObject === NUMERICAL_CONSTANTS_KEY) { type = 'number'; }
+                        else if (targetObject === STRUCTURED_OBJECT_KEY) { type = 'object'; }
 
                         state.modifiers[key] = {
                             ...state.modifiers[key],
@@ -2146,6 +2265,7 @@
                         renderModifierList();
                     }
                 });
+
                 cancelModifierEditBtn.addEventListener('click', () => {
                     renderModifierList();
                 });
@@ -2156,16 +2276,18 @@
                 });
 
                 targetObjectSelect.addEventListener('change', (e) => {
-                    const { targetFunctionSelect } = DOMElements;
+                    const { targetFunctionSelect, analyzerControls } = DOMElements;
                     const selectedType = e.target.value;
                     targetFunctionSelect.innerHTML = '<option value="">Select an item...</option>';
                     
+                    analyzerControls.style.display = 'none';
+
                     if (state.aceEditor) {
                          if (selectedType === CSS_STYLES_KEY) {
                             state.aceEditor.session.setMode("ace/mode/css");
                         } else if (selectedType === TEXT_CONTENT_KEY) {
                             state.aceEditor.session.setMode("ace/mode/text");
-                        } else if (selectedType === ELEMENT_CONTENT_KEY) {
+                        } else if ([STATIC_CONTENT_KEY, DYNAMIC_CONTENT_KEY, MODAL_CONTENT_KEY, HTML_IN_JS_KEY].includes(selectedType)) {
                             state.aceEditor.session.setMode("ace/mode/html");
                         } else {
                             state.aceEditor.session.setMode("ace/mode/javascript");
@@ -2176,9 +2298,11 @@
                         targetFunctionSelect.disabled = false;
                         const items = state.detectedScriptObjects[selectedType];
                         
+                        const nameBasedTypes = [CSS_STYLES_KEY, STATIC_CONTENT_KEY, MODAL_CONTENT_KEY, DYNAMIC_CONTENT_KEY, HTML_IN_JS_KEY, STRUCTURED_OBJECT_KEY, FUNCTIONS_KEY];
+
                         items.forEach(item => {
                             const option = document.createElement('option');
-                            option.value = (selectedType === CSS_STYLES_KEY || selectedType === ELEMENT_CONTENT_KEY || selectedType === STRUCTURED_OBJECT_KEY) ? item.name : item.source;
+                            option.value = nameBasedTypes.includes(selectedType) ? item.name : item.source;
                             option.textContent = item.declaration || item.name;
                             if (option.textContent.length > 75) {
                                 option.title = option.textContent;
@@ -2190,9 +2314,19 @@
                         if (selectedType === CSS_STYLES_KEY) {
                             targetItemLabel.textContent = 'Target Selector';
                             editorLabel.textContent = 'New CSS Rule';
-                        } else if (selectedType === ELEMENT_CONTENT_KEY) {
-                            targetItemLabel.textContent = 'Target Element';
-                            editorLabel.textContent = 'New Inner Content (HTML Allowed)';
+                        } else if (selectedType === STATIC_CONTENT_KEY) {
+                             targetItemLabel.textContent = 'Target Element';
+                             editorLabel.textContent = 'New Outer HTML';
+                        } else if (selectedType === DYNAMIC_CONTENT_KEY) {
+                            targetItemLabel.textContent = 'Captured Dynamic Elements';
+                            editorLabel.textContent = 'New Outer HTML';
+                            analyzerControls.style.display = 'flex';
+                        } else if (selectedType === MODAL_CONTENT_KEY) {
+                            targetItemLabel.textContent = 'Target Modal Element';
+                            editorLabel.textContent = 'New Outer HTML';
+                        } else if (selectedType === HTML_IN_JS_KEY) {
+                            targetItemLabel.textContent = 'Target Variable';
+                            editorLabel.textContent = 'New HTML Content';
                         } else if (selectedType === TEXT_CONTENT_KEY) {
                             targetItemLabel.textContent = 'Target Text';
                             editorLabel.textContent = 'New Text';
@@ -2220,22 +2354,7 @@
                 targetFunctionSelect.addEventListener('change', (e) => {
                     const itemValue = e.target.value;
                     const objectName = targetObjectSelect.value;
-                    let startLine = 1;
-
-                    if (itemValue && objectName && state.detectedScriptObjects[objectName]) {
-                        const findKey = (objectName === CSS_STYLES_KEY || objectName === ELEMENT_CONTENT_KEY || objectName === STRUCTURED_OBJECT_KEY) ? 'name' : 'source';
-                        const itemData = state.detectedScriptObjects[objectName].find(f => f[findKey] === itemValue);
-                        
-                        if (itemData) {
-                            if(state.aceEditor) state.aceEditor.setValue(itemData.fullSource || itemData.source, -1);
-                            startLine = itemData.startLine || 1;
-                        } else {
-                            if(state.aceEditor) state.aceEditor.setValue('', -1);
-                        }
-                    } else {
-                        if(state.aceEditor) state.aceEditor.setValue('', -1);
-                    }
-                    updateLineNumbers(startLine);
+                    populateEditorFromSelection(objectName, itemValue);
                 });
 
                 importModifiersBtn.addEventListener('click', () => {
@@ -2297,6 +2416,48 @@
                         hideConfirmationModal();
                     }
                 });
+
+                window.addEventListener('message', (event) => {
+                    if (!event.data || !event.data.type || event.source !== DOMElements.iframe.contentWindow) return;
+
+                    const { type, payload } = event.data;
+
+                    if (type === 'CAPTURED_DYNAMIC_CONTENT') {
+                        const { name } = payload;
+                        if (!state.detectedScriptObjects[DYNAMIC_CONTENT_KEY]) {
+                            state.detectedScriptObjects[DYNAMIC_CONTENT_KEY] = [];
+                        }
+                        
+                        if (!state.detectedScriptObjects[DYNAMIC_CONTENT_KEY].some(item => item.name === name)) {
+                            // Dynamic content doesn't have a real source line, so we default to 1
+                            const newItem = { ...payload, startLine: 1 };
+                            state.detectedScriptObjects[DYNAMIC_CONTENT_KEY].push(newItem);
+                        }
+                        
+                        // Refresh the dropdown lists while staying in inspector mode.
+                        if (DOMElements.targetObjectSelect.value === DYNAMIC_CONTENT_KEY) {
+                            const selectedType = DOMElements.targetObjectSelect.value;
+                            const targetFunctionSelect = DOMElements.targetFunctionSelect;
+                            
+                            targetFunctionSelect.innerHTML = '<option value="">Select an item...</option>';
+                            state.detectedScriptObjects[selectedType].forEach(item => {
+                                const option = document.createElement('option');
+                                option.value = item.name;
+                                option.textContent = item.declaration || item.name;
+                                if (option.textContent.length > 75) {
+                                    option.title = option.textContent;
+                                    option.textContent = option.textContent.substring(0, 72) + '...';
+                                }
+                                targetFunctionSelect.appendChild(option);
+                            });
+                            targetFunctionSelect.value = name; // Select the newly captured item
+                            targetFunctionSelect.dispatchEvent(new Event('change'));
+                        }
+                    }
+                });
+
+                stopInspectorBtn.addEventListener('click', deactivateInspectorMode);
+                startInspectorBtn.addEventListener('click', activateInspectorMode);
             }
 
             // --- Initialization ---
@@ -2343,6 +2504,138 @@
                 }
             }
             
+            // --- Inspector Mode & Spy Script ---
+            
+            // Injects the spy script into the main iframe to enable Inspector Mode.
+            function injectSpyScript() {
+                const iframeDoc = DOMElements.iframe.contentDocument;
+                if (!iframeDoc) return;
+
+                const oldScript = iframeDoc.getElementById('modifier-spy-script');
+                if (oldScript) oldScript.remove();
+
+                const script = iframeDoc.createElement('script');
+                script.id = 'modifier-spy-script';
+                // --- REVAMPED SPY SCRIPT with MutationObserver ---
+                script.textContent = `
+                    (function() {
+                        const highlightElement = document.createElement('div');
+                        highlightElement.id = 'inspector-highlight';
+                        Object.assign(highlightElement.style, {
+                            position: 'absolute',
+                            backgroundColor: 'rgba(59, 130, 246, 0.4)',
+                            border: '2px solid rgba(59, 130, 246, 1)',
+                            zIndex: '99999',
+                            pointerEvents: 'none',
+                            transition: 'all 0.1s ease-out'
+                        });
+                        if(document.body) document.body.appendChild(highlightElement);
+
+                        const mouseoverHandler = (e) => {
+                            const target = e.target;
+                            if (target === highlightElement || target.id === 'modifier-spy-script') return;
+                            const rect = target.getBoundingClientRect();
+                            highlightElement.style.top = \`\${rect.top + window.scrollY}px\`;
+                            highlightElement.style.left = \`\${rect.left + window.scrollX}px\`;
+                            highlightElement.style.width = \`\${rect.width}px\`;
+                            highlightElement.style.height = \`\${rect.height}px\`;
+                        };
+
+                        // The click handler is now just for user interaction, the observer does the real work.
+                        const clickHandler = (e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                        };
+
+                        function getUniqueSelector(el) {
+                            if (!(el instanceof Element)) return 'unknown';
+                            const path = [];
+                            while (el.nodeType === Node.ELEMENT_NODE) {
+                                let selector = el.nodeName.toLowerCase();
+                                if (el.id) {
+                                    selector = '#' + CSS.escape(el.id);
+                                    path.unshift(selector);
+                                    break;
+                                } else {
+                                    let sib = el, nth = 1;
+                                    while (sib = sib.previousElementSibling) {
+                                        if (sib.nodeName.toLowerCase() == selector) nth++;
+                                    }
+                                    if (nth != 1) selector += \`:nth-of-type(\${nth})\`;
+                                }
+                                path.unshift(selector);
+                                el = el.parentNode;
+                            }
+                            return path.join(' > ');
+                        }
+                        
+                        // The MutationObserver is the key to the dynamic content routine.
+                        // It watches for any elements being added to the page.
+                        const observer = new MutationObserver((mutationsList) => {
+                            for (const mutation of mutationsList) {
+                                if (mutation.type === 'childList') {
+                                    mutation.addedNodes.forEach(node => {
+                                        if (node.nodeType === Node.ELEMENT_NODE) {
+                                            // Check if the added node looks like a modal or popup
+                                            const isModal = node.matches('dialog, [role="dialog"], [aria-modal="true"], .modal, .popup');
+                                            if (isModal) {
+                                                 const selector = getUniqueSelector(node);
+                                                 const html = node.outerHTML;
+                                                 const text = (node.innerText || '').trim().substring(0, 70).replace(/\\s+/g, ' ');
+
+                                                 const payload = {
+                                                     name: selector,
+                                                     source: text,
+                                                     declaration: \`Dynamic Modal: \${text}\`,
+                                                     fullSource: html,
+                                                 };
+                                                 
+                                                 window.parent.postMessage({ type: 'CAPTURED_DYNAMIC_CONTENT', payload: payload }, '*');
+                                            }
+                                        }
+                                    });
+                                }
+                            }
+                        });
+
+                        observer.observe(document.body, { childList: true, subtree: true });
+
+                        document.body.addEventListener('mouseover', mouseoverHandler);
+                        document.body.addEventListener('click', clickHandler, { capture: true });
+
+                        window.addEventListener('message', (event) => {
+                            if (event.data.type === 'STOP_INSPECTION') {
+                                observer.disconnect(); // Important: clean up the observer
+                                document.body.removeEventListener('mouseover', mouseoverHandler);
+                                document.body.removeEventListener('click', clickHandler, true);
+                                highlightElement.remove();
+                                const selfScript = document.getElementById('modifier-spy-script');
+                                if (selfScript) selfScript.remove();
+                            }
+                        });
+                    })();
+                `;
+                iframeDoc.head.appendChild(script);
+            }
+            
+            // Activates Inspector Mode.
+            function activateInspectorMode() {
+                DOMElements.modifierModalContainer.style.display = 'none';
+                DOMElements.inspectorOverlay.style.display = 'block';
+                injectSpyScript();
+            }
+
+            // Deactivates Inspector Mode.
+            function deactivateInspectorMode() {
+                DOMElements.inspectorOverlay.style.display = 'none';
+                DOMElements.iframe.contentWindow.postMessage({ type: 'STOP_INSPECTION' }, '*');
+                DOMElements.modifierModalContainer.style.display = 'flex';
+                // Refresh the dropdowns with the latest captured items
+                showModifierEditor(state.editingModifierKey);
+                DOMElements.targetObjectSelect.value = DYNAMIC_CONTENT_KEY;
+                DOMElements.targetObjectSelect.dispatchEvent(new Event('change'));
+            }
+
             // The main entry point for the application.
             function initializeViewer() {
                 state.alignmentStyleTag = document.createElement('style');
