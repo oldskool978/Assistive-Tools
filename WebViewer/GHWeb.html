@@ -763,7 +763,7 @@
             // --- Application Constants ---
             const GITHUB_URL = 'https://github.com/oldskool978/Assistive-Tools/tree/main/BoardPages';
             
-            // Content type keys for categorization.
+            // --- Content type keys for categorization. ---
             const MODAL_CONTENT_KEY = '(Potential Modals & Popups)';
             const STATIC_CONTENT_KEY = '(Static Content)'; 
             const DYNAMIC_CONTENT_KEY = '(Dynamic Content)';
@@ -775,7 +775,7 @@
             const STRUCTURED_OBJECT_KEY = '(Structured Objects)';
             const FUNCTIONS_KEY = '(Functions)';
 
-            // SVG icon markup.
+            // --- SVG icon markup. ---
             const ICONS = {
                 home: `<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" /></svg>`,
                 parent: `<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-3 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" style="stroke-width: 1.5;"><path stroke-linecap="round" stroke-linejoin="round" d="M9 11l-4 4m0 0l4 4m-4-4h12a4 4 0 004-4v-4" /></svg>`,
@@ -783,7 +783,7 @@
                 file: `<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-3 text-blue-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" style="stroke-width: 1.5;"><path stroke-linecap="round" stroke-linejoin="round" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" /></svg>`
             };
 
-            // Centralized DOM element cache.
+            // --- Centralized DOM element cache. ---
             const DOMElements = {
                 iframe: document.getElementById('content-frame'),
                 loadingIndicator: document.getElementById('loading-indicator'),
@@ -841,7 +841,7 @@
                 startInspectorBtn: document.getElementById('start-inspector-btn'),
             };
 
-            // Application state.
+            // --- Application state. ---
             const state = {
                 repoConfig: null,
                 currentDirectoryFiles: [],
@@ -861,7 +861,7 @@
             // --- UI Modals & Interactions ---
             let confirmCallback = null;
 
-            // Shows confirmation modal.
+            // Shows a confirmation modal.
             function showConfirmationModal(message, onConfirm) {
                 const { confirmationModalContainer, confirmationModalMessage } = DOMElements;
                 confirmationModalMessage.textContent = message;
@@ -869,13 +869,13 @@
                 confirmCallback = onConfirm;
             }
 
-            // Hides confirmation modal.
+            // Hides the confirmation modal.
             function hideConfirmationModal() {
                 DOMElements.confirmationModalContainer.style.display = 'none';
                 confirmCallback = null;
             }
             
-            // Escapes HTML special characters in a string.
+            // Escapes special characters in an HTML string.
             function escapeHtml(unsafe) {
                 if (typeof unsafe !== 'string') return '';
                 return unsafe
@@ -950,7 +950,7 @@
                 return script;
             }
 
-            // Renders the complete list of modifiers.
+            // Renders the complete list of modifiers into the panel.
             function renderModifierList() {
                 const { modifierPanelContent, modifierEditorView } = DOMElements;
                 modifierPanelContent.innerHTML = '';
@@ -1047,13 +1047,10 @@
                 const lineCount = state.aceEditor.session.getLength();
                 lineNumbers.innerHTML = Array.from({ length: lineCount }, (_, i) => `<span>${startLine + i}</span>`).join('');
                 
-                // --- FIX: Use Ace's built-in renderer padding ---
-                // This correctly adjusts the editor's internal coordinate system,
-                // fixing the mouse selection offset issue.
                 const lineWidth = DOMElements.lineNumbers.offsetWidth;
-                const newPadding = lineWidth + 8; // 8px for a small margin
+                const newPadding = lineWidth + 8;
                 state.aceEditor.renderer.setPadding(newPadding);
-                state.aceEditor.resize(); // Force Ace to recalculate its layout
+                state.aceEditor.resize();
             }
 
             // Populates the editor with the selected target's source code.
@@ -1082,7 +1079,7 @@
                 updateLineNumbers(startLine);
             };
 
-            // Shows the modifier editor view, pre-filled with a modifier's data.
+            // Shows the modifier editor, pre-filled with a modifier's data.
             function showModifierEditor(key) {
                 const modifier = state.modifiers[key];
                 if (!modifier) return;
@@ -1117,12 +1114,7 @@
                     });
                 }
                 
-                const verticalOffset = 0;
-                // This leading value is a good approximation but can drift over many lines
-                // due to browser font rendering inconsistencies.
-                const leading = 1.169;
-
-                DOMElements.lineNumbers.style.paddingTop = `${verticalOffset}px`;
+                const leading = 1.169; // Consistent line height for editor.
                 DOMElements.lineNumbers.style.lineHeight = leading;
                 state.aceEditor.setOption('lineHeight', leading);
                 
@@ -1170,7 +1162,7 @@
                 }, 0);
             }
 
-            // Summarizes large arrays within a string of code for cleaner display.
+            // Summarizes large arrays in source code for cleaner display.
             function summarizeObjectSource(sourceString) {
                 const arrayRegex = /:(\s*)(new\s+\w+Array\s*\()?\s*(\[[\s\S]*?\])/g;
                 
@@ -1200,7 +1192,7 @@
                     if (el.id) {
                         selector = '#' + el.id;
                         path.unshift(selector);
-                        break; // An ID is unique enough.
+                        break; // ID is unique.
                     } else {
                         let sib = el, nth = 1;
                         while (sib = sib.previousElementSibling) {
@@ -1216,20 +1208,20 @@
                 return path.join(' > ');
             }
             
-            // Calculates the line number of a character index in the source HTML.
+            // Calculates the line number from a character index in the source HTML.
             const getLineNumberFromIndex = (charIndex) => {
                 if (charIndex === -1 || !state.currentHtmlContent) return 1;
                 return state.currentHtmlContent.substring(0, charIndex).split('\n').length;
             };
 
-            // Performs a static analysis of the loaded HTML content.
+            // Performs static analysis of the loaded HTML content.
             function analyzeContent() {
                 state.detectedScriptObjects = {};
                 state.detectedScriptObjects[DYNAMIC_CONTENT_KEY] = [];
 
                 if (!state.currentHtmlContent) return;
 
-                // Pre-processes raw HTML to inject line-number attributes for accurate tracking.
+                // Injects temporary data-line attributes for accurate line tracking.
                 let processedHtml = state.currentHtmlContent.replace(/<([a-zA-Z1-6]+)([^>]*?)>/g, (match, tagName, attributes, offset) => {
                     const lineNumber = getLineNumberFromIndex(offset);
                     if (tagName.toLowerCase() === 'script' || tagName.toLowerCase() === 'style') {
@@ -1241,7 +1233,7 @@
                 const parser = new DOMParser();
                 const doc = parser.parseFromString(processedHtml, 'text/html');
                 
-                // Removes injected data-line attributes before displaying or saving code.
+                // Removes injected data-line attributes for clean display.
                 const cleanOuterHTML = (element) => {
                     if (!element || typeof element.removeAttribute !== 'function') return '';
                     element.removeAttribute('data-line');
@@ -1249,7 +1241,7 @@
                     return element.outerHTML;
                 };
 
-                // Finds potential modal/popup elements based on common patterns.
+                // Finds potential modal/popup elements.
                 const findModalElements = () => {
                     const modalSelectors = [
                         'dialog', 
@@ -1331,7 +1323,7 @@
                 };
                 findStaticContentElements();
 
-                // Finds stray text nodes not captured in blocks.
+                // Finds stray text nodes not captured in other blocks.
                 const walker = document.createTreeWalker(doc.documentElement, NodeFilter.SHOW_TEXT, null, false);
                 const foundText = new Set();
                 let node;
@@ -1651,7 +1643,7 @@
                 const htmlModifiers = [];
                 const otherModifiers = [];
 
-                // Separate modifiers into HTML structural changes and other types.
+                // Separate modifiers into HTML structural and other types.
                 Object.values(state.modifiers).forEach(mod => {
                     if (!mod.enabled) return;
                     if (['static-content', 'modal-content', 'dynamic-content'].includes(mod.type)) {
@@ -1661,19 +1653,19 @@
                     }
                 });
 
-                // Apply non-HTML modifiers first using string replacement.
+                // Apply non-HTML modifiers via string replacement.
                 otherModifiers.forEach(mod => {
                     try {
-                        if ((['string', 'number', 'object', 'css', 'html-in-js'].includes(mod.type)) && mod.originalDeclaration) {
+                        if ((['string', 'number', 'object', 'css'].includes(mod.type)) && mod.originalDeclaration) {
                             let replaced = false;
                             moddedHtml = moddedHtml.replace(mod.originalDeclaration, () => {
                                 if (replaced) return mod.originalDeclaration; // Replace only once.
                                 replaced = true;
-                                if (mod.type === 'html-in-js') {
-                                    return `${mod.targetIdentifier} = \`${mod.functionBody}\``;
-                                }
                                 return mod.functionBody;
                             });
+                        } else if (mod.type === 'html-in-js' && mod.targetIdentifier && mod.originalDeclaration) {
+                            const newDeclaration = `${mod.targetIdentifier} = \`${mod.functionBody}\``;
+                            moddedHtml = moddedHtml.replace(mod.originalDeclaration, newDeclaration);
                         } else if (mod.type === 'text' && mod.targetFunction) {
                             moddedHtml = moddedHtml.replaceAll(mod.targetFunction, mod.functionBody);
                         }
@@ -2242,7 +2234,12 @@
                             return;
                         }
 
-                        originalDeclaration = originalItem.fullSource || originalItem.source;
+                        if (targetObject === HTML_IN_JS_KEY) {
+                            originalDeclaration = originalItem.declaration;
+                        } else {
+                            originalDeclaration = originalItem.fullSource || originalItem.source;
+                        }
+                        
                         targetIdentifier = originalItem.name;
 
                         const staticTypes = [STATIC_CONTENT_KEY, MODAL_CONTENT_KEY, DYNAMIC_CONTENT_KEY];
@@ -2509,7 +2506,7 @@
             
             // --- Inspector Mode & Spy Script ---
             
-            // Injects the spy script into the main iframe to enable Inspector Mode.
+            // Injects the spy script into the iframe to enable Inspector Mode.
             function injectSpyScript() {
                 const iframeDoc = DOMElements.iframe.contentDocument;
                 if (!iframeDoc) return;
@@ -2519,7 +2516,6 @@
 
                 const script = iframeDoc.createElement('script');
                 script.id = 'modifier-spy-script';
-                // --- REVAMPED SPY SCRIPT with MutationObserver ---
                 script.textContent = `
                     (function() {
                         const highlightElement = document.createElement('div');
@@ -2544,16 +2540,10 @@
                             highlightElement.style.height = \`\${rect.height}px\`;
                         };
 
-                        // --- FIX: Made the click handler less intrusive ---
-                        // It now only captures the element and sends the message,
-                        // without preventing the page's default click behavior.
-                        // This allows the page to function normally during inspection.
                         const clickHandler = (e) => {
                             const target = e.target;
                             if (!target || target === highlightElement || target.id === 'modifier-spy-script') return;
                             
-                            // We still stop the event here to prevent navigating away
-                            // or triggering unwanted actions *while* capturing.
                             e.preventDefault();
                             e.stopPropagation();
 
@@ -2593,14 +2583,12 @@
                             return path.join(' > ');
                         }
                         
-                        // The MutationObserver is the key to the dynamic content routine.
-                        // It watches for any elements being added to the page.
+                        // Watches for dynamically added elements.
                         const observer = new MutationObserver((mutationsList) => {
                             for (const mutation of mutationsList) {
                                 if (mutation.type === 'childList') {
                                     mutation.addedNodes.forEach(node => {
                                         if (node.nodeType === Node.ELEMENT_NODE) {
-                                            // Check if the added node looks like a modal or popup
                                             const isModal = node.matches('dialog, [role="dialog"], [aria-modal="true"], .modal, .popup');
                                             if (isModal) {
                                                  const selector = getUniqueSelector(node);
@@ -2629,7 +2617,7 @@
 
                         window.addEventListener('message', (event) => {
                             if (event.data.type === 'STOP_INSPECTION') {
-                                observer.disconnect(); // Important: clean up the observer
+                                observer.disconnect();
                                 document.body.removeEventListener('mouseover', mouseoverHandler);
                                 document.body.removeEventListener('click', clickHandler, true);
                                 highlightElement.remove();
@@ -2654,7 +2642,7 @@
                 DOMElements.inspectorOverlay.style.display = 'none';
                 DOMElements.iframe.contentWindow.postMessage({ type: 'STOP_INSPECTION' }, '*');
                 DOMElements.modifierModalContainer.style.display = 'flex';
-                // Refresh the dropdowns with the latest captured items
+
                 showModifierEditor(state.editingModifierKey);
                 DOMElements.targetObjectSelect.value = DYNAMIC_CONTENT_KEY;
                 DOMElements.targetObjectSelect.dispatchEvent(new Event('change'));
