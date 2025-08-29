@@ -1709,86 +1709,88 @@
             function getCompiledHtml() {
                 if (!state.currentHtmlContent) return '';
                 
+                const orderedModifiers = Object.values(state.modifiers);
+                const enabledModifiers = orderedModifiers.filter(mod => mod.enabled);
+
                 let moddedHtml = state.currentHtmlContent;
+                const functionInjectModifiers = [];
 
-                const htmlModifiers = [];
-                const otherModifiers = [];
-
-                // Separate modifiers into HTML structural and other types.
-                Object.values(state.modifiers).forEach(mod => {
-                    if (!mod.enabled) return;
-                    if (['static-content', 'modal-content', 'dynamic-content'].includes(mod.type)) {
-                        htmlModifiers.push(mod);
-                    } else {
-                        otherModifiers.push(mod);
+                // Single, sequential pipeline
+                enabledModifiers.forEach(mod => {
+                    // Defer function injection to the very end
+                    if (mod.type === 'function') {
+                        functionInjectModifiers.push(mod);
+                        return; 
                     }
-                });
-
-                // Apply non-HTML modifiers via string replacement.
-                otherModifiers.forEach(mod => {
                     try {
-                        if ((['string', 'number', 'object', 'css'].includes(mod.type)) && mod.originalDeclaration) {
-                            let replaced = false;
-                            moddedHtml = moddedHtml.replace(mod.originalDeclaration, () => {
-                                if (replaced) return mod.originalDeclaration; // Replace only once.
-                                replaced = true;
-                                return mod.functionBody;
-                            });
-                        } else if (mod.type === 'html-in-js' && mod.targetIdentifier && mod.originalDeclaration) {
-                            const newDeclaration = `${mod.targetIdentifier} = \`${mod.functionBody}\``;
-                            moddedHtml = moddedHtml.replace(mod.originalDeclaration, newDeclaration);
-                        } else if (mod.type === 'text' && mod.targetFunction) {
-                            moddedHtml = moddedHtml.replaceAll(mod.targetFunction, mod.functionBody);
+                        // DOM-based changes need to parse the current state of the HTML string
+                        if (['static-content', 'modal-content', 'dynamic-content', 'css'].includes(mod.type)) {
+                            const parser = new DOMParser();
+                            const doc = parser.parseFromString(moddedHtml, 'text/html');
+                            let modified = false;
+
+                            if (['static-content', 'modal-content', 'dynamic-content'].includes(mod.type)) {
+                                const elementToReplace = doc.querySelector(mod.targetIdentifier);
+                                if (elementToReplace) {
+                                    const tempContainer = doc.createElement('div');
+                                    tempContainer.innerHTML = mod.functionBody;
+                                    const newElement = tempContainer.firstChild;
+
+                                    if (newElement) {
+                                        // Preserve inner content from previous steps
+                                        while (elementToReplace.firstChild) {
+                                            newElement.appendChild(elementToReplace.firstChild);
+                                        }
+                                        elementToReplace.replaceWith(newElement);
+                                        modified = true;
+                                    }
+                                }
+                            } else if (mod.type === 'css') {
+                                const styleTags = doc.querySelectorAll('style');
+                                for (const style of styleTags) {
+                                    if (style.textContent.includes(mod.originalDeclaration)) {
+                                        style.textContent = style.textContent.replace(mod.originalDeclaration, mod.functionBody);
+                                        modified = true;
+                                        break; 
+                                    }
+                                }
+                            }
+                            if (modified) {
+                                moddedHtml = doc.documentElement.outerHTML;
+                            }
+                        } 
+                        // String-based changes operate on the (potentially modified) HTML string
+                        else if (['string', 'number', 'object', 'html-in-js', 'text'].includes(mod.type)) {
+                            if (mod.type === 'text') {
+                                moddedHtml = moddedHtml.replaceAll(mod.targetFunction, mod.functionBody);
+                            } else if (mod.originalDeclaration) {
+                                let replaced = false;
+                                moddedHtml = moddedHtml.replace(mod.originalDeclaration, () => {
+                                    if (replaced) return mod.originalDeclaration;
+                                    replaced = true;
+                                    if (mod.type === 'html-in-js') {
+                                        return `${mod.targetIdentifier} = \`${mod.functionBody}\``;
+                                    }
+                                    return mod.functionBody;
+                                });
+                            }
                         }
                     } catch (e) {
                         console.error(`Failed to apply modifier "${mod.name}":`, e);
                     }
                 });
 
-                // Apply HTML structural changes using DOM parsing for robustness.
-                if (htmlModifiers.length > 0) {
-                    const parser = new DOMParser();
-                    const doc = parser.parseFromString(moddedHtml, 'text/html');
-                    let modified = false;
+                // Finally, inject function override scripts
+                const scriptsToInject = functionInjectModifiers
+                    .map(mod => generateScriptFromModifier(mod))
+                    .join('\n');
 
-                    htmlModifiers.forEach(mod => {
-                        try {
-                            const elementToReplace = doc.querySelector(mod.targetIdentifier); 
-                            if (elementToReplace) {
-                                const tempContainer = doc.createElement('div');
-                                tempContainer.innerHTML = mod.functionBody;
-                                elementToReplace.replaceWith(...tempContainer.childNodes);
-                                modified = true;
-                            }
-                        } catch (e) {
-                            console.error(`Failed to apply HTML modifier "${mod.name}":`, e);
-                        }
-                    });
-
-                    if (modified) {
-                        moddedHtml = doc.documentElement.outerHTML;
-                    }
-                }
-
-                // Inject function-override scripts.
-                const scriptsToInject = [];
-                 Object.values(state.modifiers).forEach(mod => {
-                    if (mod.enabled && mod.type === 'function' && mod.functionBody) {
-                        try {
-                           scriptsToInject.push(generateScriptFromModifier(mod));
-                        } catch (e) {
-                            console.error(`Failed to generate script for modifier "${mod.name}":`, e);
-                        }
-                    }
-                });
-
-                const injectionCode = scriptsToInject.join('\n');
-                if (injectionCode) {
+                if (scriptsToInject) {
                     const headIndex = moddedHtml.toLowerCase().indexOf('</head>');
                     if (headIndex !== -1) {
-                        moddedHtml = moddedHtml.slice(0, headIndex) + injectionCode + moddedHtml.slice(headIndex);
+                        moddedHtml = moddedHtml.slice(0, headIndex) + scriptsToInject + moddedHtml.slice(headIndex);
                     } else {
-                        moddedHtml = injectionCode + moddedHtml;
+                        moddedHtml = scriptsToInject + moddedHtml;
                     }
                 }
                 
