@@ -1,0 +1,613 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fiducial Point</title>
+    <!--
+    ## Fiducial Point - Interactive Visualization ##
+
+    A sophisticated, production-ready interactive splash screen.
+    - Dynamic, orbiting node field with a 3D parallax effect.
+    - Initial node distribution via Bridson's Algorithm for Poisson Disk Sampling.
+    - High-fidelity rendering with depth-based gradients and smooth opacity falloffs.
+    - Intelligent camera system frames selected nodes and information modals using the Rule of Thirds.
+    - Procedural text engine generates unique "company principles" per node.
+    -->
+    <style>
+        /* === Core Setup === */
+        :root {
+            --primary-color: #00aeff;
+            --secondary-color: #f0f0f0;
+            --background-color: #0a0a1a;
+            --container-bg: #1a1a2acc;
+            --text-color: #e0e0e0;
+            --header-color: #ffffff;
+            --border-color: #0077b3;
+            --modal-speed: 0.70s; /* Final transition speed */
+            
+            /* Final Vignette Values */
+            --vignette-speed: 1.7s;
+            --vignette-opacity: 0.30;
+            --vignette-size: 54%;
+        }
+        body, html {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            background-color: var(--background-color);
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol";
+        }
+        canvas {
+            display: block;
+            position: absolute;
+            top: 0;
+            left: 0;
+            z-index: 1;
+            cursor: pointer;
+        }
+
+        /* === UI Elements === */
+        .overlay-text {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            color: var(--primary-color);
+            opacity: 0.8;
+            font-size: 14px;
+            pointer-events: none;
+            z-index: 2;
+        }
+        #protocol-toggle {
+            position: absolute;
+            bottom: 20px;
+            right: 20px;
+            width: 50px;
+            height: 50px;
+            background-color: var(--primary-color);
+            border-radius: 50%;
+            cursor: pointer;
+            z-index: 10;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 0 10px rgba(0, 174, 255, 0.5);
+            transition: transform 0.3s, box-shadow 0.3s;
+        }
+        #protocol-toggle:hover {
+            transform: scale(1.1);
+            box-shadow: 0 0 20px rgba(0, 174, 255, 0.75);
+        }
+        #protocol-toggle svg {
+            width: 24px;
+            height: 24px;
+            fill: var(--background-color);
+        }
+        #protocol-panel, #synthesis-panel {
+            position: absolute;
+            background-color: var(--container-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 1.5em;
+            color: var(--text-color);
+            pointer-events: none;
+            text-align: left;
+            backdrop-filter: blur(4px);
+        }
+        #protocol-panel {
+            bottom: 90px;
+            right: 20px;
+            width: 450px;
+            max-width: 90vw;
+            z-index: 9;
+            opacity: 0;
+            transform: translateY(20px);
+            transition: opacity 0.4s ease, transform 0.4s ease;
+            max-height: 80vh;
+            overflow-y: auto;
+        }
+        #protocol-panel.visible {
+            opacity: 1;
+            transform: translateY(0);
+            pointer-events: auto;
+        }
+        #protocol-panel h2 {
+            color: var(--header-color);
+            margin-top: 0;
+            border-bottom: 1px solid var(--border-color);
+            padding-bottom: 0.5em;
+        }
+        .protocol-item {
+            margin-bottom: 1em;
+        }
+        .protocol-item strong {
+            color: var(--header-color);
+            display: block;
+        }
+        .protocol-item code {
+            color: var(--primary-color);
+            white-space: pre-wrap;
+            font-size: 0.9em;
+            display: block;
+            background: #00000055;
+            padding: 5px;
+            border-radius: 4px;
+            margin-top: 5px;
+        }
+        #synthesis-panel {
+            width: 300px;
+            border-color: var(--primary-color);
+            z-index: 20;
+            box-shadow: 0 0 20px #00aeff44;
+            word-wrap: break-word;
+            line-height: 1.6;
+            opacity: 0;
+            transform: scale(0.95);
+            transition: opacity var(--modal-speed) ease, 
+                        transform var(--modal-speed) ease, 
+                        left var(--modal-speed) ease, 
+                        top var(--modal-speed) ease;
+            pointer-events: none;
+        }
+        #synthesis-panel.visible {
+            opacity: 1;
+            transform: scale(1);
+            pointer-events: auto;
+        }
+        #vignette {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: radial-gradient(ellipse at center, 
+                rgba(0,0,0,0) 0%, 
+                rgba(0,0,0,0) var(--vignette-size), 
+                rgba(0,0,0, var(--vignette-opacity)) 100%);
+            pointer-events: none;
+            z-index: 5; /* Below UI elements but above canvas */
+            opacity: 0;
+            transition: opacity var(--vignette-speed) ease;
+        }
+        #vignette.visible {
+            opacity: 1;
+        }
+    </style>
+</head>
+<body>
+    <div class="overlay-text">
+        <p>// FIDUCIAL POINT</p>
+    </div>
+    <div id="vignette"></div>
+    <canvas id="unificationCanvas"></canvas>
+
+    <div id="protocol-toggle">
+        <svg viewBox="0 0 24 24">
+            <path d="M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2M11,16.5V14.5H13V16.5H11M11,12.5V7.5H13V12.5H11Z" />
+        </svg>
+    </div>
+
+    <div id="protocol-panel">
+        <h2>About Fiducial Point</h2>
+        <div class="protocol-item">
+            <strong>Founder</strong>
+            <code>David Cache // david@fiducialpoint.com</code>
+        </div>
+        <div class="protocol-item">
+            <strong>Core Competencies</strong>
+            <code>A synthesis of hardware and software, including Professional Electronics Design, Custom Hardware Engineering, and Embedded Systems Programming.</code>
+        </div>
+        <div class="protocol-item">
+            <strong>Mission</strong>
+            <code>Pioneering bleeding-edge electronics solutions by transforming complex engineering challenges into significant market opportunities.</code>
+        </div>
+    </div>
+    
+    <div id="synthesis-panel"></div>
+
+    <script>
+        // --- DOM Elements ---
+        const canvas = document.getElementById('unificationCanvas');
+        const ctx = canvas.getContext('2d');
+        const protocolToggle = document.getElementById('protocol-toggle');
+        const protocolPanel = document.getElementById('protocol-panel');
+        const synthesisPanel = document.getElementById('synthesis-panel');
+        const vignette = document.getElementById('vignette');
+        
+        // --- Generative Text Engine (Unchanged) ---
+        let themeDeck = [];
+        let templateDecks = {};
+        let wordBankDecks = {};
+        const commonWordBanks = { industry: [ { text: "aerospace and defense" }, { text: "medical technology" }, { text: "robotics" }, { text: "semiconductors" }, { text: "industrial manufacturing" }, { text: "scientific research" }, { text: "automotive" }, { text: "telecommunications" } ], application: [ { text: "mission-specific IoT deployments" }, { text: "industrial automation" }, { text: "robotics and control systems" }, { text: "scientific instrumentation" }, { text: "next-generation consumer electronics" }, { text: "custom test and measurement equipment" } ], hardware_domain: [ { text: "programmable logic (FPGA/CPLD)" }, { text: "high-speed digital systems" }, { text: "low-noise analog front-ends" }, { text: "power electronics and management" }, { text: "embedded SoC integration" }, { text: "RF and wireless design" }, { text: "photonic integrated circuits" }, { text: "gate-level logic design" } ], software_domain: [ { text: "bare-metal firmware" }, { text: "real-time operating systems (RTOS)" }, { text: "edge AI and ML deployment" }, { text: "secure IoT connectivity stacks" }, { text: "hardware abstraction layers (HAL)" }, { text: "hand-rolled OS kernels and drivers" }, { text: "quantum-resistant cryptography" } ], unified_expertise: [ { text: "programmable logic and bare-metal system firmware" }, { text: "high-speed digital systems and RTOS development" }, { text: "embedded SoC integration and secure connectivity stacks" }, { text: "low-noise analog and hardware abstraction layers" }, { text: "power electronics and real-time operating systems" }, { text: "RF and wireless design and secure IoT connectivity stacks" }, { text: "photonic circuits and quantum-resistant cryptography" }, { text: "gate-level logic design and hard real-time scheduling" } ] };
+        const themes = [ { name: "Innovation and Pioneering", templates: [ "{action_verb} solutions for the {industry} sector, leveraging deep expertise in {hardware_domain} to solve the challenge of {technical_challenge}.", "The principle of {guiding_principle} delivers {client_advantage} on complex {application} projects.", "Unified expertise in {unified_expertise} directly architects {key_deliverable}, providing {client_advantage}.", "The principle of {guiding_principle} translates client needs in the {application} space into {client_advantage}.", "Solving {technical_challenge} is the direct path to achieving {client_advantage} in the {industry} sector.", "The fusion of {hardware_domain} and {software_domain} makes {key_deliverable} possible.", "{action_verb} the approach to {application} unlocks {client_advantage}.", "Expertise in {unified_expertise} is foundational to creating {key_deliverable}.", "To pioneer in {application}, it takes a mastery of {unified_expertise}.", "By {action_verb} the state-of-the-art in {hardware_domain}, we unlock {client_advantage}.", "The future of the {industry} sector depends on solving challenges like {technical_challenge}.", "We bridge the gap between {hardware_domain} and {software_domain}, creating {key_deliverable} for the {industry} sector.", "Our approach to {technical_challenge} redefines what's possible in {application}.", "By applying {guiding_principle}, we deconstruct {technical_challenge}, resulting in {key_deliverable}.", "True innovation in {application} is achieved by {action_verb} the physics of {hardware_domain}.", "From first principles to final netlist, our mastery of {hardware_domain} results in {key_deliverable}." ], wordBanks: { action_verb: [ { text: "Pioneering" }, { text: "Unifying" }, { text: "Accelerating" }, { text: "Architecting" }, { text: "Redefining" }, { text: "Synthesizing" }, { text: "Deciphering" }, { text: "Instrumenting" }], technical_challenge: [ { text: "complex edge AI deployment" }, { text: "nanosecond-level timing closure" }, { text: "novel system-on-chip integration" }, { text: "ultra-low latency communication" }, { text: "a heterogeneous compute architecture" }, { text: "signal integrity at the physical limit" }, { text: "logic optimization for power and area" }, { text: "implementing emerging compute paradigms on constrained hardware" }], key_deliverable: [ { text: "a first-to-market solution" }, { text: "a highly scalable platform" }, { text: "an unparalleled user experience" }, { text: "a category-defining product" }, { text: "a paradigm-shifting technology" }, { text: "a power-efficient silicon IP block" }], client_advantage: [ { text: "a decisive competitive edge" }, { text: "an accelerated time-to-market" }, { text: "new market opportunities" }, { text: "a foundational technology patent" }, { text: "the creation of a new IP portfolio" }], guiding_principle: [ { text: "first-principles engineering" }, { text: "iterative design and rapid prototyping" }, { text: "a systems-thinking methodology" }, { text: "domain-specific architectural modeling" }, { text: "a register-transfer level (RTL) methodology" }, { text: "model-based systems engineering (MBSE)" }], } }, { name: "Reliability and Mission-Critical Systems", templates: [ "Fiducial Point provides {core_service}, turning the challenge of {technical_challenge} into {key_deliverable}.", "Excellence in {core_service} means solving {technical_challenge} to give clients {client_advantage}.", "Mastery of {unified_expertise} is the cornerstone of every project, resulting in {key_deliverable}.", "Mastering the prototype-to-production path means tackling {technical_challenge} to deliver {key_deliverable}.", "For mission-critical {application}, the principle of {guiding_principle} ensures {key_deliverable}.", "{core_service} directly mitigates project risk, providing {client_advantage}.", "Deep knowledge of {unified_expertise} results in {client_advantage} for high-stakes systems.", "Adherence to {guiding_principle} is non-negotiable when engineering for the {industry} sector.", "For the {industry} sector, {core_service} is a guarantee of {client_advantage}.", "A commitment to {guiding_principle} is how we deliver {key_deliverable} that performs under pressure.", "Navigating {technical_challenge} for mission-critical systems requires deep, unified expertise in {unified_expertise}.", "Our execution of {core_service} provides the {client_advantage} needed for mission-critical {application}.", "Our deep understanding of {hardware_domain} is how we guarantee {key_deliverable} at a gate level.", "For systems deployed in hostile environments, our expertise in {core_service} delivers {key_deliverable} with guaranteed operational integrity." ], wordBanks: { core_service: [ { text: "expert hardware bringup" }, { text: "full-stack system integration" }, { text: "end-to-end electronic design" }, { text: "rigorous design verification" }, { text: "exhaustive failure mode analysis" }, { text: "formal logic verification" }, { text: "worst-case circuit analysis (WCCA)" }, { text: "low-level firmware development from datasheet to deployment" }, { text: "cycle-accurate real-time system design" }, { text: "radiation-hardened SoC architecture" }], technical_challenge: [ { text: "real-time determinism" }, { text: "stringent regulatory compliance" }, { text: "complex silicon bringup" }, { text: "robust system-level integration" }, { text: "a fail-safe system architecture" }, { text: "environmental hardening" }, { text: "electronic design for shock and vibration resilience" }, { text: "single-event upset (SEU) mitigation" }, { text: "metastability avoidance in asynchronous crossings" }, { text: "JTAG-level silicon debug and validation" }, { text: "guaranteeing cycle-level execution" }], key_deliverable: [ { text: "a fault-tolerant system" }, { text: "a mission-critical system" }, { text: "production-ready hardware" }, { text: "a fully-validated and compliant system" }, { text: "a certifiably robust system" }, { text: "a five-nines availability platform" }, { text: "a radiation-tolerant digital design" }, { text: "a fully radiation-hardened system-on-chip" }], client_advantage: [ { text: "reduced development risk" }, { text: "uncompromised system performance" }, { text: "a clear path to mass production" }, { text: "long-term system reliability" }, { text: "predictable project outcomes" }, { text: "unimpeachable system integrity" }, { text: "a provably correct logic implementation" }, { text: "absolute execution predictability" }], guiding_principle: [ { text: "end-to-end ownership" }, { text: "mastery of the full stack" }, { text: "a deep respect for physics" }, { text: "transforming complexity into reliability" }, { text: "design for manufacturability (DFM)" }, { text: "a zero-defect manufacturing protocol" }, { text: "design for testability (DFT)" }, { text: "full-stack ownership from schematic to firmware" }, { text: "an obsession with deterministic behavior" }], } }, { name: "Strategic Partnership and Turnkey Solutions", templates: [ "We offer {partnership_service}, providing clients with {client_advantage} from concept to production.", "Our philosophy of {guiding_principle} ensures a seamless development journey for {application}.", "By providing {partnership_service}, we transform the challenge of {technical_challenge} into {key_deliverable}.", "The value of {partnership_service} is {client_advantage} for our partners in the {industry} sector.", "A commitment to {guiding_principle} builds the trust needed for complex {application} development.", "Expertise in {unified_expertise} enables us to offer true {partnership_service}.", "From initial architecture to final production, our principle of {guiding_principle} delivers {client_advantage}.", "Our {partnership_service} model streamlines the path from initial concept to a scalable {key_deliverable}.", "Navigating the journey to market requires {guiding_principle}, the core of our client partnerships.", "Through {partnership_service}, we convert the problem of {technical_challenge} into {client_advantage}.", "A successful {application} requires more than technology; it demands {guiding_principle}." ], wordBanks: { partnership_service: [ { text: "turnkey product development" }, { text: "a dedicated engineering partnership" }, { text: "end-to-end project management" }, { text: "a transparent development process" }, { text: "strategic technical advisement" }, { text: "BOM lifecycle management" }, { text: "full product lifecycle engineering" } ], technical_challenge: [ { text: "complex supply chain navigation" }, { text: "mass production scaling" }, { text: "multi-vendor technology integration" }, { text: "global certification and compliance" }, { text: "component lifecycle management" }, { text: "semiconductor fab lead time negotiation" } ], key_deliverable: [ { text: "a fully-managed production pipeline" }, { text: "a market-ready product ecosystem" }, { text: "a robust and scalable architecture" }, { text: "a strategically-sourced bill of materials" }, { text: "a vertically-integrated solution" }], client_advantage: [ { text: "a single point of accountability" }, { text: "a de-risked product launch" }, { text: "complete intellectual property ownership" }, { text: "a resilient and future-proof supply chain" }, { text: "an optimized bill-of-materials cost-down" }, { text: "a streamlined path to profitability" }, { text: "a defensible technology moat" }], guiding_principle: [ { text: "radical transparency" }, { text: "a collaborative engineering process" }, { text: "a focus on the entire product lifecycle" }, { text: "a proactive risk mitigation strategy" }, { text: "an agile hardware development methodology" }, { text: "a stage-gate development process" }], } } ];
+        function shuffleArray(array) { for (let i = array.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1));[array[i], array[j]] = [array[j], array[i]]; } return array; }
+        function getNextUniquePhrase() { if (themeDeck.length === 0) { themeDeck = shuffleArray(Array.from(themes.keys())); } const themeIndex = themeDeck.pop(); const theme = themes[themeIndex]; if (!templateDecks[themeIndex] || templateDecks[themeIndex].length === 0) { templateDecks[themeIndex] = shuffleArray(Array.from(theme.templates.keys())); } const templateIndex = templateDecks[themeIndex].pop(); let phrase = theme.templates[templateIndex]; const placeholders = [...new Set(phrase.match(/{(\w+)}/g))]; placeholders.forEach(placeholder => { const key = placeholder.substring(1, placeholder.length - 1); let originalBank = theme.wordBanks[key] || commonWordBanks[key]; if (!originalBank) return; if (!wordBankDecks[key] || wordBankDecks[key].length === 0) { wordBankDecks[key] = shuffleArray([...originalBank]); } let wordObject = null; const initialDeckSize = wordBankDecks[key].length; for (let i = 0; i < initialDeckSize; i++) { let candidateObject = wordBankDecks[key][wordBankDecks[key].length - 1]; if (!phrase.toLowerCase().includes(candidateObject.text.toLowerCase().split(" ")[0])) { wordObject = wordBankDecks[key].pop(); break; } else { wordBankDecks[key].unshift(wordBankDecks[key].pop()); } } if (wordObject === null) { wordObject = wordBankDecks[key].pop(); } const regex = new RegExp(placeholder, 'g'); phrase = phrase.replace(regex, wordObject.text); }); return phrase.charAt(0).toUpperCase() + phrase.slice(1); }
+
+        // --- Simulation State ---
+        let width = canvas.width = window.innerWidth;
+        let height = canvas.height = window.innerHeight;
+        let nodes = [];
+        const maxNodes = 150; 
+        let connectDistance = Math.min(width, height) * 0.15;
+        let connectDistanceSq = connectDistance * connectDistance;
+        let selectedNode = null;
+        let hoveredNode = null;
+        let globalSpeedMultiplier = 0.2;
+        let modalSide = 'right';
+        const glowBrightnessMultiplier = 0.90;
+        const lineThicknessMultiplier = 0.15;
+        const centralCoreMultiplier = 0.30;
+        const pulseSpeedMultiplier = 750;
+        const pulseSizeMultiplier = 1.6;
+        const minPulseSize = 0.8;
+        const modalDistanceMultiplier = 21;
+
+        // Viewport camera state.
+        let viewX = width / 2;
+        let viewY = height / 2;
+        let targetViewX = width / 2;
+        let targetViewY = height / 2;
+        let zoom = 1.5;
+        let targetZoom = 1.5;
+
+        // --- Node Class Definition ---
+        class Node {
+            constructor(initialAngle) {
+                this.centerX = width / 2;
+                this.centerY = height / 2;
+                this.scale = Math.random() * 0.7 + 0.3; // Depth emulation
+
+                const maxRadius = Math.min(width, height) / 2.2;
+                this.orbitRadiusX = (Math.random() * (1.0 - centralCoreMultiplier) + centralCoreMultiplier) * maxRadius;
+                this.orbitRadiusY = this.orbitRadiusX * (Math.random() * 0.5 + 0.3);
+                this.orbitRotation = Math.random() * Math.PI;
+
+                this.currentAngle = initialAngle;
+                
+                // Parallax effect: closer nodes move faster
+                const speedScale = 0.7 + (this.scale * 0.3);
+                this.baseSpeed = (0.0008 + Math.random() * 0.001) * speedScale;
+                this.speed = this.baseSpeed * globalSpeedMultiplier;
+
+                this.x = 0;
+                this.y = 0;
+                this.baseRadius = 1.5;
+                this.info = null;
+
+                this.update();
+            }
+
+            update() {
+                this.currentAngle += this.speed;
+
+                const unrotatedX = this.orbitRadiusX * Math.cos(this.currentAngle);
+                const unrotatedY = this.orbitRadiusY * Math.sin(this.currentAngle);
+
+                const rotatedX = unrotatedX * Math.cos(this.orbitRotation) - unrotatedY * Math.sin(this.orbitRotation);
+                const rotatedY = unrotatedX * Math.sin(this.orbitRotation) + unrotatedY * Math.cos(this.orbitRotation);
+
+                this.x = this.centerX + rotatedX;
+                this.y = this.centerY + rotatedY;
+            }
+
+            draw(isSelected, isHovered, pulse) {
+                // Hover effect is now color-only, no size change.
+                const displayRadius = this.baseRadius * this.scale + (isSelected ? pulse : 0);
+                
+                if (isSelected) {
+                    ctx.shadowColor = 'rgba(240, 240, 240, 0.7)';
+                    ctx.shadowBlur = 10 * this.scale;
+                }
+
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, displayRadius, 0, Math.PI * 2);
+                ctx.fillStyle = isSelected ? 'var(--secondary-color)' : (isHovered ? '#bbb' : '#e0e0e0');
+                ctx.fill();
+
+                if (isSelected) {
+                    ctx.shadowBlur = 0;
+                }
+            }
+        }
+        
+        // Fast Poisson Disk Sampling via Bridson's Algorithm.
+        function generatePoissonPoints(width, height, minDistance, maxPoints) {
+            const k = 30;
+            const grid = [];
+            const activeSamples = [];
+            const points = [];
+            const cellSize = minDistance / Math.SQRT2;
+            const cols = Math.floor(width / cellSize) + 1;
+            const rows = Math.floor(height / cellSize) + 1;
+            for (let i = 0; i < cols * rows; i++) grid.push(null);
+            const p0 = { x: Math.random() * width, y: Math.random() * height };
+            activeSamples.push(p0);
+            points.push(p0);
+            grid[Math.floor(p0.x / cellSize) + Math.floor(p0.y / cellSize) * cols] = p0;
+            while (activeSamples.length > 0 && points.length < maxPoints) {
+                const randIndex = Math.floor(Math.random() * activeSamples.length);
+                const sample = activeSamples[randIndex];
+                let found = false;
+                for (let i = 0; i < k; i++) {
+                    const angle = Math.random() * Math.PI * 2;
+                    const radius = Math.random() * minDistance + minDistance;
+                    const newSample = { x: sample.x + Math.cos(angle) * radius, y: sample.y + Math.sin(angle) * radius };
+                    if (newSample.x >= 0 && newSample.x < width && newSample.y >= 0 && newSample.y < height) {
+                        const gridX = Math.floor(newSample.x / cellSize);
+                        const gridY = Math.floor(newSample.y / cellSize);
+                        let isValid = true;
+                        for (let y = -2; y <= 2; y++) {
+                            for (let x = -2; x <= 2; x++) {
+                                const neighborIndex = (gridX + x) + (gridY + y) * cols;
+                                if (grid[neighborIndex]) {
+                                    const neighbor = grid[neighborIndex];
+                                    const d = Math.sqrt((newSample.x - neighbor.x) ** 2 + (newSample.y - neighbor.y) ** 2);
+                                    if (d < minDistance) { isValid = false; break; }
+                                }
+                            }
+                            if (!isValid) break;
+                        }
+                        if (isValid) {
+                            points.push(newSample);
+                            activeSamples.push(newSample);
+                            grid[gridX + gridY * cols] = newSample;
+                            found = true;
+                            break;
+                        }
+                    }
+                }
+                if (!found) { activeSamples.splice(randIndex, 1); }
+            }
+            const centerX = width / 2;
+            const centerY = height / 2;
+            return points.map(p => Math.atan2(p.y - centerY, p.x - centerX));
+        }
+
+        // --- Core Simulation ---
+        function init() {
+            nodes = [];
+            const minNodeDistance = 60;
+            const initialAngles = generatePoissonPoints(width, height, minNodeDistance, maxNodes);
+            for (let i = 0; i < initialAngles.length; i++) {
+                nodes.push(new Node(initialAngles[i]));
+            }
+        }
+
+        function updatePhysics() {
+            nodes.forEach(node => {
+                node.speed = node.baseSpeed * globalSpeedMultiplier; 
+                node.update();
+            });
+        }
+
+        function animate(timestamp) {
+            // --- Camera Logic ---
+            if (selectedNode) {
+                // This logic implements compositional framing using the Rule of Thirds.
+                let targetNodeScreenX;
+                if (modalSide === 'right') {
+                    targetNodeScreenX = width / 3; // Position node on left third
+                } else {
+                    targetNodeScreenX = width * 2 / 3; // Position node on right third
+                }
+                // Calculate the required world coordinate for the camera's center.
+                targetViewX = selectedNode.x - (targetNodeScreenX - width / 2) / targetZoom;
+                targetViewY = selectedNode.y;
+            }
+
+            // Smoothly interpolate camera and zoom values.
+            viewX += (targetViewX - viewX) * 0.08;
+            viewY += (targetViewY - viewY) * 0.08;
+            zoom += (targetZoom - zoom) * 0.08;
+
+            // Dynamically adjust simulation speed based on zoom level.
+            const minZoom = 1.5;
+            const maxZoom = 8.0;
+            const minSpeedMultiplier = 0.20;
+            const maxSpeedMultiplier = 0.60;
+            let t = (zoom - minZoom) / (maxZoom - minZoom);
+            t = Math.max(0, Math.min(1, t)); // Clamp between 0 and 1
+            const targetSpeedMultiplier = minSpeedMultiplier + t * (maxSpeedMultiplier - minSpeedMultiplier);
+            globalSpeedMultiplier += (targetSpeedMultiplier - globalSpeedMultiplier) * 0.05;
+
+            updatePhysics(); 
+
+            // --- Begin Rendering ---
+            ctx.clearRect(0, 0, width, height);
+            ctx.save();
+            ctx.translate(width / 2, height / 2);
+            ctx.scale(zoom, zoom);
+            ctx.translate(-viewX, -viewY);
+            
+            const sortedNodes = [...nodes].sort((a, b) => a.scale - b.scale);
+
+            // High-fidelity line rendering with depth gradients and smooth fade-in/fade-out.
+            const connectFalloff = 0.8;
+            const falloffStartDistance = connectDistance * connectFalloff;
+           
+            for (let i = 0; i < sortedNodes.length; i++) {
+                for (let j = i + 1; j < sortedNodes.length; j++) {
+                    const n1 = sortedNodes[i];
+                    const n2 = sortedNodes[j];
+                    const dx = n1.x - n2.x;
+                    const dy = n1.y - n2.y;
+                    const distSq = dx * dx + dy * dy;
+
+                    if (distSq < connectDistanceSq) {
+                        const dist = Math.sqrt(distSq);
+                        
+                        // Calculate opacity based on distance for smooth fade-in/out.
+                        let opacityMultiplier = 1.0;
+                        if (dist > falloffStartDistance) {
+                           opacityMultiplier = 1.0 - (dist - falloffStartDistance) / (connectDistance - falloffStartDistance);
+                        }
+
+                        const isN1Interactive = (n1 === selectedNode || n1 === hoveredNode);
+                        const isN2Interactive = (n2 === selectedNode || n2 === hoveredNode);
+
+                        // Define colors based on depth and interaction state.
+                        const color1 = `rgba(0, 174, 255, ${n1.scale * 0.35 * opacityMultiplier})`;
+                        const color2 = `rgba(0, 174, 255, ${n2.scale * 0.35 * opacityMultiplier})`;
+                        const glow1 = `rgba(240, 240, 240, ${glowBrightnessMultiplier * n1.scale * opacityMultiplier})`; 
+                        const glow2 = `rgba(240, 240, 240, ${glowBrightnessMultiplier * n2.scale * opacityMultiplier})`;
+
+                        const startColor = isN1Interactive ? glow1 : color1;
+                        const endColor = isN2Interactive ? glow2 : color2;
+
+                        // Create a unique gradient for each line.
+                        const gradient = ctx.createLinearGradient(n1.x, n1.y, n2.x, n2.y);
+                        
+                        // Add intermediate stops for a smoother glow falloff.
+                        if (isN1Interactive && !isN2Interactive) {
+                            gradient.addColorStop(0, startColor);
+                            gradient.addColorStop(0.3, `rgba(0, 174, 255, ${n1.scale * 0.35 * opacityMultiplier * 0.8})`);
+                            gradient.addColorStop(1, endColor);
+                        } else if (!isN1Interactive && isN2Interactive) {
+                            gradient.addColorStop(0, startColor);
+                            gradient.addColorStop(0.7, `rgba(0, 174, 255, ${n2.scale * 0.35 * opacityMultiplier * 0.8})`);
+                            gradient.addColorStop(1, endColor);
+                        } else {
+                            gradient.addColorStop(0, startColor);
+                            gradient.addColorStop(1, endColor);
+                        }
+                        
+                        ctx.beginPath();
+                        ctx.moveTo(n1.x, n1.y);
+                        ctx.lineTo(n2.x, n2.y);
+                        
+                        ctx.strokeStyle = gradient;
+                        ctx.lineWidth = lineThicknessMultiplier * ((n1.scale + n2.scale) / 2);
+                        ctx.stroke();
+                    }
+                }
+            }
+            
+            // Draw nodes on top of lines.
+            const sine = Math.sin(timestamp / pulseSpeedMultiplier);
+            const pulse = selectedNode ? (sine * 0.5 + 0.5) * (pulseSizeMultiplier - minPulseSize) + minPulseSize : 0;
+            
+            sortedNodes.forEach(node => {
+                const isSelected = node === selectedNode;
+                const isHovered = node === hoveredNode;
+                node.draw(isSelected, isHovered, pulse);
+            });
+            
+            ctx.restore();
+            updateSynthesisPanelPosition();
+            requestAnimationFrame(animate);
+        }
+        
+        // --- UI Logic ---
+        function deselectNodeAndResetView() {
+            selectedNode = null;
+            synthesisPanel.classList.remove('visible');
+            vignette.classList.remove('visible');
+            targetViewX = width / 2;
+            targetViewY = height / 2;
+            targetZoom = 1.5;
+        }
+
+        function updateSynthesisPanelPosition() {
+            if (!selectedNode) return;
+            const panelWidth = synthesisPanel.offsetWidth;
+            const panelHeight = synthesisPanel.offsetHeight;
+            
+            let panelX;
+            if (modalSide === 'right') {
+                // Modal on the right third
+                panelX = (width * 2 / 3) - (panelWidth / 2);
+            } else {
+                // Modal on the left third
+                panelX = (width / 3) - (panelWidth / 2);
+            }
+            
+            const screenY = (selectedNode.y - viewY) * zoom + height / 2;
+            let panelY = screenY - panelHeight / 2;
+
+            if (panelY < 20) panelY = 20;
+            if (panelY + panelHeight > height - 20) panelY = height - panelHeight - 20;
+           
+            synthesisPanel.style.left = `${panelX}px`;
+            synthesisPanel.style.top = `${panelY}px`;
+        }
+        
+        // --- Event Listeners ---
+        window.addEventListener('resize', () => {
+            width = canvas.width = window.innerWidth;
+            height = canvas.height = window.innerHeight;
+            connectDistance = Math.min(width, height) * 0.15;
+            connectDistanceSq = connectDistance * connectDistance;
+            init(); 
+            targetViewX = width / 2;
+            targetViewY = height / 2;
+        });
+
+        protocolToggle.addEventListener('click', () => {
+            const isOpening = !protocolPanel.classList.contains('visible');
+            protocolPanel.classList.toggle('visible');
+            if (isOpening) { deselectNodeAndResetView(); }
+        });
+
+        canvas.addEventListener('mousemove', (event) => {
+            const worldX = (event.clientX - width / 2) / zoom + viewX;
+            const worldY = (event.clientY - height / 2) / zoom + viewY;
+            let closestNode = null;
+            let minDistanceSq = Infinity;
+            for (const node of nodes) {
+                const dx = node.x - worldX;
+                const dy = node.y - worldY;
+                const dSq = dx * dx + dy * dy;
+                if (dSq < minDistanceSq) {
+                    minDistanceSq = dSq;
+                    closestNode = node;
+                }
+            }
+            const hoverRadiusSq = (30 / zoom) ** 2;
+            hoveredNode = (closestNode && minDistanceSq < hoverRadiusSq) ? closestNode : null;
+        });
+
+        canvas.addEventListener('click', (event) => {
+            if (protocolPanel.classList.contains('visible')) return;
+            if (hoveredNode) {
+                if (selectedNode === hoveredNode) {
+                    deselectNodeAndResetView();
+                } else {
+                    selectedNode = hoveredNode;
+                    const TARGET_ON_SCREEN_SCALE = 3.5; 
+                    targetZoom = TARGET_ON_SCREEN_SCALE / selectedNode.scale;
+                    const screenX = (hoveredNode.x - viewX) * zoom + width / 2;
+                    // Keep the modal on the same side as the initial click
+                    modalSide = (screenX > width / 2) ? 'left' : 'right';
+                    
+                    protocolPanel.classList.remove('visible');
+                    if (!selectedNode.info) { selectedNode.info = getNextUniquePhrase(); }
+                    synthesisPanel.innerHTML = selectedNode.info;
+                    synthesisPanel.classList.add('visible');
+                    vignette.classList.add('visible');
+                }
+            } else {
+                 if (!synthesisPanel.contains(event.target)){
+                    deselectNodeAndResetView();
+                 }
+            }
+        });
+
+        document.body.addEventListener('click', (event) => {
+            const isClickOnInteractive = canvas.contains(event.target) || 
+                                          protocolToggle.contains(event.target) || 
+                                          protocolPanel.contains(event.target) ||
+                                          synthesisPanel.contains(event.target);
+            if (!isClickOnInteractive) {
+                deselectNodeAndResetView();
+                protocolPanel.classList.remove('visible');
+            }
+        });
+
+        // --- Initialization ---
+        window.onload = () => {
+            init();
+            requestAnimationFrame(animate);
+        };
+    </script>
+</body>
+</html>
