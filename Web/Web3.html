@@ -5,18 +5,22 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Fiducial Point</title>
     <!--
-    ## Fiducial Point - Interactive Visualization ##
+    Fiducial Point: An Interactive Visualization
 
-    A sophisticated, production-ready interactive splash screen.
-    - Dynamic, orbiting node field with a 3D parallax effect.
-    - Initial node distribution via Bridson's Algorithm for Poisson Disk Sampling.
-    - High-fidelity rendering with depth-based gradients and smooth opacity falloffs.
-    - Intelligent camera system frames selected nodes and information modals using the Rule of Thirds.
-    - Procedural text engine generates unique "company principles" per node.
+    Core Systems:
+    - Generative orbital field with parallax depth.
+    - Poisson Disk Sampling for initial node layout.
+    - Dynamic composition using the Rule of Thirds and Golden Ratio.
+    - Procedural text generation for node information.
+    - Fluid, responsive typography and layout governed by harmonious principles.
     -->
     <style>
-        /* === Core Setup === */
+        /* === Core Setup & Principles === */
         :root {
+            /* --- Principles --- */
+            --phi: 1.618; /* The Golden Ratio */
+
+            /* --- Palette --- */
             --primary-color: #00aeff;
             --secondary-color: #f0f0f0;
             --background-color: #0a0a1a;
@@ -24,12 +28,23 @@
             --text-color: #e0e0e0;
             --header-color: #ffffff;
             --border-color: #0077b3;
-            --modal-speed: 0.70s; /* Final transition speed */
             
-            /* Final Vignette Values */
+            /* --- Timing --- */
+            --modal-speed: 0.70s;
             --vignette-speed: 1.7s;
+            
+            /* --- Effects --- */
             --vignette-opacity: 0.30;
             --vignette-size: 54%;
+
+            /* --- Typography (Enhanced Fibonacci Scale) --- */
+            /* vmin ensures scaling is based on the smaller screen dimension, preventing extreme sizes. */
+            /* Increased max value allows for better readability on high-resolution displays. */
+            --base-unit: clamp(0.8rem, 1.2vmin, 1.25rem);
+            --font-size-xs: calc(var(--base-unit) * 1);
+            --font-size-sm: calc(var(--base-unit) * 1.618);
+            --font-size-md: calc(var(--base-unit) * 2.618);
+            --font-size-lg: calc(var(--base-unit) * 4.236);
         }
         body, html {
             margin: 0;
@@ -37,6 +52,7 @@
             overflow: hidden;
             background-color: var(--background-color);
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol";
+            font-size: var(--font-size-xs);
         }
         canvas {
             display: block;
@@ -54,7 +70,7 @@
             left: 20px;
             color: var(--primary-color);
             opacity: 0.8;
-            font-size: 14px;
+            font-size: var(--font-size-xs);
             pointer-events: none;
             z-index: 2;
         }
@@ -62,8 +78,8 @@
             position: absolute;
             bottom: 20px;
             right: 20px;
-            width: 50px;
-            height: 50px;
+            width: clamp(40px, 5vmin, 60px);
+            height: clamp(40px, 5vmin, 60px);
             background-color: var(--primary-color);
             border-radius: 50%;
             cursor: pointer;
@@ -79,8 +95,8 @@
             box-shadow: 0 0 20px rgba(0, 174, 255, 0.75);
         }
         #protocol-toggle svg {
-            width: 24px;
-            height: 24px;
+            width: 50%;
+            height: 50%;
             fill: var(--background-color);
         }
         #protocol-panel, #synthesis-panel {
@@ -95,15 +111,15 @@
             backdrop-filter: blur(4px);
         }
         #protocol-panel {
-            bottom: 90px;
+            bottom: calc(clamp(40px, 5vmin, 60px) + 30px);
             right: 20px;
-            width: 450px;
+            width: clamp(320px, 40vw, 550px);
             max-width: 90vw;
             z-index: 9;
             opacity: 0;
             transform: translateY(20px);
             transition: opacity 0.4s ease, transform 0.4s ease;
-            max-height: 80vh;
+            max-height: 75vh;
             overflow-y: auto;
         }
         #protocol-panel.visible {
@@ -116,6 +132,7 @@
             margin-top: 0;
             border-bottom: 1px solid var(--border-color);
             padding-bottom: 0.5em;
+            font-size: var(--font-size-md);
         }
         .protocol-item {
             margin-bottom: 1em;
@@ -123,24 +140,33 @@
         .protocol-item strong {
             color: var(--header-color);
             display: block;
+            font-size: var(--font-size-sm);
         }
         .protocol-item code {
             color: var(--primary-color);
             white-space: pre-wrap;
-            font-size: 0.9em;
+            font-size: var(--font-size-xs);
             display: block;
             background: #00000055;
             padding: 5px;
             border-radius: 4px;
             margin-top: 5px;
         }
+        
+        /* --- Harmonious Modal --- */
         #synthesis-panel {
-            width: 300px;
+            /* Adjusted width clamp for better scaling on large screens. */
+            width: clamp(320px, 30vw, 600px);
+            max-width: 90vw;
+            height: auto;
+            /* Max-height prevents the modal from becoming excessively tall on any screen. */
+            max-height: 70vh;
+            /* Overflow allows scrolling for extensive content, preserving the modal's form. */
+            overflow-y: auto;
             border-color: var(--primary-color);
             z-index: 20;
             box-shadow: 0 0 20px #00aeff44;
             word-wrap: break-word;
-            line-height: 1.6;
             opacity: 0;
             transform: scale(0.95);
             transition: opacity var(--modal-speed) ease, 
@@ -148,12 +174,18 @@
                         left var(--modal-speed) ease, 
                         top var(--modal-speed) ease;
             pointer-events: none;
+            font-size: var(--font-size-xs);
+            /* Principle of Negative Space */
+            padding: var(--base-unit) calc(var(--base-unit) * var(--phi));
+            /* Principle of Rhythm */
+            line-height: var(--phi);
         }
         #synthesis-panel.visible {
             opacity: 1;
             transform: scale(1);
             pointer-events: auto;
         }
+        
         #vignette {
             position: fixed;
             top: 0;
@@ -165,13 +197,30 @@
                 rgba(0,0,0,0) var(--vignette-size), 
                 rgba(0,0,0, var(--vignette-opacity)) 100%);
             pointer-events: none;
-            z-index: 5; /* Below UI elements but above canvas */
+            z-index: 5;
             opacity: 0;
             transition: opacity var(--vignette-speed) ease;
         }
         #vignette.visible {
             opacity: 1;
         }
+
+        /* Elegant Scrollbar Styling */
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #00000033;
+            border-radius: 10px;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: var(--border-color);
+            border-radius: 10px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: var(--primary-color);
+        }
+
     </style>
 </head>
 <body>
@@ -214,7 +263,7 @@
         const synthesisPanel = document.getElementById('synthesis-panel');
         const vignette = document.getElementById('vignette');
         
-        // --- Generative Text Engine (Unchanged) ---
+        // --- Generative Text Engine (Untouched) ---
         let themeDeck = [];
         let templateDecks = {};
         let wordBankDecks = {};
@@ -223,26 +272,30 @@
         function shuffleArray(array) { for (let i = array.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1));[array[i], array[j]] = [array[j], array[i]]; } return array; }
         function getNextUniquePhrase() { if (themeDeck.length === 0) { themeDeck = shuffleArray(Array.from(themes.keys())); } const themeIndex = themeDeck.pop(); const theme = themes[themeIndex]; if (!templateDecks[themeIndex] || templateDecks[themeIndex].length === 0) { templateDecks[themeIndex] = shuffleArray(Array.from(theme.templates.keys())); } const templateIndex = templateDecks[themeIndex].pop(); let phrase = theme.templates[templateIndex]; const placeholders = [...new Set(phrase.match(/{(\w+)}/g))]; placeholders.forEach(placeholder => { const key = placeholder.substring(1, placeholder.length - 1); let originalBank = theme.wordBanks[key] || commonWordBanks[key]; if (!originalBank) return; if (!wordBankDecks[key] || wordBankDecks[key].length === 0) { wordBankDecks[key] = shuffleArray([...originalBank]); } let wordObject = null; const initialDeckSize = wordBankDecks[key].length; for (let i = 0; i < initialDeckSize; i++) { let candidateObject = wordBankDecks[key][wordBankDecks[key].length - 1]; if (!phrase.toLowerCase().includes(candidateObject.text.toLowerCase().split(" ")[0])) { wordObject = wordBankDecks[key].pop(); break; } else { wordBankDecks[key].unshift(wordBankDecks[key].pop()); } } if (wordObject === null) { wordObject = wordBankDecks[key].pop(); } const regex = new RegExp(placeholder, 'g'); phrase = phrase.replace(regex, wordObject.text); }); return phrase.charAt(0).toUpperCase() + phrase.slice(1); }
 
-        // --- Simulation State ---
+        // --- Simulation State & Constants ---
+        // Core Parameters
         let width = canvas.width = window.innerWidth;
         let height = canvas.height = window.innerHeight;
         let nodes = [];
         const maxNodes = 150; 
-        let connectDistance = Math.min(width, height) * 0.15;
-        let connectDistanceSq = connectDistance * connectDistance;
+        let globalSpeedMultiplier = 0.2;
         let selectedNode = null;
         let hoveredNode = null;
-        let globalSpeedMultiplier = 0.2;
-        let modalSide = 'right';
+        
+        // Rendering & Style
+        let connectDistance = Math.min(width, height) * 0.15;
+        let connectDistanceSq = connectDistance * connectDistance;
         const glowBrightnessMultiplier = 0.90;
         const lineThicknessMultiplier = 0.15;
-        const centralCoreMultiplier = 0.30;
         const pulseSpeedMultiplier = 750;
         const pulseSizeMultiplier = 1.6;
         const minPulseSize = 0.8;
-        const modalDistanceMultiplier = 21;
 
-        // Viewport camera state.
+        // Layout & Camera
+        const centralCoreMultiplier = 0.30; // Prevents nodes from spawning in the absolute center
+        let modalSide = 'right';
+
+        // Viewport State
         let viewX = width / 2;
         let viewY = height / 2;
         let targetViewX = width / 2;
@@ -255,7 +308,7 @@
             constructor(initialAngle) {
                 this.centerX = width / 2;
                 this.centerY = height / 2;
-                this.scale = Math.random() * 0.7 + 0.3; // Depth emulation
+                this.scale = Math.random() * 0.7 + 0.3; // Emulates depth
 
                 const maxRadius = Math.min(width, height) / 2.2;
                 this.orbitRadiusX = (Math.random() * (1.0 - centralCoreMultiplier) + centralCoreMultiplier) * maxRadius;
@@ -264,8 +317,7 @@
 
                 this.currentAngle = initialAngle;
                 
-                // Parallax effect: closer nodes move faster
-                const speedScale = 0.7 + (this.scale * 0.3);
+                const speedScale = 0.7 + (this.scale * 0.3); // Parallax effect
                 this.baseSpeed = (0.0008 + Math.random() * 0.001) * speedScale;
                 this.speed = this.baseSpeed * globalSpeedMultiplier;
 
@@ -283,15 +335,11 @@
                 const unrotatedX = this.orbitRadiusX * Math.cos(this.currentAngle);
                 const unrotatedY = this.orbitRadiusY * Math.sin(this.currentAngle);
 
-                const rotatedX = unrotatedX * Math.cos(this.orbitRotation) - unrotatedY * Math.sin(this.orbitRotation);
-                const rotatedY = unrotatedX * Math.sin(this.orbitRotation) + unrotatedY * Math.cos(this.orbitRotation);
-
-                this.x = this.centerX + rotatedX;
-                this.y = this.centerY + rotatedY;
+                this.x = this.centerX + (unrotatedX * Math.cos(this.orbitRotation) - unrotatedY * Math.sin(this.orbitRotation));
+                this.y = this.centerY + (unrotatedX * Math.sin(this.orbitRotation) + unrotatedY * Math.cos(this.orbitRotation));
             }
 
             draw(isSelected, isHovered, pulse) {
-                // Hover effect is now color-only, no size change.
                 const displayRadius = this.baseRadius * this.scale + (isSelected ? pulse : 0);
                 
                 if (isSelected) {
@@ -304,15 +352,18 @@
                 ctx.fillStyle = isSelected ? 'var(--secondary-color)' : (isHovered ? '#bbb' : '#e0e0e0');
                 ctx.fill();
 
-                if (isSelected) {
-                    ctx.shadowBlur = 0;
-                }
+                if (isSelected) ctx.shadowBlur = 0;
             }
         }
         
-        // Fast Poisson Disk Sampling via Bridson's Algorithm.
+        // --- Core Functions ---
+
+        /**
+         * Distributes points uniformly using Bridson's Algorithm, avoiding clumping.
+         * Returns an array of initial angles for node placement.
+         */
         function generatePoissonPoints(width, height, minDistance, maxPoints) {
-            const k = 30;
+            const k = 30; // Max attempts to find a valid point before backtracking
             const grid = [];
             const activeSamples = [];
             const points = [];
@@ -320,10 +371,12 @@
             const cols = Math.floor(width / cellSize) + 1;
             const rows = Math.floor(height / cellSize) + 1;
             for (let i = 0; i < cols * rows; i++) grid.push(null);
+
             const p0 = { x: Math.random() * width, y: Math.random() * height };
             activeSamples.push(p0);
             points.push(p0);
             grid[Math.floor(p0.x / cellSize) + Math.floor(p0.y / cellSize) * cols] = p0;
+
             while (activeSamples.length > 0 && points.length < maxPoints) {
                 const randIndex = Math.floor(Math.random() * activeSamples.length);
                 const sample = activeSamples[randIndex];
@@ -341,8 +394,8 @@
                                 const neighborIndex = (gridX + x) + (gridY + y) * cols;
                                 if (grid[neighborIndex]) {
                                     const neighbor = grid[neighborIndex];
-                                    const d = Math.sqrt((newSample.x - neighbor.x) ** 2 + (newSample.y - neighbor.y) ** 2);
-                                    if (d < minDistance) { isValid = false; break; }
+                                    const dSq = (newSample.x - neighbor.x) ** 2 + (newSample.y - neighbor.y) ** 2;
+                                    if (dSq < minDistance * minDistance) { isValid = false; break; }
                                 }
                             }
                             if (!isValid) break;
@@ -356,63 +409,37 @@
                         }
                     }
                 }
-                if (!found) { activeSamples.splice(randIndex, 1); }
+                if (!found) activeSamples.splice(randIndex, 1);
             }
             const centerX = width / 2;
             const centerY = height / 2;
             return points.map(p => Math.atan2(p.y - centerY, p.x - centerX));
         }
 
-        // --- Core Simulation ---
-        function init() {
-            nodes = [];
-            const minNodeDistance = 60;
-            const initialAngles = generatePoissonPoints(width, height, minNodeDistance, maxNodes);
-            for (let i = 0; i < initialAngles.length; i++) {
-                nodes.push(new Node(initialAngles[i]));
-            }
-        }
-
-        function updatePhysics() {
-            nodes.forEach(node => {
-                node.speed = node.baseSpeed * globalSpeedMultiplier; 
-                node.update();
-            });
-        }
-
+        /**
+         * The main render and physics loop, executed every frame.
+         */
         function animate(timestamp) {
-            // --- Camera Logic ---
+            // 1. Update Camera
             if (selectedNode) {
-                // This logic implements compositional framing using the Rule of Thirds.
-                let targetNodeScreenX;
-                if (modalSide === 'right') {
-                    targetNodeScreenX = width / 3; // Position node on left third
-                } else {
-                    targetNodeScreenX = width * 2 / 3; // Position node on right third
-                }
-                // Calculate the required world coordinate for the camera's center.
+                let targetNodeScreenX = (modalSide === 'right') ? width / 3 : width * 2 / 3;
                 targetViewX = selectedNode.x - (targetNodeScreenX - width / 2) / targetZoom;
                 targetViewY = selectedNode.y;
             }
-
-            // Smoothly interpolate camera and zoom values.
             viewX += (targetViewX - viewX) * 0.08;
             viewY += (targetViewY - viewY) * 0.08;
             zoom += (targetZoom - zoom) * 0.08;
 
-            // Dynamically adjust simulation speed based on zoom level.
-            const minZoom = 1.5;
-            const maxZoom = 8.0;
-            const minSpeedMultiplier = 0.20;
-            const maxSpeedMultiplier = 0.60;
-            let t = (zoom - minZoom) / (maxZoom - minZoom);
-            t = Math.max(0, Math.min(1, t)); // Clamp between 0 and 1
-            const targetSpeedMultiplier = minSpeedMultiplier + t * (maxSpeedMultiplier - minSpeedMultiplier);
-            globalSpeedMultiplier += (targetSpeedMultiplier - globalSpeedMultiplier) * 0.05;
+            // 2. Update Physics
+            const t = Math.max(0, Math.min(1, (zoom - 1.5) / (8.0 - 1.5)));
+            const targetSpeed = 0.20 + t * (0.60 - 0.20);
+            globalSpeedMultiplier += (targetSpeed - globalSpeedMultiplier) * 0.05;
+            nodes.forEach(node => {
+                node.speed = node.baseSpeed * globalSpeedMultiplier; 
+                node.update();
+            });
 
-            updatePhysics(); 
-
-            // --- Begin Rendering ---
+            // 3. Render Scene
             ctx.clearRect(0, 0, width, height);
             ctx.save();
             ctx.translate(width / 2, height / 2);
@@ -420,11 +447,8 @@
             ctx.translate(-viewX, -viewY);
             
             const sortedNodes = [...nodes].sort((a, b) => a.scale - b.scale);
-
-            // High-fidelity line rendering with depth gradients and smooth fade-in/fade-out.
-            const connectFalloff = 0.8;
-            const falloffStartDistance = connectDistance * connectFalloff;
-           
+            
+            // Render connections
             for (let i = 0; i < sortedNodes.length; i++) {
                 for (let j = i + 1; j < sortedNodes.length; j++) {
                     const n1 = sortedNodes[i];
@@ -432,65 +456,33 @@
                     const dx = n1.x - n2.x;
                     const dy = n1.y - n2.y;
                     const distSq = dx * dx + dy * dy;
-
                     if (distSq < connectDistanceSq) {
                         const dist = Math.sqrt(distSq);
-                        
-                        // Calculate opacity based on distance for smooth fade-in/out.
-                        let opacityMultiplier = 1.0;
-                        if (dist > falloffStartDistance) {
-                           opacityMultiplier = 1.0 - (dist - falloffStartDistance) / (connectDistance - falloffStartDistance);
-                        }
-
-                        const isN1Interactive = (n1 === selectedNode || n1 === hoveredNode);
-                        const isN2Interactive = (n2 === selectedNode || n2 === hoveredNode);
-
-                        // Define colors based on depth and interaction state.
-                        const color1 = `rgba(0, 174, 255, ${n1.scale * 0.35 * opacityMultiplier})`;
-                        const color2 = `rgba(0, 174, 255, ${n2.scale * 0.35 * opacityMultiplier})`;
-                        const glow1 = `rgba(240, 240, 240, ${glowBrightnessMultiplier * n1.scale * opacityMultiplier})`; 
-                        const glow2 = `rgba(240, 240, 240, ${glowBrightnessMultiplier * n2.scale * opacityMultiplier})`;
-
-                        const startColor = isN1Interactive ? glow1 : color1;
-                        const endColor = isN2Interactive ? glow2 : color2;
-
-                        // Create a unique gradient for each line.
-                        const gradient = ctx.createLinearGradient(n1.x, n1.y, n2.x, n2.y);
-                        
-                        // Add intermediate stops for a smoother glow falloff.
-                        if (isN1Interactive && !isN2Interactive) {
-                            gradient.addColorStop(0, startColor);
-                            gradient.addColorStop(0.3, `rgba(0, 174, 255, ${n1.scale * 0.35 * opacityMultiplier * 0.8})`);
-                            gradient.addColorStop(1, endColor);
-                        } else if (!isN1Interactive && isN2Interactive) {
-                            gradient.addColorStop(0, startColor);
-                            gradient.addColorStop(0.7, `rgba(0, 174, 255, ${n2.scale * 0.35 * opacityMultiplier * 0.8})`);
-                            gradient.addColorStop(1, endColor);
-                        } else {
-                            gradient.addColorStop(0, startColor);
-                            gradient.addColorStop(1, endColor);
-                        }
+                        const falloffStart = connectDistance * 0.8;
+                        const opacity = dist > falloffStart ? 1.0 - (dist - falloffStart) / (connectDistance - falloffStart) : 1.0;
+                        const n1Inter = (n1 === selectedNode || n1 === hoveredNode);
+                        const n2Inter = (n2 === selectedNode || n2 === hoveredNode);
+                        const c1 = `rgba(0, 174, 255, ${n1.scale * 0.35 * opacity})`;
+                        const c2 = `rgba(0, 174, 255, ${n2.scale * 0.35 * opacity})`;
+                        const g1 = `rgba(240, 240, 240, ${glowBrightnessMultiplier * n1.scale * opacity})`; 
+                        const g2 = `rgba(240, 240, 240, ${glowBrightnessMultiplier * n2.scale * opacity})`;
+                        const grad = ctx.createLinearGradient(n1.x, n1.y, n2.x, n2.y);
+                        grad.addColorStop(0, n1Inter ? g1 : c1);
+                        grad.addColorStop(1, n2Inter ? g2 : c2);
                         
                         ctx.beginPath();
                         ctx.moveTo(n1.x, n1.y);
                         ctx.lineTo(n2.x, n2.y);
-                        
-                        ctx.strokeStyle = gradient;
+                        ctx.strokeStyle = grad;
                         ctx.lineWidth = lineThicknessMultiplier * ((n1.scale + n2.scale) / 2);
                         ctx.stroke();
                     }
                 }
             }
             
-            // Draw nodes on top of lines.
-            const sine = Math.sin(timestamp / pulseSpeedMultiplier);
-            const pulse = selectedNode ? (sine * 0.5 + 0.5) * (pulseSizeMultiplier - minPulseSize) + minPulseSize : 0;
-            
-            sortedNodes.forEach(node => {
-                const isSelected = node === selectedNode;
-                const isHovered = node === hoveredNode;
-                node.draw(isSelected, isHovered, pulse);
-            });
+            // Render nodes
+            const pulse = selectedNode ? (Math.sin(timestamp / pulseSpeedMultiplier) * 0.5 + 0.5) * (pulseSizeMultiplier - minPulseSize) + minPulseSize : 0;
+            sortedNodes.forEach(node => node.draw(node === selectedNode, node === hoveredNode, pulse));
             
             ctx.restore();
             updateSynthesisPanelPosition();
@@ -498,6 +490,23 @@
         }
         
         // --- UI Logic ---
+        function selectNode(node, clickScreenX) {
+            selectedNode = node;
+            const TARGET_ON_SCREEN_SCALE = 3.5; 
+            targetZoom = TARGET_ON_SCREEN_SCALE / selectedNode.scale;
+            modalSide = (clickScreenX > width / 2) ? 'left' : 'right';
+            
+            protocolPanel.classList.remove('visible');
+            if (!selectedNode.info) selectedNode.info = getNextUniquePhrase();
+            synthesisPanel.innerHTML = selectedNode.info;
+            
+            requestAnimationFrame(() => {
+                synthesisPanel.classList.add('visible');
+                vignette.classList.add('visible');
+                updateSynthesisPanelPosition();
+            });
+        }
+
         function deselectNodeAndResetView() {
             selectedNode = null;
             synthesisPanel.classList.remove('visible');
@@ -511,103 +520,109 @@
             if (!selectedNode) return;
             const panelWidth = synthesisPanel.offsetWidth;
             const panelHeight = synthesisPanel.offsetHeight;
-            
-            let panelX;
-            if (modalSide === 'right') {
-                // Modal on the right third
-                panelX = (width * 2 / 3) - (panelWidth / 2);
-            } else {
-                // Modal on the left third
-                panelX = (width / 3) - (panelWidth / 2);
-            }
-            
-            const screenY = (selectedNode.y - viewY) * zoom + height / 2;
-            let panelY = screenY - panelHeight / 2;
+            const panelX = (modalSide === 'right') ? (width * 2 / 3) - (panelWidth / 2) : (width / 3) - (panelWidth / 2);
+            let panelY = (height / 2) - (panelHeight / 2);
 
-            if (panelY < 20) panelY = 20;
-            if (panelY + panelHeight > height - 20) panelY = height - panelHeight - 20;
-           
+            const margin = 20; // Clamp to viewport
+            panelY = Math.max(margin, Math.min(panelY, height - panelHeight - margin));
+            
             synthesisPanel.style.left = `${panelX}px`;
             synthesisPanel.style.top = `${panelY}px`;
         }
         
-        // --- Event Listeners ---
-        window.addEventListener('resize', () => {
+        // --- Event Handlers & Initialization ---
+        function onResize() {
             width = canvas.width = window.innerWidth;
             height = canvas.height = window.innerHeight;
             connectDistance = Math.min(width, height) * 0.15;
             connectDistanceSq = connectDistance * connectDistance;
-            init(); 
-            targetViewX = width / 2;
-            targetViewY = height / 2;
-        });
-
-        protocolToggle.addEventListener('click', () => {
-            const isOpening = !protocolPanel.classList.contains('visible');
-            protocolPanel.classList.toggle('visible');
-            if (isOpening) { deselectNodeAndResetView(); }
-        });
-
-        canvas.addEventListener('mousemove', (event) => {
-            const worldX = (event.clientX - width / 2) / zoom + viewX;
-            const worldY = (event.clientY - height / 2) / zoom + viewY;
-            let closestNode = null;
-            let minDistanceSq = Infinity;
-            for (const node of nodes) {
-                const dx = node.x - worldX;
-                const dy = node.y - worldY;
-                const dSq = dx * dx + dy * dy;
-                if (dSq < minDistanceSq) {
-                    minDistanceSq = dSq;
-                    closestNode = node;
-                }
-            }
-            const hoverRadiusSq = (30 / zoom) ** 2;
-            hoveredNode = (closestNode && minDistanceSq < hoverRadiusSq) ? closestNode : null;
-        });
-
-        canvas.addEventListener('click', (event) => {
-            if (protocolPanel.classList.contains('visible')) return;
-            if (hoveredNode) {
-                if (selectedNode === hoveredNode) {
-                    deselectNodeAndResetView();
-                } else {
-                    selectedNode = hoveredNode;
-                    const TARGET_ON_SCREEN_SCALE = 3.5; 
-                    targetZoom = TARGET_ON_SCREEN_SCALE / selectedNode.scale;
-                    const screenX = (hoveredNode.x - viewX) * zoom + width / 2;
-                    // Keep the modal on the same side as the initial click
-                    modalSide = (screenX > width / 2) ? 'left' : 'right';
-                    
-                    protocolPanel.classList.remove('visible');
-                    if (!selectedNode.info) { selectedNode.info = getNextUniquePhrase(); }
-                    synthesisPanel.innerHTML = selectedNode.info;
-                    synthesisPanel.classList.add('visible');
-                    vignette.classList.add('visible');
-                }
+            
+            if (selectedNode) {
+                let targetNodeScreenX = (modalSide === 'right') ? width / 3 : width * 2 / 3;
+                targetViewX = selectedNode.x - (targetNodeScreenX - width / 2) / targetZoom;
+                targetViewY = selectedNode.y;
+                viewX = targetViewX;
+                viewY = targetViewY;
             } else {
-                 if (!synthesisPanel.contains(event.target)){
+                targetViewX = viewX = width / 2;
+                targetViewY = viewY = height / 2;
+            }
+            init(); 
+        }
+
+        function setupEventListeners() {
+            window.addEventListener('resize', onResize);
+            
+            protocolToggle.addEventListener('click', () => {
+                protocolPanel.classList.toggle('visible');
+                if (protocolPanel.classList.contains('visible')) deselectNodeAndResetView();
+            });
+
+            canvas.addEventListener('mousemove', (event) => {
+                const worldX = (event.clientX - width / 2) / zoom + viewX;
+                const worldY = (event.clientY - height / 2) / zoom + viewY;
+                let closestDistSq = Infinity;
+                hoveredNode = null;
+                for (const node of nodes) {
+                    const distSq = (node.x - worldX) ** 2 + (node.y - worldY) ** 2;
+                    if (distSq < closestDistSq) {
+                        closestDistSq = distSq;
+                        if (closestDistSq < (30 / zoom) ** 2) {
+                            hoveredNode = node;
+                        }
+                    }
+                }
+            });
+
+            canvas.addEventListener('click', (event) => {
+                // If the about panel is visible, a click on a node should close it and select the node.
+                if (protocolPanel.classList.contains('visible')) {
+                    if (hoveredNode) {
+                        protocolPanel.classList.remove('visible');
+                        selectNode(hoveredNode, event.clientX);
+                    }
+                    return; // Prevent further logic since the primary action was to close the panel.
+                }
+
+                if (hoveredNode) {
+                    if (selectedNode === hoveredNode) deselectNodeAndResetView();
+                    else selectNode(hoveredNode, event.clientX);
+                } else if (!synthesisPanel.contains(event.target)) {
                     deselectNodeAndResetView();
-                 }
-            }
-        });
+                }
+            });
 
-        document.body.addEventListener('click', (event) => {
-            const isClickOnInteractive = canvas.contains(event.target) || 
-                                          protocolToggle.contains(event.target) || 
-                                          protocolPanel.contains(event.target) ||
-                                          synthesisPanel.contains(event.target);
-            if (!isClickOnInteractive) {
-                deselectNodeAndResetView();
-                protocolPanel.classList.remove('visible');
-            }
-        });
+            // Handles clicks outside of any interactive element to reset the view.
+            document.body.addEventListener('click', (event) => {
+                const isInteractive = canvas.contains(event.target) || 
+                                      protocolToggle.contains(event.target) || 
+                                      protocolPanel.contains(event.target) ||
+                                      synthesisPanel.contains(event.target);
+                if (!isInteractive) {
+                    deselectNodeAndResetView();
+                    protocolPanel.classList.remove('visible');
+                }
+            });
+        }
 
-        // --- Initialization ---
+        /**
+         * Resets and populates the simulation with new nodes.
+         */
+        function init() {
+            nodes = [];
+            const minNodeDistance = Math.min(width, height) * 0.1;
+            const initialAngles = generatePoissonPoints(width, height, minNodeDistance, maxNodes);
+            for (const angle of initialAngles) {
+                nodes.push(new Node(angle));
+            }
+        }
+        
         window.onload = () => {
             init();
+            setupEventListeners();
             requestAnimationFrame(animate);
         };
     </script>
 </body>
 </html>
+
