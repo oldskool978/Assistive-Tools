@@ -8,11 +8,12 @@
     ## Fiducial Point - Interactive Visualization ##
 
     A sophisticated, production-ready interactive splash screen.
+    - Node field distribution via Bridson's Algorithm for Blue Noise.
     - Dynamic, orbiting node field with a 3D parallax effect.
-    - Initial node distribution via Bridson's Algorithm for Poisson Disk Sampling.
-    - High-fidelity rendering with depth-based gradients and smooth opacity falloffs.
-    - Intelligent camera system frames selected nodes and information modals using the Rule of Thirds.
-    - Procedural text engine generates unique "company principles" per node.
+    - Hybrid network topology with Delaunay Triangulation in dense regions.
+    - High-performance via Time-Decoupled network updates.
+    - Optimized nearest-neighbor searches using a Quadtree data structure.
+    - Procedural text engine generates unique company principles.
     -->
     <style>
         /* === Core Setup === */
@@ -28,15 +29,14 @@
             --vignette-opacity: 0.30;
             --vignette-size: 54%;
         }
-        /* Introduces responsive typography and UI scaling for high resolutions. */
         html {
-            font-size: 16px; /* Baseline for standard resolutions. */
+            font-size: 16px;
         }
         @media (min-width: 2560px) {
-            html { font-size: 18px; } /* QHD */
+            html { font-size: 18px; }
         }
         @media (min-width: 3840px) {
-            html { font-size: 20px; } /* 4K/UHD */
+            html { font-size: 20px; }
         }
         body, html {
             margin: 0;
@@ -61,7 +61,7 @@
             left: 20px;
             color: var(--primary-color);
             opacity: 0.8;
-            font-size: 0.875rem; /* 14px -> rem */
+            font-size: 0.875rem;
             pointer-events: none;
             z-index: 2;
         }
@@ -69,8 +69,8 @@
             position: absolute;
             bottom: 20px;
             right: 20px;
-            width: 3.125rem; /* 50px -> rem */
-            height: 3.125rem; /* 50px -> rem */
+            width: 3.125rem;
+            height: 3.125rem;
             background-color: var(--primary-color);
             border-radius: 50%;
             cursor: pointer;
@@ -86,8 +86,8 @@
             box-shadow: 0 0 20px rgba(0, 174, 255, 0.75);
         }
         #protocol-toggle svg {
-            width: 1.5rem; /* 24px -> rem */
-            height: 1.5rem; /* 24px -> rem */
+            width: 1.5rem;
+            height: 1.5rem;
             fill: var(--background-color);
         }
         #protocol-panel, #synthesis-panel {
@@ -103,9 +103,9 @@
             box-sizing: border-box;
         }
         #protocol-panel {
-            bottom: 5.625rem; /* 90px -> rem */
-            right: 1.25rem; /* 20px -> rem */
-            width: 28.125rem; /* 450px -> rem */
+            bottom: 5.625rem;
+            right: 1.25rem;
+            width: 28.125rem;
             max-width: 90vw;
             z-index: 9;
             opacity: 0;
@@ -143,7 +143,7 @@
             margin-top: 5px;
         }
         #synthesis-panel {
-            min-width: 280px; /* Base width managed in JS */
+            min-width: 280px;
             max-width: 90vw;
             border-color: var(--primary-color);
             z-index: 20;
@@ -152,13 +152,10 @@
             line-height: 1.6;
             opacity: 0;
             transform: scale(0.95);
-            /* Position is managed by JS physics simulation. */
-            /* CSS transition handles appearance and width changes. */
             transition: opacity 0.5s ease, 
                         transform 0.5s ease, 
                         width 0.5s ease;
             pointer-events: none;
-            /* Hides panel off-screen before first render. */
             left: -1000px; 
         }
         #synthesis-panel.visible {
@@ -190,6 +187,7 @@
     <div class="overlay-text">
         <p>// FIDUCIAL POINT</p>
     </div>
+
     <div id="vignette"></div>
     <canvas id="unificationCanvas"></canvas>
 
@@ -221,8 +219,6 @@
         // =================================================================
         // Fiducial Point :: Core Application Logic
         // =================================================================
-        // Manages simulation state, rendering loop, UI interactions,
-        // and physics-based animations for all components.
 
         // --- DOM Elements ---
         const canvas = document.getElementById('unificationCanvas');
@@ -244,22 +240,33 @@
         // --- Simulation State ---
         let width = canvas.width = window.innerWidth;
         let height = canvas.height = window.innerHeight;
-        // Scales canvas-based elements for high-resolution displays.
         let scalingFactor = Math.max(1, Math.pow(width / 1920, 0.5));
         let nodes = [];
+        let edgeMap = new Map();
+        let quadtree;
         const maxNodes = 150; 
-        let connectDistance = Math.min(width, height) * 0.15;
-        let connectDistanceSq = connectDistance * connectDistance;
         let selectedNode = null;
         let hoveredNode = null;
         let globalSpeedMultiplier = 0.2;
         let modalSide = 'right';
         const glowBrightnessMultiplier = 0.90;
-        const lineThicknessMultiplier = 0.15;
         const centralCoreMultiplier = 0.30;
         const pulseSpeedMultiplier = 750;
         const pulseSizeMultiplier = 1.6;
         const minPulseSize = 0.8;
+
+        // --- Final Aesthetic Parameters ---
+        const lineThicknessMultiplier = 0.13;
+        const edgeFadeSpeed = 0.070;
+        const DENSITY_THRESHOLD = 1;
+        
+        // --- Performance Optimization: Temporal Decoupling ---
+        const networkUpdateInterval = 100; // ms, for 10 updates per second
+        let lastNetworkUpdateTime = 0;
+
+        // --- Network Model Parameters ---
+        const DENSITY_RADIUS_FACTOR = 0.14; 
+        let densityRadius;
 
         // --- Viewport Camera State ---
         let viewX = width / 2;
@@ -270,145 +277,281 @@
         let targetZoom = 1.5;
         
         // --- Modal Physics State ---
-        // State for the damped harmonic oscillator controlling modal position.
         let modalX = -1000, modalY = -1000;
         let modalVelX = 0, modalVelY = 0;
         let targetModalX = -1000, targetModalY = -1000;
         const springStiffness = 0.04;
         const springDamping = 0.4;
 
+        // --- Quadtree Implementation ---
+        class Quadtree {
+            constructor(boundary, capacity = 4) {
+                this.boundary = boundary; this.capacity = capacity;
+                this.points = []; this.divided = false;
+            }
+            subdivide() {
+                const { x, y, width, height } = this.boundary;
+                const hw = width / 2, hh = height / 2;
+                this.northeast = new Quadtree(createBoundary(x + hw, y, hw, hh), this.capacity);
+                this.northwest = new Quadtree(createBoundary(x, y, hw, hh), this.capacity);
+                this.southeast = new Quadtree(createBoundary(x + hw, y + hh, hw, hh), this.capacity);
+                this.southwest = new Quadtree(createBoundary(x, y + hh, hw, hh), this.capacity);
+                this.divided = true;
+            }
+            insert(point) {
+                if (!this.boundary.contains(point)) return false;
+                if (this.points.length < this.capacity) { this.points.push(point); return true; }
+                if (!this.divided) this.subdivide();
+                return this.northeast.insert(point) || this.northwest.insert(point) ||
+                       this.southeast.insert(point) || this.southwest.insert(point);
+            }
+            query(range, found = []) {
+                if (!this.boundary.intersects(range)) return found;
+                for (const p of this.points) { if (range.contains(p)) found.push(p); }
+                if (this.divided) {
+                    this.northwest.query(range, found); this.northeast.query(range, found);
+                    this.southwest.query(range, found); this.southeast.query(range, found);
+                }
+                return found;
+            }
+        }
+        function createBoundary(x, y, w, h) {
+            return {
+                x, y, width: w, height: h,
+                contains: point => (point.x >= x && point.x <= x + w && point.y >= y && point.y <= y + h),
+                intersects: range => !(range.x > x + w || range.x + range.width < x || range.y > y + h || range.y + range.height < y)
+            };
+        }
+
+        // --- Delaunay Triangulation Utility ---
+        const Delaunay = (() => {
+            const EPSILON = 1.0 / 1048576.0;
+            function supertriangle(vertices) {
+                let xmin = Number.POSITIVE_INFINITY, ymin = Number.POSITIVE_INFINITY,
+                    xmax = Number.NEGATIVE_INFINITY, ymax = Number.NEGATIVE_INFINITY,
+                    i, dx, dy, dmax, xmid, ymid;
+                for (i = vertices.length; i--;) {
+                    if (vertices[i].x < xmin) xmin = vertices[i].x;
+                    if (vertices[i].x > xmax) xmax = vertices[i].x;
+                    if (vertices[i].y < ymin) ymin = vertices[i].y;
+                    if (vertices[i].y > ymax) ymax = vertices[i].y;
+                }
+                dx = xmax - xmin, dy = ymax - ymin, dmax = Math.max(dx, dy);
+                xmid = xmin + dx * 0.5, ymid = ymin + dy * 0.5;
+                return [{ x: xmid - 20 * dmax, y: ymid - dmax }, { x: xmid, y: ymid + 20 * dmax }, { x: xmid + 20 * dmax, y: ymid - dmax }];
+            }
+            function circumcircle(vertices, i, j, k) {
+                let x1 = vertices[i].x, y1 = vertices[i].y, x2 = vertices[j].x, y2 = vertices[j].y, x3 = vertices[k].x, y3 = vertices[k].y,
+                    fabsy1y2 = Math.abs(y1 - y2), fabsy2y3 = Math.abs(y2 - y3),
+                    xc, yc, m1, m2, mx1, mx2, my1, my2;
+                if (fabsy1y2 < EPSILON && fabsy2y3 < EPSILON) return null;
+                if (fabsy1y2 < EPSILON) {
+                    m2 = -((x3 - x2) / (y3 - y2)); mx2 = (x2 + x3) / 2.0; my2 = (y2 + y3) / 2.0;
+                    xc = (x2 + x1) / 2.0; yc = m2 * (xc - mx2) + my2;
+                } else if (fabsy2y3 < EPSILON) {
+                    m1 = -((x2 - x1) / (y2 - y1)); mx1 = (x1 + x2) / 2.0; my1 = (y1 + y2) / 2.0;
+                    xc = (x3 + x2) / 2.0; yc = m1 * (xc - mx1) + my1;
+                } else {
+                    m1 = -((x2 - x1) / (y2 - y1)); m2 = -((x3 - x2) / (y3 - y2));
+                    mx1 = (x1 + x2) / 2.0; my1 = (y1 + y2) / 2.0; mx2 = (x2 + x3) / 2.0; my2 = (y2 + y3) / 2.0;
+                    xc = (m1 * mx1 - m2 * mx2 + my2 - my1) / (m1 - m2);
+                    yc = (fabsy1y2 > fabsy2y3) ? m1 * (xc - mx1) + my1 : m2 * (xc - mx2) + my2;
+                }
+                const dx = x2 - xc, dy = y2 - yc;
+                return { i, j, k, x: xc, y: yc, radiusSq: dx * dx + dy * dy };
+            }
+            return {
+                triangulate: function(vertices) {
+                    let n = vertices.length, i, j, indices, st, open, closed, edges, dx, dy, a, b, c;
+                    indices = new Array(n);
+                    for (i = n; i--;) indices[i] = i;
+                    indices.sort((i, j) => vertices[j].x - vertices[i].x);
+                    st = supertriangle(vertices); vertices.push(st[0], st[1], st[2]);
+                    open = [circumcircle(vertices, n + 0, n + 1, n + 2)]; closed = []; edges = [];
+                    for (i = indices.length; i--;) {
+                        c = indices[i]; edges.length = 0;
+                        for (j = open.length; j--;) {
+                            dx = vertices[c].x - open[j].x;
+                            if (dx > 0 && dx * dx > open[j].radiusSq) { closed.push(open[j]); open.splice(j, 1); continue; }
+                            dy = vertices[c].y - open[j].y;
+                            if (dx * dx + dy * dy - open[j].radiusSq > EPSILON) continue;
+                            edges.push(open[j].i, open[j].j, open[j].j, open[j].k, open[j].k, open[j].i); open.splice(j, 1);
+                        }
+                        edges = edges.filter((v, i) => edges.indexOf(v) === i);
+                        for (j = edges.length; j > 1; j -= 2) {
+                            b = edges[j - 1]; a = edges[j - 2];
+                            open.push(circumcircle(vertices, a, b, c));
+                        }
+                    }
+                    for (i = open.length; i--;) closed.push(open[i]);
+                    vertices.length -= 3;
+                    const results = [];
+                    for(i = closed.length; i--; ) {
+                        if(closed[i].i < n && closed[i].j < n && closed[i].k < n) results.push([closed[i].i, closed[i].j, closed[i].k]);
+                    }
+                    return results;
+                }
+            };
+        })();
+
         // --- Node Class Definition ---
         class Node {
-            constructor(initialAngle) {
-                this.centerX = width / 2;
-                this.centerY = height / 2;
-                this.scale = Math.random() * 0.7 + 0.3; // Depth emulation; larger is closer.
-
-                const maxRadius = Math.min(width, height) / 2.2;
-                this.orbitRadiusX = (Math.random() * (1.0 - centralCoreMultiplier) + centralCoreMultiplier) * maxRadius;
-                this.orbitRadiusY = this.orbitRadiusX * (Math.random() * 0.5 + 0.3); // Defines the ellipse.
-                this.orbitRotation = Math.random() * Math.PI;
-
-                this.currentAngle = initialAngle;
-                
-                const speedScale = 0.7 + (this.scale * 0.3);
-                this.baseSpeed = (0.0008 + Math.random() * 0.001) * speedScale;
-                this.speed = this.baseSpeed * globalSpeedMultiplier;
-
-                this.x = 0;
-                this.y = 0;
-                this.baseRadius = 1.5 * scalingFactor; // Apply resolution scaling.
-                this.info = null;
-
-                this.update();
+            constructor(initialAngle, id) {
+                this.id = id;
+                this.centerX = width / 2; this.centerY = height / 2; this.scale = Math.random() * 0.7 + 0.3;
+                this.radiusXFactor = (Math.random() * (1.0 - centralCoreMultiplier) + centralCoreMultiplier);
+                this.radiusYFactor = (Math.random() * 0.5 + 0.3); this.orbitRotation = Math.random() * Math.PI;
+                const maxRadius = Math.min(width, height) / 2.2; this.orbitRadiusX = this.radiusXFactor * maxRadius;
+                this.orbitRadiusY = this.orbitRadiusX * this.radiusYFactor; this.currentAngle = initialAngle;
+                const speedScale = 0.7 + (this.scale * 0.3); this.baseSpeed = (0.0008 + Math.random() * 0.001) * speedScale;
+                this.speed = this.baseSpeed * globalSpeedMultiplier; this.x = 0; this.y = 0;
+                this.baseRadius = 1.5 * scalingFactor; this.info = null; this.update();
             }
-
             update() {
                 this.currentAngle += this.speed;
-
                 const unrotatedX = this.orbitRadiusX * Math.cos(this.currentAngle);
                 const unrotatedY = this.orbitRadiusY * Math.sin(this.currentAngle);
-
                 const rotatedX = unrotatedX * Math.cos(this.orbitRotation) - unrotatedY * Math.sin(this.orbitRotation);
                 const rotatedY = unrotatedX * Math.sin(this.orbitRotation) + unrotatedY * Math.cos(this.orbitRotation);
-
-                this.x = this.centerX + rotatedX;
-                this.y = this.centerY + rotatedY;
+                this.x = this.centerX + rotatedX; this.y = this.centerY + rotatedY;
             }
-
-            draw(isSelected, isHovered, pulse) {
+            draw(ctx, isSelected, isHovered, pulse) {
                 const displayRadius = this.baseRadius * this.scale + (isSelected ? pulse : 0);
-                
-                if (isSelected) {
-                    ctx.shadowColor = 'rgba(240, 240, 240, 0.7)';
-                    ctx.shadowBlur = 10 * this.scale;
-                }
-
-                ctx.beginPath();
-                ctx.arc(this.x, this.y, displayRadius, 0, Math.PI * 2);
+                if (isSelected) { ctx.shadowColor = 'rgba(240, 240, 240, 0.7)'; ctx.shadowBlur = 10 * this.scale; }
+                ctx.beginPath(); ctx.arc(this.x, this.y, displayRadius, 0, Math.PI * 2);
                 ctx.fillStyle = isSelected ? 'var(--secondary-color)' : (isHovered ? '#bbb' : '#e0e0e0');
                 ctx.fill();
-
-                if (isSelected) {
-                    ctx.shadowBlur = 0; // Reset shadow post-draw.
-                }
+                if (isSelected) { ctx.shadowBlur = 0; }
+            }
+            onResize(newWidth, newHeight, newScalingFactor) {
+                this.centerX = newWidth / 2; this.centerY = newHeight / 2;
+                const newMaxRadius = Math.min(newWidth, newHeight) / 2.2;
+                this.orbitRadiusX = this.radiusXFactor * newMaxRadius;
+                this.orbitRadiusY = this.orbitRadiusX * this.radiusYFactor;
+                this.baseRadius = 1.5 * newScalingFactor;
             }
         }
         
-        // --- Point Generation ---
-        // Fast Poisson Disk Sampling via Bridson's Algorithm.
-        function generatePoissonPoints(width, height, minDistance, maxPoints) {
-            const k = 30; // Max attempts before rejecting a sample.
-            const grid = [];
-            const activeSamples = [];
-            const points = [];
+        // --- Point & Network Generation ---
+        function generateBlueNoiseDistribution(nWidth, nHeight, minDistance, maxPoints) {
+            const k = 30, grid = [], activeSamples = [], points = [];
             const cellSize = minDistance / Math.SQRT2;
-            const cols = Math.floor(width / cellSize) + 1;
-            const rows = Math.floor(height / cellSize) + 1;
+            const cols = Math.floor(nWidth / cellSize) + 1, rows = Math.floor(nHeight / cellSize) + 1;
             for (let i = 0; i < cols * rows; i++) grid.push(null);
-
-            const p0 = { x: Math.random() * width, y: Math.random() * height };
-            activeSamples.push(p0);
-            points.push(p0);
+            const p0 = { x: Math.random() * nWidth, y: Math.random() * nHeight };
+            activeSamples.push(p0); points.push(p0);
             grid[Math.floor(p0.x / cellSize) + Math.floor(p0.y / cellSize) * cols] = p0;
-
             while (activeSamples.length > 0 && points.length < maxPoints) {
-                const randIndex = Math.floor(Math.random() * activeSamples.length);
-                const sample = activeSamples[randIndex];
+                const randIndex = Math.floor(Math.random() * activeSamples.length), sample = activeSamples[randIndex];
                 let found = false;
-
                 for (let i = 0; i < k; i++) {
-                    const angle = Math.random() * Math.PI * 2;
-                    const radius = Math.random() * minDistance + minDistance;
+                    const angle = Math.random() * Math.PI * 2, radius = Math.random() * minDistance + minDistance;
                     const newSample = { x: sample.x + Math.cos(angle) * radius, y: sample.y + Math.sin(angle) * radius };
-
-                    if (newSample.x >= 0 && newSample.x < width && newSample.y >= 0 && newSample.y < height) {
-                        const gridX = Math.floor(newSample.x / cellSize);
-                        const gridY = Math.floor(newSample.y / cellSize);
+                    if (newSample.x >= 0 && newSample.x < nWidth && newSample.y >= 0 && newSample.y < nHeight) {
+                        const gridX = Math.floor(newSample.x / cellSize), gridY = Math.floor(newSample.y / cellSize);
                         let isValid = true;
-
                         for (let y = -2; y <= 2; y++) {
                             for (let x = -2; x <= 2; x++) {
                                 const neighborIndex = (gridX + x) + (gridY + y) * cols;
                                 if (grid[neighborIndex]) {
-                                    const neighbor = grid[neighborIndex];
-                                    const d = Math.sqrt((newSample.x - neighbor.x) ** 2 + (newSample.y - neighbor.y) ** 2);
-                                    if (d < minDistance) {
-                                        isValid = false;
-                                        break;
-                                    }
+                                    const d = Math.sqrt((newSample.x - grid[neighborIndex].x) ** 2 + (newSample.y - grid[neighborIndex].y) ** 2);
+                                    if (d < minDistance) { isValid = false; break; }
                                 }
                             }
                             if (!isValid) break;
                         }
-
                         if (isValid) {
-                            points.push(newSample);
-                            activeSamples.push(newSample);
-                            grid[gridX + gridY * cols] = newSample;
-                            found = true;
-                            break;
+                            points.push(newSample); activeSamples.push(newSample);
+                            grid[gridX + gridY * cols] = newSample; found = true; break;
                         }
                     }
                 }
-                if (!found) {
-                    activeSamples.splice(randIndex, 1);
-                }
+                if (!found) activeSamples.splice(randIndex, 1);
             }
-            const centerX = width / 2;
-            const centerY = height / 2;
-            // Return initial angles, not points, for orbit initialization.
+            const centerX = nWidth / 2, centerY = nHeight / 2;
             return points.map(p => Math.atan2(p.y - centerY, p.x - centerX));
         }
 
-        // --- Core Simulation Loop ---
+        function updateNetworkTopology() {
+            buildQuadtree();
+            const currentEdgeKeys = new Set();
+            
+            const nodeNeighbors = nodes.map(node => quadtree.query(createBoundary(node.x - densityRadius, node.y - densityRadius, densityRadius * 2, densityRadius * 2)).filter(other => other.id !== node.id));
+            const isDense = nodes.map((_, i) => nodeNeighbors[i].length >= DENSITY_THRESHOLD);
+            const processed = new Array(nodes.length).fill(false);
+            
+            for (let i = 0; i < nodes.length; i++) {
+                if (!isDense[i] || processed[i]) continue;
+                const patch = []; const queue = [i]; processed[i] = true;
+                while (queue.length > 0) {
+                    const currentIndex = queue.shift(); patch.push(nodes[currentIndex]);
+                    nodeNeighbors[currentIndex].forEach(neighbor => {
+                        if (isDense[neighbor.id] && !processed[neighbor.id]) {
+                            processed[neighbor.id] = true; queue.push(neighbor.id);
+                        }
+                    });
+                }
+
+                if (patch.length > 2) {
+                    const triangles = Delaunay.triangulate(patch);
+                    triangles.forEach(triangle => {
+                        [[patch[triangle[0]], patch[triangle[1]]], [patch[triangle[1]], patch[triangle[2]]], [patch[triangle[2]], patch[triangle[0]]]].forEach(pair => {
+                            if (!pair[0] || !pair[1]) return;
+                             currentEdgeKeys.add([pair[0].id, pair[1].id].sort().join('-'));
+                        });
+                    });
+                }
+            }
+            for (let i = 0; i < nodes.length; i++) {
+                nodeNeighbors[i].forEach(neighbor => {
+                    if (nodes[i].id < neighbor.id) {
+                        currentEdgeKeys.add([nodes[i].id, neighbor.id].sort().join('-'));
+                    }
+                });
+            }
+
+            for (const [key, edge] of edgeMap.entries()) {
+                if (!currentEdgeKeys.has(key)) {
+                    edge.targetOpacity = 0; // Mark for fade out
+                }
+            }
+            
+            for (const key of currentEdgeKeys) {
+                if (!edgeMap.has(key)) {
+                    const [id1, id2] = key.split('-');
+                    edgeMap.set(key, {
+                        source: nodes[id1], target: nodes[id2],
+                        currentOpacity: 0, targetOpacity: 1
+                    });
+                } else {
+                    edgeMap.get(key).targetOpacity = 1; // Mark for fade in
+                }
+            }
+        }
+
+        // --- Core Simulation & Rendering ---
+        function setDynamicSizes() {
+            const minDim = Math.min(width, height);
+            densityRadius = minDim * DENSITY_RADIUS_FACTOR;
+        }
+
         function init() {
             nodes = [];
-            const minNodeDistance = 60 * scalingFactor; // Apply resolution scaling.
-            const initialAngles = generatePoissonPoints(width, height, minNodeDistance, maxNodes);
+            edgeMap.clear();
+            setDynamicSizes();
+            const minNodeDistance = 60 * scalingFactor;
+            const initialAngles = generateBlueNoiseDistribution(width, height, minNodeDistance, maxNodes);
             for (let i = 0; i < initialAngles.length; i++) {
-                nodes.push(new Node(initialAngles[i]));
+                nodes.push(new Node(initialAngles[i], i));
             }
+            updateNodePhysics();
+            updateNetworkTopology();
+        }
+
+        function buildQuadtree() {
+            const boundary = createBoundary(0, 0, width, height);
+            quadtree = new Quadtree(boundary);
+            nodes.forEach(node => quadtree.insert(node));
         }
 
         function updateNodePhysics() {
@@ -417,9 +560,62 @@
                 node.update();
             });
         }
+        
+        function renderNetwork() {
+            const interactiveNodes = new Set([selectedNode, hoveredNode]);
+            const edgesToDelete = [];
 
-        function animate() {
-            // Update camera position toward its target.
+            for (const [key, edge] of edgeMap.entries()) {
+                // Weighted fade animation (easing)
+                edge.currentOpacity += (edge.targetOpacity - edge.currentOpacity) * edgeFadeSpeed;
+
+                if (edge.targetOpacity === 0 && edge.currentOpacity < 0.01) {
+                    edgesToDelete.push(key);
+                    continue;
+                }
+                if (edge.currentOpacity < 0.01) continue;
+
+
+                const { source: n1, target: n2 } = edge;
+                if (!n1 || !n2) continue;
+
+                const isN1Interactive = interactiveNodes.has(n1);
+                const isN2Interactive = interactiveNodes.has(n2);
+                
+                const dynamicOpacity = (n1.scale + n2.scale) * 0.5;
+                const baseOpacity = n1.scale * 0.35 * dynamicOpacity * edge.currentOpacity;
+
+                const color1 = `rgba(0, 174, 255, ${baseOpacity})`;
+                const color2 = `rgba(0, 174, 255, ${baseOpacity})`;
+                const glow1 = `rgba(240, 240, 240, ${glowBrightnessMultiplier * n1.scale * dynamicOpacity * edge.currentOpacity})`;
+                const glow2 = `rgba(240, 240, 240, ${glowBrightnessMultiplier * n2.scale * dynamicOpacity * edge.currentOpacity})`;
+
+                const startColor = isN1Interactive ? glow1 : color1;
+                const endColor = isN2Interactive ? glow2 : color2;
+
+                const gradient = ctx.createLinearGradient(n1.x, n1.y, n2.x, n2.y);
+                gradient.addColorStop(0, startColor);
+                gradient.addColorStop(1, endColor);
+                
+                ctx.beginPath();
+                ctx.moveTo(n1.x, n1.y);
+                ctx.lineTo(n2.x, n2.y);
+                ctx.strokeStyle = gradient;
+                ctx.lineWidth = lineThicknessMultiplier * dynamicOpacity;
+                ctx.stroke();
+            }
+
+            edgesToDelete.forEach(key => edgeMap.delete(key));
+        }
+        
+        function animate(timestamp) {
+            // --- Performance: Time-Decoupled Network Update ---
+            if (timestamp - lastNetworkUpdateTime > networkUpdateInterval) {
+                updateNetworkTopology();
+                lastNetworkUpdateTime = timestamp;
+            }
+
+            // --- Camera Logic ---
             if (selectedNode) {
                 let targetNodeScreenX = (modalSide === 'right') ? width / 3 : width * 2 / 3;
                 targetViewX = selectedNode.x - (targetNodeScreenX - width / 2) / targetZoom;
@@ -429,27 +625,29 @@
             viewY += (targetViewY - viewY) * 0.08;
             zoom += (targetZoom - zoom) * 0.08;
 
-            // Couple simulation speed to camera zoom.
             const minZoom = 1.5, maxZoom = 8.0;
             const minSpeed = 0.20, maxSpeed = 0.60;
             let t = Math.max(0, Math.min(1, (zoom - minZoom) / (maxZoom - minZoom)));
             const targetSpeed = minSpeed + t * (maxSpeed - minSpeed);
             globalSpeedMultiplier += (targetSpeed - globalSpeedMultiplier) * 0.05;
 
-            // Update physics for nodes and modal panel.
+            // --- 60fps Physics & Rendering ---
             updateNodePhysics();
             updateModalPhysics();
 
-            // --- Begin Rendering ---
             ctx.clearRect(0, 0, width, height);
             ctx.save();
             ctx.translate(width / 2, height / 2);
             ctx.scale(zoom, zoom);
             ctx.translate(-viewX, -viewY);
             
+            renderNetwork();
+
             const sortedNodes = [...nodes].sort((a, b) => a.scale - b.scale);
-            renderConnections(sortedNodes);
-            renderNodes(sortedNodes);
+            const sine = Math.sin(timestamp / pulseSpeedMultiplier);
+            const pulse = selectedNode ? (sine * 0.5 + 0.5) * (pulseSizeMultiplier - minPulseSize) + minPulseSize : 0;
+            sortedNodes.forEach(node => node.draw(ctx, node === selectedNode, node === hoveredNode, pulse));
+            
             ctx.restore();
 
             updateSynthesisPanelTargetPosition();
@@ -458,79 +656,18 @@
 
         function updateModalPhysics() {
             if (!selectedNode) return;
-
-            // Update modal position via damped harmonic oscillator model.
             const forceX = (targetModalX - modalX) * springStiffness;
             const forceY = (targetModalY - modalY) * springStiffness;
             const dampingX = modalVelX * springDamping;
             const dampingY = modalVelY * springDamping;
-            const accelX = forceX - dampingX;
-            const accelY = forceY - dampingY;
-
-            modalVelX += accelX;
-            modalVelY += accelY;
+            modalVelX += forceX - dampingX;
+            modalVelY += forceY - dampingY;
             modalX += modalVelX;
             modalY += modalVelY;
-
             if (Math.abs(modalVelX) > 0.01 || Math.abs(modalVelY) > 0.01) {
                 synthesisPanel.style.left = `${modalX}px`;
                 synthesisPanel.style.top = `${modalY}px`;
             }
-        }
-        
-        function renderConnections(sortedNodes) {
-            const connectFalloff = 0.8;
-            const falloffStartDistance = connectDistance * connectFalloff;
-            
-            for (let i = 0; i < sortedNodes.length; i++) {
-                for (let j = i + 1; j < sortedNodes.length; j++) {
-                    const n1 = sortedNodes[i];
-                    const n2 = sortedNodes[j];
-                    const dx = n1.x - n2.x;
-                    const dy = n1.y - n2.y;
-                    const distSq = dx * dx + dy * dy;
-
-                    if (distSq < connectDistanceSq) {
-                        const dist = Math.sqrt(distSq);
-                        
-                        let opacity = 1.0;
-                        if (dist > falloffStartDistance) {
-                           opacity = 1.0 - (dist - falloffStartDistance) / (connectDistance - falloffStartDistance);
-                        }
-
-                        const isN1Interactive = (n1 === selectedNode || n1 === hoveredNode);
-                        const isN2Interactive = (n2 === selectedNode || n2 === hoveredNode);
-
-                        const color1 = `rgba(0, 174, 255, ${n1.scale * 0.35 * opacity})`;
-                        const color2 = `rgba(0, 174, 255, ${n2.scale * 0.35 * opacity})`;
-                        const glow1 = `rgba(240, 240, 240, ${glowBrightnessMultiplier * n1.scale * opacity})`; 
-                        const glow2 = `rgba(240, 240, 240, ${glowBrightnessMultiplier * n2.scale * opacity})`;
-
-                        const startColor = isN1Interactive ? glow1 : color1;
-                        const endColor = isN2Interactive ? glow2 : color2;
-
-                        const gradient = ctx.createLinearGradient(n1.x, n1.y, n2.x, n2.y);
-                        gradient.addColorStop(0, startColor);
-                        gradient.addColorStop(1, endColor);
-                        
-                        ctx.beginPath();
-                        ctx.moveTo(n1.x, n1.y);
-                        ctx.lineTo(n2.x, n2.y);
-                        ctx.strokeStyle = gradient;
-                        ctx.lineWidth = lineThicknessMultiplier * ((n1.scale + n2.scale) / 2);
-                        ctx.stroke();
-                    }
-                }
-            }
-        }
-
-        function renderNodes(sortedNodes) {
-            const sine = Math.sin(Date.now() / pulseSpeedMultiplier);
-            const pulse = selectedNode ? (sine * 0.5 + 0.5) * (pulseSizeMultiplier - minPulseSize) + minPulseSize : 0;
-            
-            sortedNodes.forEach(node => {
-                node.draw(node === selectedNode, node === hoveredNode, pulse);
-            });
         }
         
         // --- UI Logic & Event Handlers ---
@@ -545,17 +682,11 @@
 
         function updateSynthesisPanelTargetPosition() {
             if (!selectedNode) return;
-            const panelWidth = synthesisPanel.offsetWidth;
-            const panelHeight = synthesisPanel.offsetHeight;
+            const panelWidth = synthesisPanel.offsetWidth, panelHeight = synthesisPanel.offsetHeight;
             const screenPadding = 20;
-            
-            let idealPanelX = (modalSide === 'right') 
-                ? (width * 2 / 3) - (panelWidth / 2) 
-                : (width / 3) - (panelWidth / 2);
-            
+            let idealPanelX = (modalSide === 'right') ? (width * 2 / 3) - (panelWidth / 2) : (width / 3) - (panelWidth / 2);
             const screenY = (selectedNode.y - viewY) * zoom + height / 2;
             let panelY = screenY - panelHeight / 2;
-
             targetModalY = Math.max(screenPadding, Math.min(panelY, height - panelHeight - screenPadding));
             targetModalX = Math.max(screenPadding, Math.min(idealPanelX, width - panelWidth - screenPadding));
         }
@@ -563,12 +694,17 @@
         window.addEventListener('resize', () => {
             width = canvas.width = window.innerWidth;
             height = canvas.height = window.innerHeight;
-            scalingFactor = Math.max(1, Math.pow(width / 1920, 0.5)); // Recalculate on resize.
-            connectDistance = Math.min(width, height) * 0.15;
-            connectDistanceSq = connectDistance * connectDistance;
-            init(); 
-            targetViewX = width / 2;
-            targetViewY = height / 2;
+            scalingFactor = Math.max(1, Math.pow(width / 1920, 0.5));
+            nodes.forEach(node => node.onResize(width, height, scalingFactor));
+            setDynamicSizes();
+            updateNodePhysics();
+            updateNetworkTopology();
+            if (selectedNode) {
+                deselectNodeAndResetView();
+            } else {
+                targetViewX = width / 2;
+                targetViewY = height / 2;
+            }
         });
 
         protocolToggle.addEventListener('click', () => {
@@ -580,47 +716,44 @@
         canvas.addEventListener('mousemove', (event) => {
             const worldX = (event.clientX - width / 2) / zoom + viewX;
             const worldY = (event.clientY - height / 2) / zoom + viewY;
-            let closestNode = null;
-            let minDistanceSq = Infinity;
+            const hoverRadius = (30 * scalingFactor) / zoom;
+            
+            const searchArea = createBoundary(worldX - hoverRadius, worldY - hoverRadius, hoverRadius * 2, hoverRadius * 2);
+            const candidates = quadtree ? quadtree.query(searchArea) : [];
 
-            for (const node of nodes) {
-                const dx = node.x - worldX;
-                const dy = node.y - worldY;
+            let closestNode = null;
+            let minDistanceSq = hoverRadius * hoverRadius;
+
+            for (const node of candidates) {
+                const dx = node.x - worldX, dy = node.y - worldY;
                 const dSq = dx * dx + dy * dy;
                 if (dSq < minDistanceSq) {
                     minDistanceSq = dSq;
                     closestNode = node;
                 }
             }
-            const hoverRadiusSq = ((30 * scalingFactor) / zoom) ** 2; // Apply scaling.
-            hoveredNode = (closestNode && minDistanceSq < hoverRadiusSq) ? closestNode : null;
+            hoveredNode = closestNode;
         });
 
         canvas.addEventListener('click', (event) => {
             if (hoveredNode) {
                 protocolPanel.classList.remove('visible');
-                
                 if (selectedNode === hoveredNode) {
                     deselectNodeAndResetView();
                 } else {
                     const isFirstSelection = selectedNode === null;
                     selectedNode = hoveredNode;
-                    
                     const TARGET_ON_SCREEN_SCALE = 3.5; 
                     targetZoom = TARGET_ON_SCREEN_SCALE / selectedNode.scale;
                     const screenX = (hoveredNode.x - viewX) * zoom + width / 2;
                     modalSide = (screenX > width / 2) ? 'left' : 'right';
-                    
                     if (!selectedNode.info) { selectedNode.info = getNextUniquePhrase(); }
                     synthesisPanel.innerHTML = selectedNode.info;
-
-                    // Dynamically size the modal based on its content, scaled for resolution.
                     const textLength = selectedNode.info.length;
                     const minWidth = 280 * scalingFactor;
                     const maxWidth = 450 * scalingFactor;
                     const dynamicWidth = minWidth + Math.sqrt(textLength) * (4 * scalingFactor);
                     synthesisPanel.style.width = `${Math.max(minWidth, Math.min(maxWidth, dynamicWidth))}px`;
-                    
                     if (isFirstSelection) {
                         setTimeout(() => {
                             updateSynthesisPanelTargetPosition();
@@ -628,7 +761,6 @@
                             modalY = targetModalY;
                         }, 0);
                     }
-                    
                     synthesisPanel.classList.add('visible');
                     vignette.classList.add('visible');
                 }
