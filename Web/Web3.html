@@ -260,6 +260,14 @@
         const edgeFadeSpeed = 0.070;
         const DENSITY_THRESHOLD = 1;
         
+        // --- Dynamic Time Scale Parameters ---
+        let timeScale = 1.0;
+        const baseTimeScale = 0.6;
+        const zoomTimeEffect = 3.1;
+        const nodeTimeEffect = 0.3;
+        const MIN_ZOOM_FOR_EFFECT = 1.5;
+        const MAX_ZOOM_FOR_EFFECT = 8.0;
+
         // --- Performance Optimization: Temporal Decoupling ---
         const networkUpdateInterval = 100; // ms, for 10 updates per second
         let lastNetworkUpdateTime = 0;
@@ -401,14 +409,15 @@
                 this.centerX = width / 2; this.centerY = height / 2; this.scale = Math.random() * 0.7 + 0.3;
                 this.radiusXFactor = (Math.random() * (1.0 - centralCoreMultiplier) + centralCoreMultiplier);
                 this.radiusYFactor = (Math.random() * 0.5 + 0.3); this.orbitRotation = Math.random() * Math.PI;
-                const maxRadius = Math.min(width, height) / 2.2; this.orbitRadiusX = this.radiusXFactor * maxRadius;
+                const maxRadius = ((width + height) / 2) / 2.2;
+                this.orbitRadiusX = this.radiusXFactor * maxRadius;
                 this.orbitRadiusY = this.orbitRadiusX * this.radiusYFactor; this.currentAngle = initialAngle;
                 const speedScale = 0.7 + (this.scale * 0.3); this.baseSpeed = (0.0008 + Math.random() * 0.001) * speedScale;
                 this.speed = this.baseSpeed * globalSpeedMultiplier; this.x = 0; this.y = 0;
-                this.baseRadius = 1.5 * scalingFactor; this.info = null; this.update();
+                this.baseRadius = 1.5 * scalingFactor; this.info = null; this.update(1); // Initial position
             }
-            update() {
-                this.currentAngle += this.speed;
+            update(timeMultiplier) {
+                this.currentAngle += this.speed * timeMultiplier;
                 const unrotatedX = this.orbitRadiusX * Math.cos(this.currentAngle);
                 const unrotatedY = this.orbitRadiusY * Math.sin(this.currentAngle);
                 const rotatedX = unrotatedX * Math.cos(this.orbitRotation) - unrotatedY * Math.sin(this.orbitRotation);
@@ -425,7 +434,7 @@
             }
             onResize(newWidth, newHeight, newScalingFactor) {
                 this.centerX = newWidth / 2; this.centerY = newHeight / 2;
-                const newMaxRadius = Math.min(newWidth, newHeight) / 2.2;
+                const newMaxRadius = ((newWidth + newHeight) / 2) / 2.2;
                 this.orbitRadiusX = this.radiusXFactor * newMaxRadius;
                 this.orbitRadiusY = this.orbitRadiusX * this.radiusYFactor;
                 this.baseRadius = 1.5 * newScalingFactor;
@@ -557,7 +566,7 @@
         function updateNodePhysics() {
             nodes.forEach(node => {
                 node.speed = node.baseSpeed * globalSpeedMultiplier; 
-                node.update();
+                node.update(timeScale);
             });
         }
         
@@ -608,9 +617,23 @@
             edgesToDelete.forEach(key => edgeMap.delete(key));
         }
         
+        function updateDynamicTimeScale() {
+            const zoomFactor = Math.max(0, Math.min(1, (zoom - MIN_ZOOM_FOR_EFFECT) / (MAX_ZOOM_FOR_EFFECT - MIN_ZOOM_FOR_EFFECT)));
+            
+            let nodeFactor = 0;
+            if (selectedNode) {
+                // Node scale is 0.3 (far) to 1.0 (close). We want the inverse.
+                nodeFactor = 1.0 - ((selectedNode.scale - 0.3) / 0.7);
+            }
+
+            timeScale = baseTimeScale + (zoomFactor * zoomTimeEffect) + (nodeFactor * nodeTimeEffect * zoomFactor);
+        }
+
         function animate(timestamp) {
+            updateDynamicTimeScale();
+
             // --- Performance: Time-Decoupled Network Update ---
-            if (timestamp - lastNetworkUpdateTime > networkUpdateInterval) {
+            if (timestamp - lastNetworkUpdateTime > (networkUpdateInterval / timeScale)) {
                 updateNetworkTopology();
                 lastNetworkUpdateTime = timestamp;
             }
@@ -644,6 +667,7 @@
             renderNetwork();
 
             const sortedNodes = [...nodes].sort((a, b) => a.scale - b.scale);
+            // Pulse calculation is now independent of timeScale
             const sine = Math.sin(timestamp / pulseSpeedMultiplier);
             const pulse = selectedNode ? (sine * 0.5 + 0.5) * (pulseSizeMultiplier - minPulseSize) + minPulseSize : 0;
             sortedNodes.forEach(node => node.draw(ctx, node === selectedNode, node === hoveredNode, pulse));
