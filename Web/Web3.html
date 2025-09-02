@@ -24,10 +24,19 @@
             --text-color: #e0e0e0;
             --header-color: #ffffff;
             --border-color: #0077b3;
-            --modal-speed: 0.70s;
             --vignette-speed: 1.7s;
             --vignette-opacity: 0.30;
             --vignette-size: 54%;
+        }
+        /* Introduces responsive typography and UI scaling for high resolutions. */
+        html {
+            font-size: 16px; /* Baseline for standard resolutions. */
+        }
+        @media (min-width: 2560px) {
+            html { font-size: 18px; } /* QHD */
+        }
+        @media (min-width: 3840px) {
+            html { font-size: 20px; } /* 4K/UHD */
         }
         body, html {
             margin: 0;
@@ -52,7 +61,7 @@
             left: 20px;
             color: var(--primary-color);
             opacity: 0.8;
-            font-size: 14px;
+            font-size: 0.875rem; /* 14px -> rem */
             pointer-events: none;
             z-index: 2;
         }
@@ -60,8 +69,8 @@
             position: absolute;
             bottom: 20px;
             right: 20px;
-            width: 50px;
-            height: 50px;
+            width: 3.125rem; /* 50px -> rem */
+            height: 3.125rem; /* 50px -> rem */
             background-color: var(--primary-color);
             border-radius: 50%;
             cursor: pointer;
@@ -77,8 +86,8 @@
             box-shadow: 0 0 20px rgba(0, 174, 255, 0.75);
         }
         #protocol-toggle svg {
-            width: 24px;
-            height: 24px;
+            width: 1.5rem; /* 24px -> rem */
+            height: 1.5rem; /* 24px -> rem */
             fill: var(--background-color);
         }
         #protocol-panel, #synthesis-panel {
@@ -94,9 +103,9 @@
             box-sizing: border-box;
         }
         #protocol-panel {
-            bottom: 90px;
-            right: 20px;
-            width: 450px;
+            bottom: 5.625rem; /* 90px -> rem */
+            right: 1.25rem; /* 20px -> rem */
+            width: 28.125rem; /* 450px -> rem */
             max-width: 90vw;
             z-index: 9;
             opacity: 0;
@@ -134,7 +143,7 @@
             margin-top: 5px;
         }
         #synthesis-panel {
-            min-width: 280px;
+            min-width: 280px; /* Base width managed in JS */
             max-width: 90vw;
             border-color: var(--primary-color);
             z-index: 20;
@@ -235,6 +244,8 @@
         // --- Simulation State ---
         let width = canvas.width = window.innerWidth;
         let height = canvas.height = window.innerHeight;
+        // Scales canvas-based elements for high-resolution displays.
+        let scalingFactor = Math.max(1, Math.pow(width / 1920, 0.5));
         let nodes = [];
         const maxNodes = 150; 
         let connectDistance = Math.min(width, height) * 0.15;
@@ -280,14 +291,13 @@
 
                 this.currentAngle = initialAngle;
                 
-                // Parallax effect: closer nodes appear to move faster.
                 const speedScale = 0.7 + (this.scale * 0.3);
                 this.baseSpeed = (0.0008 + Math.random() * 0.001) * speedScale;
                 this.speed = this.baseSpeed * globalSpeedMultiplier;
 
                 this.x = 0;
                 this.y = 0;
-                this.baseRadius = 1.5;
+                this.baseRadius = 1.5 * scalingFactor; // Apply resolution scaling.
                 this.info = null;
 
                 this.update();
@@ -394,7 +404,7 @@
         // --- Core Simulation Loop ---
         function init() {
             nodes = [];
-            const minNodeDistance = 60;
+            const minNodeDistance = 60 * scalingFactor; // Apply resolution scaling.
             const initialAngles = generatePoissonPoints(width, height, minNodeDistance, maxNodes);
             for (let i = 0; i < initialAngles.length; i++) {
                 nodes.push(new Node(initialAngles[i]));
@@ -437,18 +447,11 @@
             ctx.scale(zoom, zoom);
             ctx.translate(-viewX, -viewY);
             
-            // Sort nodes by scale for correct Z-ordering (depth).
             const sortedNodes = [...nodes].sort((a, b) => a.scale - b.scale);
-            
-            // Render connections between nodes.
             renderConnections(sortedNodes);
-            
-            // Render nodes on top of connections.
             renderNodes(sortedNodes);
-            
             ctx.restore();
 
-            // Set physics target; animation loop handles movement.
             updateSynthesisPanelTargetPosition();
             requestAnimationFrame(animate);
         }
@@ -469,7 +472,6 @@
             modalX += modalVelX;
             modalY += modalVelY;
 
-            // Halt physics updates when motion becomes negligible.
             if (Math.abs(modalVelX) > 0.01 || Math.abs(modalVelY) > 0.01) {
                 synthesisPanel.style.left = `${modalX}px`;
                 synthesisPanel.style.top = `${modalY}px`;
@@ -541,7 +543,6 @@
             targetZoom = 1.5;
         }
 
-        // Calculate the target screen coordinates for the synthesis panel.
         function updateSynthesisPanelTargetPosition() {
             if (!selectedNode) return;
             const panelWidth = synthesisPanel.offsetWidth;
@@ -555,7 +556,6 @@
             const screenY = (selectedNode.y - viewY) * zoom + height / 2;
             let panelY = screenY - panelHeight / 2;
 
-            // Clamp final position to viewport bounds.
             targetModalY = Math.max(screenPadding, Math.min(panelY, height - panelHeight - screenPadding));
             targetModalX = Math.max(screenPadding, Math.min(idealPanelX, width - panelWidth - screenPadding));
         }
@@ -563,6 +563,7 @@
         window.addEventListener('resize', () => {
             width = canvas.width = window.innerWidth;
             height = canvas.height = window.innerHeight;
+            scalingFactor = Math.max(1, Math.pow(width / 1920, 0.5)); // Recalculate on resize.
             connectDistance = Math.min(width, height) * 0.15;
             connectDistanceSq = connectDistance * connectDistance;
             init(); 
@@ -591,13 +592,12 @@
                     closestNode = node;
                 }
             }
-            const hoverRadiusSq = (30 / zoom) ** 2;
+            const hoverRadiusSq = ((30 * scalingFactor) / zoom) ** 2; // Apply scaling.
             hoveredNode = (closestNode && minDistanceSq < hoverRadiusSq) ? closestNode : null;
         });
 
         canvas.addEventListener('click', (event) => {
             if (hoveredNode) {
-                // If a node is clicked, always close the protocol panel.
                 protocolPanel.classList.remove('visible');
                 
                 if (selectedNode === hoveredNode) {
@@ -614,15 +614,14 @@
                     if (!selectedNode.info) { selectedNode.info = getNextUniquePhrase(); }
                     synthesisPanel.innerHTML = selectedNode.info;
 
-                    // Dynamically size the modal based on its content.
+                    // Dynamically size the modal based on its content, scaled for resolution.
                     const textLength = selectedNode.info.length;
-                    const minWidth = 280, maxWidth = 450;
-                    const dynamicWidth = minWidth + Math.sqrt(textLength) * 4;
+                    const minWidth = 280 * scalingFactor;
+                    const maxWidth = 450 * scalingFactor;
+                    const dynamicWidth = minWidth + Math.sqrt(textLength) * (4 * scalingFactor);
                     synthesisPanel.style.width = `${Math.max(minWidth, Math.min(maxWidth, dynamicWidth))}px`;
                     
-                    // On first selection, snap modal instantly to its target position.
                     if (isFirstSelection) {
-                        // Delay allows DOM to update width before position calculation.
                         setTimeout(() => {
                             updateSynthesisPanelTargetPosition();
                             modalX = targetModalX;
