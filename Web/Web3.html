@@ -242,21 +242,23 @@
         static _wordBankDecks = {};
 
         /**
-         * @description Primary data structure for all generative content.
-         * To extend the engine, a developer should primarily edit this object.
-         * * STRATEGY FOR VARIETY:
-         * To maximize the number of unique permutations, complex phrases are deconstructed
-         * into smaller, granular word banks. For example, instead of a single list of
-         * full system descriptions, we have separate lists for properties, classes, and types:
-         * `{system_property_full}` -> "a fault-tolerant"
-         * `{system_class}`        -> "mission-critical"
-         * `{system_type}`         -> "system"
-         * Templates can then combine these in various ways, e.g., "{system_property_full} {system_class} {system_type}".
-         * This combinatorial approach creates a vast number of unique, well-formed phrases.
-         * * NESTED PLACEHOLDERS:
-         * Some word banks may themselves contain placeholders (e.g., hardware_domain). 
-         * The `getNextUniquePhrase` method handles this by iteratively replacing placeholders
-         * until none are left, ensuring all phrases are fully resolved.
+         * @description Primary data structure for all generative content. This object
+         * defines the vocabulary and grammatical structures the engine uses.
+         *
+         * ARCHITECTURAL PRINCIPLES:
+         * 1. Combinatorial Expansion: To maximize variety, complex ideas are deconstructed
+         * into granular, component-based word banks (e.g., system properties, classes, types).
+         * Templates assemble these components, creating a vast number of unique permutations
+         * from a concise vocabulary.
+         *
+         * 2. Grammatical Integrity: Word banks are curated to prevent malformations.
+         * For instance, nouns are separated into singular and plural banks, and adjectives
+         * are stored without articles to prevent duplication (e.g., "the a..."). This
+         * enforces grammatical correctness at the data level.
+         *
+         * 3. Nested Resolution: The generation logic iteratively processes placeholders. This
+         * allows word banks themselves to contain placeholders, enabling complex, multi-level
+         * phrase construction without run-on sentences.
          */
         static _commonWordBanks = {
             industry: [
@@ -315,10 +317,6 @@
             ],
             
             // --- GRANULAR WORDBANKS for increased permutations ---
-            // NOTE: These are the building blocks for creating more complex phrases.
-            // To prevent grammatical errors (e.g., "a a system"), properties are split
-            // into versions with articles ('_full') and without ('_adj').
-
             system_property_full: [ // Use when the template does NOT have an article. e.g., "...results in {system_property_full}"
                 { "text": "a fault-tolerant" }, { "text": "a resilient" }, { "text": "a high-availability" }, { "text": "a fully-validated" }
             ],
@@ -355,7 +353,7 @@
             {
               "name": "Innovation and Pioneering",
               "templates": [
-                "{action_verb} solutions for the {industry} sector, leveraging deep expertise in {hardware_domain} to solve the challenge of {technical_challenge}.",
+                "{action_verb} {key_deliverable} for the {industry} sector.",
                 "{action_verb} solutions for the {media_descriptor} media and professional audio sector.",
                 "The principle of {guiding_principle} delivers {client_advantage} on complex {application_plural} projects.",
                 "A mastery of {unified_expertise} directly architects {key_deliverable}, providing {client_advantage}.",
@@ -365,12 +363,9 @@
                 "{action_verb} the approach to {application_plural} unlocks {client_advantage}.",
                 "A mastery of {unified_expertise} is foundational to creating {key_deliverable}.",
                 "To pioneer in {application_plural}, it takes a mastery of {unified_expertise}.",
-                "By {action_verb} the state-of-the-art in {hardware_domain}, we unlock {client_advantage}.",
-                "The future of the {industry} sector depends on solving challenges like {technical_challenge}.",
                 "We bridge the gap between {hardware_domain} and {software_domain}, creating {key_deliverable} for the {industry} sector.",
                 "Our approach to {technical_challenge} redefines what's possible in {application_plural}.",
                 "By applying the principle of {guiding_principle}, we deconstruct {technical_challenge}, resulting in {system_property_full} {system_class} {system_type}.",
-                "True innovation in {application_plural} is achieved by {action_verb} the physics of {hardware_domain}.",
                 "From first principles to final netlist, our mastery of {hardware_domain} results in {key_deliverable}."
               ],
               "wordBanks": {
@@ -380,11 +375,11 @@
                 ],
                 "technical_challenge": [
                   { "text": "the synthesis of disparate compute paradigms" },
-                  { "text": "resolving systemic bottlenecks through hardware acceleration" },
+                  { "text": "systemic bottlenecks through hardware acceleration" },
                   { "text": "the practical implementation of novel mathematical concepts" },
-                  { "text": "the orchestration of complex RF modulation and demodulation schemes" },
-                  { "text": "achieving nanosecond-level timing closure in complex systems" },
-                  { "text": "implementing emerging compute paradigms on constrained hardware" }
+                  { "text": "complex RF modulation and demodulation schemes" },
+                  { "text": "nanosecond-level timing closure in complex systems" },
+                  { "text": "emerging compute paradigms on constrained hardware" }
                 ],
                 "key_deliverable": [
                   { "text": "a category-defining technology platform" },
@@ -397,7 +392,7 @@
                 "client_advantage": [
                   { "text": "a sustainable technological moat" },
                   { "text": "the certainty of architectural integrity" },
-                  { "text": "transforming ambitious vision into market-ready reality" },
+                  { "text": "the transformation of ambitious vision into market-ready reality" },
                   { "text": "the creation of a defensible IP portfolio" },
                   { "text": "a unified and unambiguous development path" }
                 ],
@@ -425,7 +420,7 @@
                 "For the {industry} sector, {core_service} is a guarantee of {client_advantage}.",
                 "A commitment to the principles of {guiding_principle} is how we deliver {system_property_full} {system_class} {system_type} that performs under pressure.",
                 "Navigating {technical_challenge} requires a mastery of {unified_expertise}.",
-                "Our execution of {core_service} provides the {client_advantage} needed for {application_plural}.",
+                "Our execution of {core_service} provides {client_advantage} for {application_plural}.",
                 "A deep understanding of {hardware_domain} is how we guarantee {system_property_full} {system_type} at a gate level.",
                 "For systems in hostile environments, our expertise in {core_service} delivers {system_property_adj} operational integrity."
               ],
@@ -439,7 +434,7 @@
                   { "text": "formal verification of mission-critical logic" }
                 ],
                 "reliability_action": [
-                  { "text": "solving" }, { "text": "mastering" }, { "text": "mitigating" }, { "text": "eliminating" }
+                  { "text": "solve" }, { "text": "master" }, { "text": "mitigate" }, { "text": "eliminate" }
                 ],
                 "technical_challenge": [
                   { "text": "achieving absolute real-time determinism" },
@@ -491,11 +486,11 @@
                     { "text": "streamline" }, { "text": "resolve" }, { "text": "manage" }, { "text": "de-risk" }
                 ],
                 "technical_challenge": [
-                  { "text": "the navigation of complex supply chains and fabrication logistics" },
-                  { "text": "scaling from a single prototype to mass production" },
-                  { "text": "the integration of multi-vendor, cutting-edge technologies" },
-                  { "text": "achieving global certification and regulatory compliance" },
-                  { "text": "the development of custom IP for performance-critical bottlenecks" }
+                  { "text": "complex supply chains and fabrication logistics" },
+                  { "text": "scaling from prototype to mass production" },
+                  { "text": "multi-vendor technology integration" },
+                  { "text": "global certification and regulatory compliance" },
+                  { "text": "custom IP development for performance-critical bottlenecks" }
                 ],
                 "key_deliverable": [
                   { "text": "a fully-managed, resilient production pipeline" },
@@ -545,7 +540,8 @@
             // This loop is crucial for handling nested placeholders, where a replacement
             // string itself contains another placeholder.
             let placeholders = phrase.match(/{(\w+)}/g);
-            while (placeholders) {
+            let safety_check = 10; // Prevent infinite loops in case of a bug
+            while (placeholders && safety_check > 0) {
                 // 4. For each unique placeholder, find a corresponding word and substitute it.
                 [...new Set(placeholders)].forEach(placeholder => {
                     const key = placeholder.substring(1, placeholder.length - 1);
@@ -564,6 +560,7 @@
 
                 // Check for any new placeholders that might have been introduced in the last pass.
                 placeholders = phrase.match(/{(\w+)}/g);
+                safety_check--;
             }
 
             // 6. Capitalize the first letter and return the final phrase.
