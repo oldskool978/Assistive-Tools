@@ -93,6 +93,7 @@
             pointer-events: none;
             text-align: left;
             backdrop-filter: blur(4px);
+            box-sizing: border-box; /* Ensures padding doesn't affect width calculation */
         }
         #protocol-panel {
             bottom: 90px;
@@ -135,7 +136,10 @@
             margin-top: 5px;
         }
         #synthesis-panel {
-            width: 300px;
+            /* MODIFICATION: Width is now dynamically calculated in JS. */
+            /* Min/max width are fallbacks, and 'width' is added to the transition. */
+            min-width: 280px;
+            max-width: 90vw;
             border-color: var(--primary-color);
             z-index: 20;
             box-shadow: 0 0 20px #00aeff44;
@@ -146,7 +150,8 @@
             transition: opacity var(--modal-speed) ease, 
                         transform var(--modal-speed) ease, 
                         left var(--modal-speed) ease, 
-                        top var(--modal-speed) ease;
+                        top var(--modal-speed) ease,
+                        width var(--modal-speed) ease; /* Added width to transition */
             pointer-events: none;
         }
         #synthesis-panel.visible {
@@ -424,7 +429,7 @@
             // High-fidelity line rendering with depth gradients and smooth fade-in/fade-out.
             const connectFalloff = 0.8;
             const falloffStartDistance = connectDistance * connectFalloff;
-           
+            
             for (let i = 0; i < sortedNodes.length; i++) {
                 for (let j = i + 1; j < sortedNodes.length; j++) {
                     const n1 = sortedNodes[i];
@@ -511,22 +516,30 @@
             if (!selectedNode) return;
             const panelWidth = synthesisPanel.offsetWidth;
             const panelHeight = synthesisPanel.offsetHeight;
+            const screenPadding = 20; // Define a safe margin from the screen edges.
             
-            let panelX;
+            let idealPanelX;
             if (modalSide === 'right') {
                 // Modal on the right third
-                panelX = (width * 2 / 3) - (panelWidth / 2);
+                idealPanelX = (width * 2 / 3) - (panelWidth / 2);
             } else {
                 // Modal on the left third
-                panelX = (width / 3) - (panelWidth / 2);
+                idealPanelX = (width / 3) - (panelWidth / 2);
             }
             
+            // MODIFICATION: Clamp the panel's X and Y position to keep it within the viewport.
+            // This ensures it never overflows, regardless of screen size or panel width.
             const screenY = (selectedNode.y - viewY) * zoom + height / 2;
             let panelY = screenY - panelHeight / 2;
 
-            if (panelY < 20) panelY = 20;
-            if (panelY + panelHeight > height - 20) panelY = height - panelHeight - 20;
-           
+            // Clamp vertical position
+            panelY = Math.max(screenPadding, panelY);
+            panelY = Math.min(panelY, height - panelHeight - screenPadding);
+
+            // Clamp horizontal position
+            let panelX = Math.max(screenPadding, idealPanelX);
+            panelX = Math.min(panelX, width - panelWidth - screenPadding);
+            
             synthesisPanel.style.left = `${panelX}px`;
             synthesisPanel.style.top = `${panelY}px`;
         }
@@ -567,8 +580,10 @@
         });
 
         canvas.addEventListener('click', (event) => {
-            if (protocolPanel.classList.contains('visible')) return;
             if (hoveredNode) {
+                // If a node is clicked, always ensure the protocol panel is closed first.
+                protocolPanel.classList.remove('visible');
+
                 if (selectedNode === hoveredNode) {
                     deselectNodeAndResetView();
                 } else {
@@ -579,9 +594,20 @@
                     // Keep the modal on the same side as the initial click
                     modalSide = (screenX > width / 2) ? 'left' : 'right';
                     
-                    protocolPanel.classList.remove('visible');
                     if (!selectedNode.info) { selectedNode.info = getNextUniquePhrase(); }
                     synthesisPanel.innerHTML = selectedNode.info;
+
+                    // MODIFICATION: Calculate and apply an optimal width for the modal
+                    // based on the length of the text content it holds.
+                    const textLength = selectedNode.info.length;
+                    const minWidth = 280;
+                    const maxWidth = 450;
+                    // A non-linear scaling using square root makes the width adapt nicely without
+                    // becoming too wide for slightly longer texts.
+                    const dynamicWidth = minWidth + Math.sqrt(textLength) * 4;
+                    const finalWidth = Math.max(minWidth, Math.min(maxWidth, dynamicWidth));
+                    synthesisPanel.style.width = `${finalWidth}px`;
+                    
                     synthesisPanel.classList.add('visible');
                     vignette.classList.add('visible');
                 }
@@ -594,9 +620,9 @@
 
         document.body.addEventListener('click', (event) => {
             const isClickOnInteractive = canvas.contains(event.target) || 
-                                          protocolToggle.contains(event.target) || 
-                                          protocolPanel.contains(event.target) ||
-                                          synthesisPanel.contains(event.target);
+                                         protocolToggle.contains(event.target) || 
+                                         protocolPanel.contains(event.target) ||
+                                         synthesisPanel.contains(event.target);
             if (!isClickOnInteractive) {
                 deselectNodeAndResetView();
                 protocolPanel.classList.remove('visible');
