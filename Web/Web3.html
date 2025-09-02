@@ -474,9 +474,8 @@
             selectedNode = null;
             synthesisPanel.classList.remove('visible');
             vignette.classList.remove('visible');
-            // Reset inline styles
-            synthesisPanel.style.fontSize = '';
-            synthesisPanel.style.height = ''; 
+            // Inline styles will now be reset by the 'transitionend' event listener
+            // after the closing animation is complete, preventing content reflow.
             targetViewX = width / 2;
             targetViewY = height / 2;
             targetZoom = 1.5;
@@ -514,10 +513,21 @@
 
         function setupEventListeners() {
             window.addEventListener('resize', onResize);
+            
             protocolToggle.addEventListener('click', () => {
                 protocolPanel.classList.toggle('visible');
                 if (protocolPanel.classList.contains('visible')) deselectNodeAndResetView();
             });
+
+            // Add a transition listener to reset the modal's state only after it has finished animating out.
+            synthesisPanel.addEventListener('transitionend', () => {
+                if (!synthesisPanel.classList.contains('visible')) {
+                    synthesisPanel.style.fontSize = '';
+                    synthesisPanel.style.height = '';
+                    synthesisPanel.innerHTML = ''; // Clear content after hiding
+                }
+            });
+
             canvas.addEventListener('mousemove', (event) => {
                 const worldX = (event.clientX - width / 2) / zoom + viewX;
                 const worldY = (event.clientY - height / 2) / zoom + viewY;
