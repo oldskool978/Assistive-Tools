@@ -228,14 +228,232 @@
         const synthesisPanel = document.getElementById('synthesis-panel');
         const vignette = document.getElementById('vignette');
         
-        // --- Generative Text Engine (Self-Contained) ---
-        let themeDeck = [];
-        let templateDecks = {};
-        let wordBankDecks = {};
-        const commonWordBanks = { industry: [ { text: "aerospace and defense" }, { text: "medical technology" }, { text: "robotics" }, { text: "semiconductors" }, { text: "industrial manufacturing" }, { text: "scientific research" }, { text: "automotive" }, { text: "telecommunications" } ], application: [ { text: "mission-specific IoT deployments" }, { text: "industrial automation" }, { text: "robotics and control systems" }, { text: "scientific instrumentation" }, { text: "next-generation consumer electronics" }, { text: "custom test and measurement equipment" } ], hardware_domain: [ { text: "programmable logic (FPGA/CPLD)" }, { text: "high-speed digital systems" }, { text: "low-noise analog front-ends" }, { text: "power electronics and management" }, { text: "embedded SoC integration" }, { text: "RF and wireless design" }, { text: "photonic integrated circuits" }, { text: "gate-level logic design" } ], software_domain: [ { text: "bare-metal firmware" }, { text: "real-time operating systems (RTOS)" }, { text: "edge AI and ML deployment" }, { text: "secure IoT connectivity stacks" }, { text: "hardware abstraction layers (HAL)" }, { text: "hand-rolled OS kernels and drivers" }, { text: "quantum-resistant cryptography" } ], unified_expertise: [ { text: "programmable logic and bare-metal system firmware" }, { text: "high-speed digital systems and RTOS development" }, { text: "embedded SoC integration and secure connectivity stacks" }, { text: "low-noise analog and hardware abstraction layers" }, { text: "power electronics and real-time operating systems" }, { text: "RF and wireless design and secure IoT connectivity stacks" }, { text: "photonic circuits and quantum-resistant cryptography" }, { text: "gate-level logic design and hard real-time scheduling" } ] };
-        const themes = [ { name: "Innovation and Pioneering", templates: [ "{action_verb} solutions for the {industry} sector, leveraging deep expertise in {hardware_domain} to solve the challenge of {technical_challenge}.", "The principle of {guiding_principle} delivers {client_advantage} on complex {application} projects.", "Unified expertise in {unified_expertise} directly architects {key_deliverable}, providing {client_advantage}.", "The principle of {guiding_principle} translates client needs in the {application} space into {client_advantage}.", "Solving {technical_challenge} is the direct path to achieving {client_advantage} in the {industry} sector.", "The fusion of {hardware_domain} and {software_domain} makes {key_deliverable} possible.", "{action_verb} the approach to {application} unlocks {client_advantage}.", "Expertise in {unified_expertise} is foundational to creating {key_deliverable}.", "To pioneer in {application}, it takes a mastery of {unified_expertise}.", "By {action_verb} the state-of-the-art in {hardware_domain}, we unlock {client_advantage}.", "The future of the {industry} sector depends on solving challenges like {technical_challenge}.", "We bridge the gap between {hardware_domain} and {software_domain}, creating {key_deliverable} for the {industry} sector.", "Our approach to {technical_challenge} redefines what's possible in {application}.", "By applying {guiding_principle}, we deconstruct {technical_challenge}, resulting in {key_deliverable}.", "True innovation in {application} is achieved by {action_verb} the physics of {hardware_domain}.", "From first principles to final netlist, our mastery of {hardware_domain} results in {key_deliverable}." ], wordBanks: { action_verb: [ { text: "Pioneering" }, { text: "Unifying" }, { text: "Accelerating" }, { text: "Architecting" }, { text: "Redefining" }, { text: "Synthesizing" }, { text: "Deciphering" }, { text: "Instrumenting" }], technical_challenge: [ { text: "complex edge AI deployment" }, { text: "nanosecond-level timing closure" }, { text: "novel system-on-chip integration" }, { text: "ultra-low latency communication" }, { text: "a heterogeneous compute architecture" }, { text: "signal integrity at the physical limit" }, { text: "logic optimization for power and area" }, { text: "implementing emerging compute paradigms on constrained hardware" }], key_deliverable: [ { text: "a first-to-market solution" }, { text: "a highly scalable platform" }, { text: "an unparalleled user experience" }, { text: "a category-defining product" }, { text: "a paradigm-shifting technology" }, { text: "a power-efficient silicon IP block" }], client_advantage: [ { text: "a decisive competitive edge" }, { text: "an accelerated time-to-market" }, { text: "new market opportunities" }, { text: "a foundational technology patent" }, { text: "the creation of a new IP portfolio" }], guiding_principle: [ { text: "first-principles engineering" }, { text: "iterative design and rapid prototyping" }, { text: "a systems-thinking methodology" }, { text: "domain-specific architectural modeling" }, { text: "a register-transfer level (RTL) methodology" }, { text: "model-based systems engineering (MBSE)" }], } }, { name: "Reliability and Mission-Critical Systems", templates: [ "Fiducial Point provides {core_service}, turning the challenge of {technical_challenge} into {key_deliverable}.", "Excellence in {core_service} means solving {technical_challenge} to give clients {client_advantage}.", "Mastery of {unified_expertise} is the cornerstone of every project, resulting in {key_deliverable}.", "Mastering the prototype-to-production path means tackling {technical_challenge} to deliver {key_deliverable}.", "For mission-critical {application}, the principle of {guiding_principle} ensures {key_deliverable}.", "{core_service} directly mitigates project risk, providing {client_advantage}.", "Deep knowledge of {unified_expertise} results in {client_advantage} for high-stakes systems.", "Adherence to {guiding_principle} is non-negotiable when engineering for the {industry} sector.", "For the {industry} sector, {core_service} is a guarantee of {client_advantage}.", "A commitment to {guiding_principle} is how we deliver {key_deliverable} that performs under pressure.", "Navigating {technical_challenge} for mission-critical systems requires deep, unified expertise in {unified_expertise}.", "Our execution of {core_service} provides the {client_advantage} needed for mission-critical {application}.", "Our deep understanding of {hardware_domain} is how we guarantee {key_deliverable} at a gate level.", "For systems deployed in hostile environments, our expertise in {core_service} delivers {key_deliverable} with guaranteed operational integrity." ], wordBanks: { core_service: [ { text: "expert hardware bringup" }, { text: "full-stack system integration" }, { text: "end-to-end electronic design" }, { text: "rigorous design verification" }, { text: "exhaustive failure mode analysis" }, { text: "formal logic verification" }, { text: "worst-case circuit analysis (WCCA)" }, { text: "low-level firmware development from datasheet to deployment" }, { text: "cycle-accurate real-time system design" }, { text: "radiation-hardened SoC architecture" }], technical_challenge: [ { text: "real-time determinism" }, { text: "stringent regulatory compliance" }, { text: "complex silicon bringup" }, { text: "robust system-level integration" }, { text: "a fail-safe system architecture" }, { text: "environmental hardening" }, { text: "electronic design for shock and vibration resilience" }, { text: "single-event upset (SEU) mitigation" }, { text: "metastability avoidance in asynchronous crossings" }, { text: "JTAG-level silicon debug and validation" }, { text: "guaranteeing cycle-level execution" }], key_deliverable: [ { text: "a fault-tolerant system" }, { text: "a mission-critical system" }, { text: "production-ready hardware" }, { text: "a fully-validated and compliant system" }, { text: "a certifiably robust system" }, { text: "a five-nines availability platform" }, { text: "a radiation-tolerant digital design" }, { text: "a fully radiation-hardened system-on-chip" }], client_advantage: [ { text: "reduced development risk" }, { text: "uncompromised system performance" }, { text: "a clear path to mass production" }, { text: "long-term system reliability" }, { text: "predictable project outcomes" }, { text: "unimpeachable system integrity" }, { text: "a provably correct logic implementation" }, { text: "absolute execution predictability" }], guiding_principle: [ { text: "end-to-end ownership" }, { text: "mastery of the full stack" }, { text: "a deep respect for physics" }, { text: "transforming complexity into reliability" }, { text: "design for manufacturability (DFM)" }, { text: "a zero-defect manufacturing protocol" }, { text: "design for testability (DFT)" }, { text: "full-stack ownership from schematic to firmware" }, { text: "an obsession with deterministic behavior" }], } }, { name: "Strategic Partnership and Turnkey Solutions", templates: [ "We offer {partnership_service}, providing clients with {client_advantage} from concept to production.", "Our philosophy of {guiding_principle} ensures a seamless development journey for {application}.", "By providing {partnership_service}, we transform the challenge of {technical_challenge} into {key_deliverable}.", "The value of {partnership_service} is {client_advantage} for our partners in the {industry} sector.", "A commitment to {guiding_principle} builds the trust needed for complex {application} development.", "Expertise in {unified_expertise} enables us to offer true {partnership_service}.", "From initial architecture to final production, our principle of {guiding_principle} delivers {client_advantage}.", "Our {partnership_service} model streamlines the path from initial concept to a scalable {key_deliverable}.", "Navigating the journey to market requires {guiding_principle}, the core of our client partnerships.", "Through {partnership_service}, we convert the problem of {technical_challenge} into {client_advantage}.", "A successful {application} requires more than technology; it demands {guiding_principle}." ], wordBanks: { partnership_service: [ { text: "turnkey product development" }, { text: "a dedicated engineering partnership" }, { text: "end-to-end project management" }, { text: "a transparent development process" }, { text: "strategic technical advisement" }, { text: "BOM lifecycle management" }, { text: "full product lifecycle engineering" } ], technical_challenge: [ { text: "complex supply chain navigation" }, { text: "mass production scaling" }, { text: "multi-vendor technology integration" }, { text: "global certification and compliance" }, { text: "component lifecycle management" }, { text: "semiconductor fab lead time negotiation" } ], key_deliverable: [ { text: "a fully-managed production pipeline" }, { text: "a market-ready product ecosystem" }, { text: "a robust and scalable architecture" }, { text: "a strategically-sourced bill of materials" }, { text: "a vertically-integrated solution" }], client_advantage: [ { text: "a single point of accountability" }, { text: "a de-risked product launch" }, { text: "complete intellectual property ownership" }, { text: "a resilient and future-proof supply chain" }, { text: "an optimized bill-of-materials cost-down" }, { text: "a streamlined path to profitability" }, { text: "a defensible technology moat" }], guiding_principle: [ { text: "radical transparency" }, { text: "a collaborative engineering process" }, { text: "a focus on the entire product lifecycle" }, { text: "a proactive risk mitigation strategy" }, { text: "an agile hardware development methodology" }, { text: "a stage-gate development process" }], } } ];
-        function shuffleArray(array) { for (let i = array.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1));[array[i], array[j]] = [array[j], array[i]]; } return array; }
-        function getNextUniquePhrase() { if (themeDeck.length === 0) { themeDeck = shuffleArray(Array.from(themes.keys())); } const themeIndex = themeDeck.pop(); const theme = themes[themeIndex]; if (!templateDecks[themeIndex] || templateDecks[themeIndex].length === 0) { templateDecks[themeIndex] = shuffleArray(Array.from(theme.templates.keys())); } const templateIndex = templateDecks[themeIndex].pop(); let phrase = theme.templates[templateIndex]; const placeholders = [...new Set(phrase.match(/{(\w+)}/g))]; placeholders.forEach(placeholder => { const key = placeholder.substring(1, placeholder.length - 1); let originalBank = theme.wordBanks[key] || commonWordBanks[key]; if (!originalBank) return; if (!wordBankDecks[key] || wordBankDecks[key].length === 0) { wordBankDecks[key] = shuffleArray([...originalBank]); } let wordObject = null; const initialDeckSize = wordBankDecks[key].length; for (let i = 0; i < initialDeckSize; i++) { let candidateObject = wordBankDecks[key][wordBankDecks[key].length - 1]; if (!phrase.toLowerCase().includes(candidateObject.text.toLowerCase().split(" ")[0])) { wordObject = wordBankDecks[key].pop(); break; } else { wordBankDecks[key].unshift(wordBankDecks[key].pop()); } } if (wordObject === null) { wordObject = wordBankDecks[key].pop(); } const regex = new RegExp(placeholder, 'g'); phrase = phrase.replace(regex, wordObject.text); }); return phrase.charAt(0).toUpperCase() + phrase.slice(1); }
+        // --- Generative Text Engine (Encapsulated Class) ---
+        class GenerativeTextEngine {
+            // -- Private Static Properties for Data and State --
+            static _themeDeck = [];
+            static _templateDecks = {};
+            static _wordBankDecks = {};
+
+            static _commonWordBanks = {
+                industry: [
+                    { text: "aerospace and defense" }, { text: "medical technology" },
+                    { text: "robotics" }, { text: "semiconductors" },
+                    { text: "industrial manufacturing" }, { text: "scientific research" },
+                    { text: "automotive" }, { text: "telecommunications" }
+                ],
+                application: [
+                    { text: "mission-specific IoT deployments" }, { text: "industrial automation" },
+                    { text: "robotics and control systems" }, { text: "scientific instrumentation" },
+                    { text: "next-generation consumer electronics" }, { text: "custom test and measurement equipment" }
+                ],
+                hardware_domain: [
+                    { text: "programmable logic (FPGA/CPLD)" }, { text: "high-speed digital systems" },
+                    { text: "low-noise analog front-ends" }, { text: "power electronics and management" },
+                    { text: "embedded SoC integration" }, { text: "RF and wireless design" },
+                    { text: "photonic integrated circuits" }, { text: "gate-level logic design" }
+                ],
+                software_domain: [
+                    { text: "bare-metal firmware" }, { text: "real-time operating systems (RTOS)" },
+                    { text: "edge AI and ML deployment" }, { text: "secure IoT connectivity stacks" },
+                    { text: "hardware abstraction layers (HAL)" }, { text: "hand-rolled OS kernels and drivers" },
+                    { text: "quantum-resistant cryptography" }
+                ],
+                unified_expertise: [
+                    { text: "programmable logic and bare-metal system firmware" }, { text: "high-speed digital systems and RTOS development" },
+                    { text: "embedded SoC integration and secure connectivity stacks" }, { text: "low-noise analog and hardware abstraction layers" },
+                    { text: "power electronics and real-time operating systems" }, { text: "RF and wireless design and secure IoT connectivity stacks" },
+                    { text: "photonic circuits and quantum-resistant cryptography" }, { text: "gate-level logic design and hard real-time scheduling" }
+                ]
+            };
+
+            static _themes = [{
+                name: "Innovation and Pioneering",
+                templates: [
+                    "{action_verb} solutions for the {industry} sector, leveraging deep expertise in {hardware_domain} to solve the challenge of {technical_challenge}.",
+                    "The principle of {guiding_principle} delivers {client_advantage} on complex {application} projects.",
+                    "Unified expertise in {unified_expertise} directly architects {key_deliverable}, providing {client_advantage}.",
+                    "The principle of {guiding_principle} translates client needs in the {application} space into {client_advantage}.",
+                    "Solving {technical_challenge} is the direct path to achieving {client_advantage} in the {industry} sector.",
+                    "The fusion of {hardware_domain} and {software_domain} makes {key_deliverable} possible.",
+                    "{action_verb} the approach to {application} unlocks {client_advantage}.",
+                    "Expertise in {unified_expertise} is foundational to creating {key_deliverable}.",
+                    "To pioneer in {application}, it takes a mastery of {unified_expertise}.",
+                    "By {action_verb} the state-of-the-art in {hardware_domain}, we unlock {client_advantage}.",
+                    "The future of the {industry} sector depends on solving challenges like {technical_challenge}.",
+                    "We bridge the gap between {hardware_domain} and {software_domain}, creating {key_deliverable} for the {industry} sector.",
+                    "Our approach to {technical_challenge} redefines what's possible in {application}.",
+                    "By applying {guiding_principle}, we deconstruct {technical_challenge}, resulting in {key_deliverable}.",
+                    "True innovation in {application} is achieved by {action_verb} the physics of {hardware_domain}.",
+                    "From first principles to final netlist, our mastery of {hardware_domain} results in {key_deliverable}."
+                ],
+                wordBanks: {
+                    action_verb: [
+                        { text: "Pioneering" }, { text: "Unifying" }, { text: "Accelerating" }, { text: "Architecting" },
+                        { text: "Redefining" }, { text: "Synthesizing" }, { text: "Deciphering" }, { text: "Instrumenting" }
+                    ],
+                    technical_challenge: [
+                        { text: "complex edge AI deployment" }, { text: "nanosecond-level timing closure" },
+                        { text: "novel system-on-chip integration" }, { text: "ultra-low latency communication" },
+                        { text: "a heterogeneous compute architecture" }, { text: "signal integrity at the physical limit" },
+                        { text: "logic optimization for power and area" }, { text: "implementing emerging compute paradigms on constrained hardware" }
+                    ],
+                    key_deliverable: [
+                        { text: "a first-to-market solution" }, { text: "a highly scalable platform" },
+                        { text: "an unparalleled user experience" }, { text: "a category-defining product" },
+                        { text: "a paradigm-shifting technology" }, { text: "a power-efficient silicon IP block" }
+                    ],
+                    client_advantage: [
+                        { text: "a decisive competitive edge" }, { text: "an accelerated time-to-market" },
+                        { text: "new market opportunities" }, { text: "a foundational technology patent" },
+                        { text: "the creation of a new IP portfolio" }
+                    ],
+                    guiding_principle: [
+                        { text: "first-principles engineering" }, { text: "iterative design and rapid prototyping" },
+                        { text: "a systems-thinking methodology" }, { text: "domain-specific architectural modeling" },
+                        { text: "a register-transfer level (RTL) methodology" }, { text: "model-based systems engineering (MBSE)" }
+                    ],
+                }
+            }, {
+                name: "Reliability and Mission-Critical Systems",
+                templates: [
+                    "Fiducial Point provides {core_service}, turning the challenge of {technical_challenge} into {key_deliverable}.",
+                    "Excellence in {core_service} means solving {technical_challenge} to give clients {client_advantage}.",
+                    "Mastery of {unified_expertise} is the cornerstone of every project, resulting in {key_deliverable}.",
+                    "Mastering the prototype-to-production path means tackling {technical_challenge} to deliver {key_deliverable}.",
+                    "For mission-critical {application}, the principle of {guiding_principle} ensures {key_deliverable}.",
+                    "{core_service} directly mitigates project risk, providing {client_advantage}.",
+                    "Deep knowledge of {unified_expertise} results in {client_advantage} for high-stakes systems.",
+                    "Adherence to {guiding_principle} is non-negotiable when engineering for the {industry} sector.",
+                    "For the {industry} sector, {core_service} is a guarantee of {client_advantage}.",
+                    "A commitment to {guiding_principle} is how we deliver {key_deliverable} that performs under pressure.",
+                    "Navigating {technical_challenge} for mission-critical systems requires deep, unified expertise in {unified_expertise}.",
+                    "Our execution of {core_service} provides the {client_advantage} needed for mission-critical {application}.",
+                    "Our deep understanding of {hardware_domain} is how we guarantee {key_deliverable} at a gate level.",
+                    "For systems deployed in hostile environments, our expertise in {core_service} delivers {key_deliverable} with guaranteed operational integrity."
+                ],
+                wordBanks: {
+                    core_service: [
+                        { text: "expert hardware bringup" }, { text: "full-stack system integration" },
+                        { text: "end-to-end electronic design" }, { text: "rigorous design verification" },
+                        { text: "exhaustive failure mode analysis" }, { text: "formal logic verification" },
+                        { text: "worst-case circuit analysis (WCCA)" }, { text: "low-level firmware development from datasheet to deployment" },
+                        { text: "cycle-accurate real-time system design" }, { text: "radiation-hardened SoC architecture" }
+                    ],
+                    technical_challenge: [
+                        { text: "real-time determinism" }, { text: "stringent regulatory compliance" },
+                        { text: "complex silicon bringup" }, { text: "robust system-level integration" },
+                        { text: "a fail-safe system architecture" }, { text: "environmental hardening" },
+                        { text: "electronic design for shock and vibration resilience" }, { text: "single-event upset (SEU) mitigation" },
+                        { text: "metastability avoidance in asynchronous crossings" }, { text: "JTAG-level silicon debug and validation" },
+                        { text: "guaranteeing cycle-level execution" }
+                    ],
+                    key_deliverable: [
+                        { text: "a fault-tolerant system" }, { text: "a mission-critical system" },
+                        { text: "production-ready hardware" }, { text: "a fully-validated and compliant system" },
+                        { text: "a certifiably robust system" }, { text: "a five-nines availability platform" },
+                        { text: "a radiation-tolerant digital design" }, { text: "a fully radiation-hardened system-on-chip" }
+                    ],
+                    client_advantage: [
+                        { text: "reduced development risk" }, { text: "uncompromised system performance" },
+                        { text: "a clear path to mass production" }, { text: "long-term system reliability" },
+                        { text: "predictable project outcomes" }, { text: "unimpeachable system integrity" },
+                        { text: "a provably correct logic implementation" }, { text: "absolute execution predictability" }
+                    ],
+                    guiding_principle: [
+                        { text: "end-to-end ownership" }, { text: "mastery of the full stack" },
+                        { text: "a deep respect for physics" }, { text: "transforming complexity into reliability" },
+                        { text: "design for manufacturability (DFM)" }, { text: "a zero-defect manufacturing protocol" },
+                        { text: "design for testability (DFT)" }, { text: "full-stack ownership from schematic to firmware" },
+                        { text: "an obsession with deterministic behavior" }
+                    ],
+                }
+            }, {
+                name: "Strategic Partnership and Turnkey Solutions",
+                templates: [
+                    "We offer {partnership_service}, providing clients with {client_advantage} from concept to production.",
+                    "Our philosophy of {guiding_principle} ensures a seamless development journey for {application}.",
+                    "By providing {partnership_service}, we transform the challenge of {technical_challenge} into {key_deliverable}.",
+                    "The value of {partnership_service} is {client_advantage} for our partners in the {industry} sector.",
+                    "A commitment to {guiding_principle} builds the trust needed for complex {application} development.",
+                    "Expertise in {unified_expertise} enables us to offer true {partnership_service}.",
+                    "From initial architecture to final production, our principle of {guiding_principle} delivers {client_advantage}.",
+                    "Our {partnership_service} model streamlines the path from initial concept to a scalable {key_deliverable}.",
+                    "Navigating the journey to market requires {guiding_principle}, the core of our client partnerships.",
+                    "Through {partnership_service}, we convert the problem of {technical_challenge} into {client_advantage}.",
+                    "A successful {application} requires more than technology; it demands {guiding_principle}."
+                ],
+                wordBanks: {
+                    partnership_service: [
+                        { text: "turnkey product development" }, { text: "a dedicated engineering partnership" },
+                        { text: "end-to-end project management" }, { text: "a transparent development process" },
+                        { text: "strategic technical advisement" }, { text: "BOM lifecycle management" },
+                        { text: "full product lifecycle engineering" }
+                    ],
+                    technical_challenge: [
+                        { text: "complex supply chain navigation" }, { text: "mass production scaling" },
+                        { text: "multi-vendor technology integration" }, { text: "global certification and compliance" },
+                        { text: "component lifecycle management" }, { text: "semiconductor fab lead time negotiation" }
+                    ],
+                    key_deliverable: [
+                        { text: "a fully-managed production pipeline" }, { text: "a market-ready product ecosystem" },
+                        { text: "a robust and scalable architecture" }, { text: "a strategically-sourced bill of materials" },
+                        { text: "a vertically-integrated solution" }
+                    ],
+                    client_advantage: [
+                        { text: "a single point of accountability" }, { text: "a de-risked product launch" },
+                        { text: "complete intellectual property ownership" }, { text: "a resilient and future-proof supply chain" },
+                        { text: "an optimized bill-of-materials cost-down" }, { text: "a streamlined path to profitability" },
+                        { text: "a defensible technology moat" }
+                    ],
+                    guiding_principle: [
+                        { text: "radical transparency" }, { text: "a collaborative engineering process" },
+                        { text: "a focus on the entire product lifecycle" }, { text: "a proactive risk mitigation strategy" },
+                        { text: "an agile hardware development methodology" }, { text: "a stage-gate development process" }
+                    ],
+                }
+            }];
+            
+            // -- Public Static Method --
+            static getNextUniquePhrase() {
+                if (this._themeDeck.length === 0) {
+                    this._themeDeck = this._shuffleArray(Array.from(this._themes.keys()));
+                }
+                const themeIndex = this._themeDeck.pop();
+                const theme = this._themes[themeIndex];
+
+                if (!this._templateDecks[themeIndex] || this._templateDecks[themeIndex].length === 0) {
+                    this._templateDecks[themeIndex] = this._shuffleArray(Array.from(theme.templates.keys()));
+                }
+                const templateIndex = this._templateDecks[themeIndex].pop();
+                let phrase = theme.templates[templateIndex];
+
+                const placeholders = [...new Set(phrase.match(/{(\w+)}/g))];
+                placeholders.forEach(placeholder => {
+                    const key = placeholder.substring(1, placeholder.length - 1);
+                    let originalBank = theme.wordBanks[key] || this._commonWordBanks[key];
+                    if (!originalBank) return;
+
+                    if (!this._wordBankDecks[key] || this._wordBankDecks[key].length === 0) {
+                        this._wordBankDecks[key] = this._shuffleArray([...originalBank]);
+                    }
+                    
+                    let wordObject = this._wordBankDecks[key].pop();
+                    const regex = new RegExp(placeholder, 'g');
+                    phrase = phrase.replace(regex, wordObject.text);
+                });
+                return phrase.charAt(0).toUpperCase() + phrase.slice(1);
+            }
+
+            // -- Private Static Helper --
+            static _shuffleArray(array) {
+                for (let i = array.length - 1; i > 0; i--) {
+                    const j = Math.floor(Math.random() * (i + 1));
+                    [array[i], array[j]] = [array[j], array[i]];
+                }
+                return array;
+            }
+        }
 
         // --- Simulation State ---
         let width = canvas.width = window.innerWidth;
@@ -771,13 +989,18 @@
                     targetZoom = TARGET_ON_SCREEN_SCALE / selectedNode.scale;
                     const screenX = (hoveredNode.x - viewX) * zoom + width / 2;
                     modalSide = (screenX > width / 2) ? 'left' : 'right';
-                    if (!selectedNode.info) { selectedNode.info = getNextUniquePhrase(); }
+                    
+                    if (!selectedNode.info) { 
+                        selectedNode.info = GenerativeTextEngine.getNextUniquePhrase(); 
+                    }
+                    
                     synthesisPanel.innerHTML = selectedNode.info;
                     const textLength = selectedNode.info.length;
                     const minWidth = 280 * scalingFactor;
                     const maxWidth = 450 * scalingFactor;
                     const dynamicWidth = minWidth + Math.sqrt(textLength) * (4 * scalingFactor);
                     synthesisPanel.style.width = `${Math.max(minWidth, Math.min(maxWidth, dynamicWidth))}px`;
+                    
                     if (isFirstSelection) {
                         setTimeout(() => {
                             updateSynthesisPanelTargetPosition();
