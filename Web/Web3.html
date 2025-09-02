@@ -631,8 +631,12 @@
                 this.orbitRadiusX = this.radiusXFactor * maxRadius;
                 this.orbitRadiusY = this.orbitRadiusX * this.radiusYFactor; this.currentAngle = initialAngle;
                 const speedScale = 0.7 + (this.scale * 0.3); this.baseSpeed = (0.0008 + Math.random() * 0.001) * speedScale;
-                this.speed = this.baseSpeed * globalSpeedMultiplier; this.x = 0; this.y = 0;
-                this.baseRadius = 1.5 * scalingFactor; this.info = null; this.update(1); // Initial position
+                this.speed = this.baseSpeed * globalSpeedMultiplier;
+                this.x = 0; this.y = 0;
+                this.renderX = 0; this.renderY = 0;
+                this.baseRadius = 1.5 * scalingFactor; this.info = null;
+                this.update(1); // Set initial position
+                this.renderX = this.x; this.renderY = this.y; // Sync render state
             }
             update(timeMultiplier) {
                 this.currentAngle += this.speed * timeMultiplier;
@@ -642,10 +646,14 @@
                 const rotatedY = unrotatedX * Math.sin(this.orbitRotation) + unrotatedY * Math.cos(this.orbitRotation);
                 this.x = this.centerX + rotatedX; this.y = this.centerY + rotatedY;
             }
+            updateRenderPosition() {
+                this.renderX += (this.x - this.renderX) * 0.15;
+                this.renderY += (this.y - this.renderY) * 0.15;
+            }
             draw(ctx, isSelected, isHovered, pulse) {
                 const displayRadius = this.baseRadius * this.scale + (isSelected ? pulse : 0);
                 if (isSelected) { ctx.shadowColor = 'rgba(240, 240, 240, 0.7)'; ctx.shadowBlur = 10 * this.scale; }
-                ctx.beginPath(); ctx.arc(this.x, this.y, displayRadius, 0, Math.PI * 2);
+                ctx.beginPath(); ctx.arc(this.renderX, this.renderY, displayRadius, 0, Math.PI * 2);
                 ctx.fillStyle = isSelected ? 'var(--secondary-color)' : (isHovered ? '#bbb' : '#e0e0e0');
                 ctx.fill();
                 if (isSelected) { ctx.shadowBlur = 0; }
@@ -702,23 +710,18 @@
         function updateNetworkTopology() {
             buildQuadtree();
             const currentEdgeKeys = new Set();
-            
             const nodeNeighbors = nodes.map(node => quadtree.query(createBoundary(node.x - densityRadius, node.y - densityRadius, densityRadius * 2, densityRadius * 2)).filter(other => other.id !== node.id));
             const isDense = nodes.map((_, i) => nodeNeighbors[i].length >= DENSITY_THRESHOLD);
             const processed = new Array(nodes.length).fill(false);
-            
             for (let i = 0; i < nodes.length; i++) {
                 if (!isDense[i] || processed[i]) continue;
                 const patch = []; const queue = [i]; processed[i] = true;
                 while (queue.length > 0) {
                     const currentIndex = queue.shift(); patch.push(nodes[currentIndex]);
                     nodeNeighbors[currentIndex].forEach(neighbor => {
-                        if (isDense[neighbor.id] && !processed[neighbor.id]) {
-                            processed[neighbor.id] = true; queue.push(neighbor.id);
-                        }
+                        if (isDense[neighbor.id] && !processed[neighbor.id]) { processed[neighbor.id] = true; queue.push(neighbor.id); }
                     });
                 }
-
                 if (patch.length > 2) {
                     const triangles = Delaunay.triangulate(patch);
                     triangles.forEach(triangle => {
@@ -731,27 +734,18 @@
             }
             for (let i = 0; i < nodes.length; i++) {
                 nodeNeighbors[i].forEach(neighbor => {
-                    if (nodes[i].id < neighbor.id) {
-                        currentEdgeKeys.add([nodes[i].id, neighbor.id].sort().join('-'));
-                    }
+                    if (nodes[i].id < neighbor.id) { currentEdgeKeys.add([nodes[i].id, neighbor.id].sort().join('-')); }
                 });
             }
-
             for (const [key, edge] of edgeMap.entries()) {
-                if (!currentEdgeKeys.has(key)) {
-                    edge.targetOpacity = 0; // Mark for fade out
-                }
+                if (!currentEdgeKeys.has(key)) { edge.targetOpacity = 0; }
             }
-            
             for (const key of currentEdgeKeys) {
                 if (!edgeMap.has(key)) {
                     const [id1, id2] = key.split('-');
-                    edgeMap.set(key, {
-                        source: nodes[id1], target: nodes[id2],
-                        currentOpacity: 0, targetOpacity: 1
-                    });
+                    edgeMap.set(key, { source: nodes[id1], target: nodes[id2], currentOpacity: 0, targetOpacity: 1 });
                 } else {
-                    edgeMap.get(key).targetOpacity = 1; // Mark for fade in
+                    edgeMap.get(key).targetOpacity = 1;
                 }
             }
         }
@@ -782,6 +776,7 @@
         }
 
         function updateNodePhysics() {
+            updateDynamicTimeScale();
             nodes.forEach(node => {
                 node.speed = node.baseSpeed * globalSpeedMultiplier; 
                 node.update(timeScale);
@@ -793,15 +788,9 @@
             const edgesToDelete = [];
 
             for (const [key, edge] of edgeMap.entries()) {
-                // Weighted fade animation (easing)
                 edge.currentOpacity += (edge.targetOpacity - edge.currentOpacity) * edgeFadeSpeed;
-
-                if (edge.targetOpacity === 0 && edge.currentOpacity < 0.01) {
-                    edgesToDelete.push(key);
-                    continue;
-                }
+                if (edge.targetOpacity === 0 && edge.currentOpacity < 0.01) { edgesToDelete.push(key); continue; }
                 if (edge.currentOpacity < 0.01) continue;
-
 
                 const { source: n1, target: n2 } = edge;
                 if (!n1 || !n2) continue;
@@ -810,28 +799,30 @@
                 const isN2Interactive = interactiveNodes.has(n2);
                 
                 const dynamicOpacity = (n1.scale + n2.scale) * 0.5;
-                const baseOpacity = n1.scale * 0.35 * dynamicOpacity * edge.currentOpacity;
-
-                const color1 = `rgba(0, 174, 255, ${baseOpacity})`;
-                const color2 = `rgba(0, 174, 255, ${baseOpacity})`;
-                const glow1 = `rgba(240, 240, 240, ${glowBrightnessMultiplier * n1.scale * dynamicOpacity * edge.currentOpacity})`;
-                const glow2 = `rgba(240, 240, 240, ${glowBrightnessMultiplier * n2.scale * dynamicOpacity * edge.currentOpacity})`;
+                const baseOpacity1 = n1.scale * 0.35 * dynamicOpacity * edge.currentOpacity;
+                const baseOpacity2 = n2.scale * 0.35 * dynamicOpacity * edge.currentOpacity;
+                const glowOpacity1 = glowBrightnessMultiplier * n1.scale * dynamicOpacity * edge.currentOpacity;
+                const glowOpacity2 = glowBrightnessMultiplier * n2.scale * dynamicOpacity * edge.currentOpacity;
+                
+                const color1 = `rgba(0, 174, 255, ${baseOpacity1})`;
+                const color2 = `rgba(0, 174, 255, ${baseOpacity2})`;
+                const glow1 = `rgba(240, 240, 240, ${glowOpacity1})`;
+                const glow2 = `rgba(240, 240, 240, ${glowOpacity2})`;
 
                 const startColor = isN1Interactive ? glow1 : color1;
                 const endColor = isN2Interactive ? glow2 : color2;
 
-                const gradient = ctx.createLinearGradient(n1.x, n1.y, n2.x, n2.y);
+                const gradient = ctx.createLinearGradient(n1.renderX, n1.renderY, n2.renderX, n2.renderY);
                 gradient.addColorStop(0, startColor);
                 gradient.addColorStop(1, endColor);
                 
                 ctx.beginPath();
-                ctx.moveTo(n1.x, n1.y);
-                ctx.lineTo(n2.x, n2.y);
+                ctx.moveTo(n1.renderX, n1.renderY);
+                ctx.lineTo(n2.renderX, n2.renderY);
                 ctx.strokeStyle = gradient;
                 ctx.lineWidth = lineThicknessMultiplier * dynamicOpacity;
                 ctx.stroke();
             }
-
             edgesToDelete.forEach(key => edgeMap.delete(key));
         }
         
@@ -840,7 +831,6 @@
             
             let nodeFactor = 0;
             if (selectedNode) {
-                // Node scale is 0.3 (far) to 1.0 (close). We want the inverse.
                 nodeFactor = 1.0 - ((selectedNode.scale - 0.3) / 0.7);
             }
 
@@ -850,13 +840,11 @@
         function animate(timestamp) {
             updateDynamicTimeScale();
 
-            // --- Performance: Time-Decoupled Network Update ---
             if (timestamp - lastNetworkUpdateTime > (networkUpdateInterval / timeScale)) {
                 updateNetworkTopology();
                 lastNetworkUpdateTime = timestamp;
             }
 
-            // --- Camera Logic ---
             if (selectedNode) {
                 let targetNodeScreenX = (modalSide === 'right') ? width / 3 : width * 2 / 3;
                 targetViewX = selectedNode.x - (targetNodeScreenX - width / 2) / targetZoom;
@@ -872,8 +860,8 @@
             const targetSpeed = minSpeed + t * (maxSpeed - minSpeed);
             globalSpeedMultiplier += (targetSpeed - globalSpeedMultiplier) * 0.05;
 
-            // --- 60fps Physics & Rendering ---
             updateNodePhysics();
+            nodes.forEach(node => node.updateRenderPosition());
             updateModalPhysics();
 
             ctx.clearRect(0, 0, width, height);
@@ -885,13 +873,11 @@
             renderNetwork();
 
             const sortedNodes = [...nodes].sort((a, b) => a.scale - b.scale);
-            // Pulse calculation is now independent of timeScale
             const sine = Math.sin(timestamp / pulseSpeedMultiplier);
             const pulse = selectedNode ? (sine * 0.5 + 0.5) * (pulseSizeMultiplier - minPulseSize) + minPulseSize : 0;
             sortedNodes.forEach(node => node.draw(ctx, node === selectedNode, node === hoveredNode, pulse));
             
             ctx.restore();
-
             updateSynthesisPanelTargetPosition();
             requestAnimationFrame(animate);
         }
@@ -927,7 +913,7 @@
             const panelWidth = synthesisPanel.offsetWidth, panelHeight = synthesisPanel.offsetHeight;
             const screenPadding = 20;
             let idealPanelX = (modalSide === 'right') ? (width * 2 / 3) - (panelWidth / 2) : (width / 3) - (panelWidth / 2);
-            const screenY = (selectedNode.y - viewY) * zoom + height / 2;
+            const screenY = (selectedNode.renderY - viewY) * zoom + height / 2;
             let panelY = screenY - panelHeight / 2;
             targetModalY = Math.max(screenPadding, Math.min(panelY, height - panelHeight - screenPadding));
             targetModalX = Math.max(screenPadding, Math.min(idealPanelX, width - panelWidth - screenPadding));
@@ -963,18 +949,24 @@
             const searchArea = createBoundary(worldX - hoverRadius, worldY - hoverRadius, hoverRadius * 2, hoverRadius * 2);
             const candidates = quadtree ? quadtree.query(searchArea) : [];
 
-            let closestNode = null;
-            let minDistanceSq = hoverRadius * hoverRadius;
-
+            let hits = [];
             for (const node of candidates) {
-                const dx = node.x - worldX, dy = node.y - worldY;
+                const dx = node.renderX - worldX;
+                const dy = node.renderY - worldY;
                 const dSq = dx * dx + dy * dy;
-                if (dSq < minDistanceSq) {
-                    minDistanceSq = dSq;
-                    closestNode = node;
+                if (dSq < hoverRadius * hoverRadius) {
+                    hits.push(node);
                 }
             }
-            hoveredNode = closestNode;
+
+            if (hits.length === 0) {
+                hoveredNode = null;
+            } else if (hits.length === 1) {
+                hoveredNode = hits[0];
+            } else {
+                hits.sort((a,b) => b.scale - a.scale);
+                hoveredNode = hits[0];
+            }
         });
 
         canvas.addEventListener('click', (event) => {
@@ -987,7 +979,7 @@
                     selectedNode = hoveredNode;
                     const TARGET_ON_SCREEN_SCALE = 3.5; 
                     targetZoom = TARGET_ON_SCREEN_SCALE / selectedNode.scale;
-                    const screenX = (hoveredNode.x - viewX) * zoom + width / 2;
+                    const screenX = (hoveredNode.renderX - viewX) * zoom + width / 2;
                     modalSide = (screenX > width / 2) ? 'left' : 'right';
                     
                     if (!selectedNode.info) { 
