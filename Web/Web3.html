@@ -136,8 +136,6 @@
             margin-top: 5px;
         }
         #synthesis-panel {
-            /* MODIFICATION: Width is now dynamically calculated in JS. */
-            /* Min/max width are fallbacks, and 'width' is added to the transition. */
             min-width: 280px;
             max-width: 90vw;
             border-color: var(--primary-color);
@@ -147,12 +145,14 @@
             line-height: 1.6;
             opacity: 0;
             transform: scale(0.95);
-            transition: opacity var(--modal-speed) ease, 
-                        transform var(--modal-speed) ease, 
-                        left var(--modal-speed) ease, 
-                        top var(--modal-speed) ease,
-                        width var(--modal-speed) ease; /* Added width to transition */
+            /* MODIFICATION: left and top are now handled by JS physics. */
+            /* The transition now only handles opacity, transform, and width. */
+            transition: opacity 0.5s ease, 
+                        transform 0.5s ease, 
+                        width 0.5s ease;
             pointer-events: none;
+            /* This will prevent the modal from flashing at 0,0 on the first frame */
+            left: -1000px;
         }
         #synthesis-panel.visible {
             opacity: 1;
@@ -254,6 +254,13 @@
         let targetViewY = height / 2;
         let zoom = 1.5;
         let targetZoom = 1.5;
+        
+        // MODIFICATION: State variables for the modal's physics-based animation.
+        let modalX = -1000, modalY = -1000;
+        let modalVelX = 0, modalVelY = 0;
+        let targetModalX = -1000, targetModalY = -1000;
+        const springStiffness = 0.04;
+        const springDamping = 0.4;
 
         // --- Node Class Definition ---
         class Node {
@@ -388,34 +395,54 @@
         function animate(timestamp) {
             // --- Camera Logic ---
             if (selectedNode) {
-                // This logic implements compositional framing using the Rule of Thirds.
                 let targetNodeScreenX;
                 if (modalSide === 'right') {
-                    targetNodeScreenX = width / 3; // Position node on left third
+                    targetNodeScreenX = width / 3;
                 } else {
-                    targetNodeScreenX = width * 2 / 3; // Position node on right third
+                    targetNodeScreenX = width * 2 / 3;
                 }
-                // Calculate the required world coordinate for the camera's center.
                 targetViewX = selectedNode.x - (targetNodeScreenX - width / 2) / targetZoom;
                 targetViewY = selectedNode.y;
             }
 
-            // Smoothly interpolate camera and zoom values.
             viewX += (targetViewX - viewX) * 0.08;
             viewY += (targetViewY - viewY) * 0.08;
             zoom += (targetZoom - zoom) * 0.08;
 
-            // Dynamically adjust simulation speed based on zoom level.
-            const minZoom = 1.5;
-            const maxZoom = 8.0;
-            const minSpeedMultiplier = 0.20;
-            const maxSpeedMultiplier = 0.60;
+            const minZoom = 1.5, maxZoom = 8.0;
+            const minSpeedMultiplier = 0.20, maxSpeedMultiplier = 0.60;
             let t = (zoom - minZoom) / (maxZoom - minZoom);
-            t = Math.max(0, Math.min(1, t)); // Clamp between 0 and 1
+            t = Math.max(0, Math.min(1, t));
             const targetSpeedMultiplier = minSpeedMultiplier + t * (maxSpeedMultiplier - minSpeedMultiplier);
             globalSpeedMultiplier += (targetSpeedMultiplier - globalSpeedMultiplier) * 0.05;
 
             updatePhysics(); 
+            
+            // MODIFICATION: Physics calculation for the modal's springy movement.
+            // This runs every frame to create the damped harmonic oscillator effect.
+            if (selectedNode) {
+                const forceX = (targetModalX - modalX) * springStiffness;
+                const forceY = (targetModalY - modalY) * springStiffness;
+
+                const dampingX = modalVelX * springDamping;
+                const dampingY = modalVelY * springDamping;
+
+                const accelX = forceX - dampingX;
+                const accelY = forceY - dampingY;
+
+                modalVelX += accelX;
+                modalVelY += accelY;
+
+                modalX += modalVelX;
+                modalY += modalVelY;
+
+                // Stop simulation if it's very close to the target to save resources.
+                if (Math.abs(modalVelX) > 0.01 || Math.abs(modalVelY) > 0.01) {
+                    synthesisPanel.style.left = `${modalX}px`;
+                    synthesisPanel.style.top = `${modalY}px`;
+                }
+            }
+
 
             // --- Begin Rendering ---
             ctx.clearRect(0, 0, width, height);
@@ -426,7 +453,6 @@
             
             const sortedNodes = [...nodes].sort((a, b) => a.scale - b.scale);
 
-            // High-fidelity line rendering with depth gradients and smooth fade-in/fade-out.
             const connectFalloff = 0.8;
             const falloffStartDistance = connectDistance * connectFalloff;
             
@@ -441,7 +467,6 @@
                     if (distSq < connectDistanceSq) {
                         const dist = Math.sqrt(distSq);
                         
-                        // Calculate opacity based on distance for smooth fade-in/out.
                         let opacityMultiplier = 1.0;
                         if (dist > falloffStartDistance) {
                            opacityMultiplier = 1.0 - (dist - falloffStartDistance) / (connectDistance - falloffStartDistance);
@@ -450,7 +475,6 @@
                         const isN1Interactive = (n1 === selectedNode || n1 === hoveredNode);
                         const isN2Interactive = (n2 === selectedNode || n2 === hoveredNode);
 
-                        // Define colors based on depth and interaction state.
                         const color1 = `rgba(0, 174, 255, ${n1.scale * 0.35 * opacityMultiplier})`;
                         const color2 = `rgba(0, 174, 255, ${n2.scale * 0.35 * opacityMultiplier})`;
                         const glow1 = `rgba(240, 240, 240, ${glowBrightnessMultiplier * n1.scale * opacityMultiplier})`; 
@@ -459,10 +483,8 @@
                         const startColor = isN1Interactive ? glow1 : color1;
                         const endColor = isN2Interactive ? glow2 : color2;
 
-                        // Create a unique gradient for each line.
                         const gradient = ctx.createLinearGradient(n1.x, n1.y, n2.x, n2.y);
                         
-                        // Add intermediate stops for a smoother glow falloff.
                         if (isN1Interactive && !isN2Interactive) {
                             gradient.addColorStop(0, startColor);
                             gradient.addColorStop(0.3, `rgba(0, 174, 255, ${n1.scale * 0.35 * opacityMultiplier * 0.8})`);
@@ -487,7 +509,6 @@
                 }
             }
             
-            // Draw nodes on top of lines.
             const sine = Math.sin(timestamp / pulseSpeedMultiplier);
             const pulse = selectedNode ? (sine * 0.5 + 0.5) * (pulseSizeMultiplier - minPulseSize) + minPulseSize : 0;
             
@@ -498,7 +519,8 @@
             });
             
             ctx.restore();
-            updateSynthesisPanelPosition();
+            // This function now just SETS the target, the animate loop MOVES the panel.
+            updateSynthesisPanelTargetPosition();
             requestAnimationFrame(animate);
         }
         
@@ -512,36 +534,33 @@
             targetZoom = 1.5;
         }
 
-        function updateSynthesisPanelPosition() {
+        // MODIFICATION: Renamed function to reflect its new purpose.
+        // It now only calculates and SETS the TARGET position for the physics simulation.
+        function updateSynthesisPanelTargetPosition() {
             if (!selectedNode) return;
             const panelWidth = synthesisPanel.offsetWidth;
             const panelHeight = synthesisPanel.offsetHeight;
-            const screenPadding = 20; // Define a safe margin from the screen edges.
+            const screenPadding = 20;
             
             let idealPanelX;
             if (modalSide === 'right') {
-                // Modal on the right third
                 idealPanelX = (width * 2 / 3) - (panelWidth / 2);
             } else {
-                // Modal on the left third
                 idealPanelX = (width / 3) - (panelWidth / 2);
             }
             
-            // MODIFICATION: Clamp the panel's X and Y position to keep it within the viewport.
-            // This ensures it never overflows, regardless of screen size or panel width.
             const screenY = (selectedNode.y - viewY) * zoom + height / 2;
             let panelY = screenY - panelHeight / 2;
 
-            // Clamp vertical position
             panelY = Math.max(screenPadding, panelY);
             panelY = Math.min(panelY, height - panelHeight - screenPadding);
 
-            // Clamp horizontal position
             let panelX = Math.max(screenPadding, idealPanelX);
             panelX = Math.min(panelX, width - panelWidth - screenPadding);
             
-            synthesisPanel.style.left = `${panelX}px`;
-            synthesisPanel.style.top = `${panelY}px`;
+            // Update the target variables for the physics simulation.
+            targetModalX = panelX;
+            targetModalY = panelY;
         }
         
         // --- Event Listeners ---
@@ -580,33 +599,42 @@
         });
 
         canvas.addEventListener('click', (event) => {
-            if (hoveredNode) {
-                // If a node is clicked, always ensure the protocol panel is closed first.
-                protocolPanel.classList.remove('visible');
+            // Reverted to the logic where the panel blocks clicks.
+            if (protocolPanel.classList.contains('visible')) return;
 
+            if (hoveredNode) {
                 if (selectedNode === hoveredNode) {
                     deselectNodeAndResetView();
                 } else {
+                    const isFirstSelection = selectedNode === null;
                     selectedNode = hoveredNode;
+                    
                     const TARGET_ON_SCREEN_SCALE = 3.5; 
                     targetZoom = TARGET_ON_SCREEN_SCALE / selectedNode.scale;
                     const screenX = (hoveredNode.x - viewX) * zoom + width / 2;
-                    // Keep the modal on the same side as the initial click
                     modalSide = (screenX > width / 2) ? 'left' : 'right';
                     
                     if (!selectedNode.info) { selectedNode.info = getNextUniquePhrase(); }
                     synthesisPanel.innerHTML = selectedNode.info;
 
-                    // MODIFICATION: Calculate and apply an optimal width for the modal
-                    // based on the length of the text content it holds.
                     const textLength = selectedNode.info.length;
                     const minWidth = 280;
                     const maxWidth = 450;
-                    // A non-linear scaling using square root makes the width adapt nicely without
-                    // becoming too wide for slightly longer texts.
                     const dynamicWidth = minWidth + Math.sqrt(textLength) * 4;
                     const finalWidth = Math.max(minWidth, Math.min(maxWidth, dynamicWidth));
                     synthesisPanel.style.width = `${finalWidth}px`;
+                    
+                    // MODIFICATION: If this is the very first time a node is selected,
+                    // we snap the modal to its target position instantly to avoid it
+                    // flying in from the corner of the screen.
+                    if (isFirstSelection) {
+                        // We need a slight delay for the new width to be applied before calculating position.
+                        setTimeout(() => {
+                            updateSynthesisPanelTargetPosition();
+                            modalX = targetModalX;
+                            modalY = targetModalY;
+                        }, 0);
+                    }
                     
                     synthesisPanel.classList.add('visible');
                     vignette.classList.add('visible');
