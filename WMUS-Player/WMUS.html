@@ -1,0 +1,812 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Web Audio Sequencer</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-main: #121212;
+            --bg-container: #1E1E1E;
+            --bg-track: #2A2A2A;
+            --bg-element: #404040;
+            --bg-element-hover: #555555;
+            --text-primary: #E0E0E0;
+            --text-secondary: #A0A0A0;
+            --border-color: #383838;
+            --accent-cyan: #22D3EE;
+            --accent-cyan-glow: rgba(34, 211, 238, 0.3);
+            --accent-amber: #FBBF24;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+            background-color: var(--bg-main);
+            color: var(--text-primary);
+        }
+        
+        /* Main container */
+        .main-container {
+            background-color: var(--bg-container);
+            border: 1px solid var(--border-color);
+        }
+
+        /* Scrollbar */
+        .scroll-container::-webkit-scrollbar { height: 8px; width: 8px; }
+        .scroll-container::-webkit-scrollbar-track { background: var(--bg-container); border-radius: 4px; }
+        .scroll-container::-webkit-scrollbar-thumb { background: var(--bg-element); border-radius: 4px; }
+        .scroll-container::-webkit-scrollbar-thumb:hover { background: var(--bg-element-hover); }
+
+        /* Buttons */
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0.5rem 1rem;
+            border-radius: 6px;
+            font-weight: 500;
+            transition: all 0.2s ease-in-out;
+            border: 1px solid transparent;
+        }
+        .btn-primary {
+            background-color: var(--accent-cyan);
+            color: var(--bg-main);
+            box-shadow: 0 2px 10px rgba(34, 211, 238, 0.2);
+        }
+        .btn-primary:hover {
+            filter: brightness(1.1);
+        }
+        .btn-secondary {
+            background-color: var(--bg-element);
+            border-color: var(--border-color);
+        }
+        .btn-secondary:hover {
+            background-color: var(--bg-element-hover);
+            border-color: #606060;
+        }
+        .btn-ghost {
+            background-color: transparent;
+        }
+        .btn-ghost:hover {
+            background-color: var(--bg-element);
+        }
+        .btn.active {
+            background-color: var(--accent-cyan);
+            color: var(--bg-main);
+            border-color: var(--accent-cyan);
+        }
+
+
+        /* Controls */
+        .custom-slider { -webkit-appearance: none; appearance: none; width: 100%; height: 4px; background: var(--bg-element); border-radius: 2px; outline: none; }
+        .custom-slider::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 16px; height: 16px; background: var(--text-primary); border-radius: 50%; cursor: pointer; border: 2px solid var(--bg-container); }
+        .custom-slider::-moz-range-thumb { width: 16px; height: 16px; background: var(--text-primary); border-radius: 50%; cursor: pointer; border: 2px solid var(--bg-container); }
+        
+        .custom-select {
+            -webkit-appearance: none; appearance: none;
+            background-color: var(--bg-element);
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            padding: 0.25rem 2rem 0.25rem 0.5rem;
+            background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%23A0A0A0' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3e%3c/svg%3e");
+            background-position: right 0.5rem center;
+            background-repeat: no-repeat;
+            background-size: 1.5em 1.5em;
+        }
+
+        /* Sequencer Elements */
+        .step-button, .arranger-step {
+            transition: all 0.1s ease-in-out;
+            border-radius: 4px;
+            position: relative;
+            overflow: hidden;
+            cursor: pointer;
+            -webkit-user-select: none; user-select: none;
+            background-color: var(--bg-element);
+            box-shadow: inset 0 1px 2px rgba(0,0,0,0.3);
+        }
+        .step-button { width: 100%; height: 32px; }
+        .step-button.beat-marker { background-color: #4A4A4A; }
+        
+        .step-button.active {
+            background-color: var(--accent-cyan);
+            box-shadow: 0 0 12px var(--accent-cyan-glow);
+        }
+        .step-button.beat-marker.active { filter: brightness(0.9); }
+
+        .playing {
+             outline: 2px solid var(--accent-cyan);
+             outline-offset: 2px;
+             box-shadow: 0 0 12px var(--accent-cyan-glow) !important;
+        }
+
+        .indicator {
+            position: absolute; bottom: 0; width: 50%; pointer-events: none; transition: height 0.05s linear, filter 0.1s ease-in-out;
+            background-blend-mode: overlay;
+        }
+        .gain-indicator { left: 0; background-color: var(--accent-amber); opacity: 0.6; }
+        .pitch-indicator { right: 0; background-color: var(--accent-cyan); opacity: 0.6; }
+        
+        /* Enhance indicator visibility on active steps. */
+        .step-button.active .indicator {
+            filter: brightness(1.5);
+            opacity: 0.8;
+        }
+
+        .arranger-step {
+            width: 60px; height: 40px; display: flex; align-items: center; justify-content: center;
+            font-size: 14px; font-weight: 500; border: 1px solid var(--border-color);
+        }
+        .arranger-step:not(:empty) {
+            background-color: var(--accent-cyan);
+            color: var(--bg-main);
+            border-color: transparent;
+            filter: saturate(0.5);
+        }
+
+        .pattern-btn.selected {
+            background-color: var(--accent-cyan);
+            color: var(--bg-main);
+            transform: scale(1.05);
+        }
+        
+        .spinner {
+            border: 2px solid var(--bg-element); border-top: 2px solid var(--accent-cyan);
+            border-radius: 50%; width: 16px; height: 16px; animation: spin 1s linear infinite;
+        }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    </style>
+</head>
+<body>
+
+    <div class="w-full max-w-screen-2xl mx-auto main-container rounded-xl shadow-2xl p-4 flex flex-col flex-grow h-screen">
+        <!-- Header & Global Controls -->
+        <header class="flex-shrink-0 flex flex-col sm:flex-row justify-between items-center pb-4 border-b border-gray-700">
+            <h1 class="text-2xl sm:text-3xl font-bold text-white mb-4 sm:mb-0">Web Sequencer</h1>
+            <div class="flex items-center space-x-6">
+                <div class="flex flex-col items-center">
+                    <label for="tempo" class="text-xs font-medium text-gray-400 mb-1">Tempo</label>
+                    <div class="flex items-center space-x-2">
+                        <input type="range" id="tempo" min="40" max="240" value="120" class="w-24 sm:w-32 custom-slider">
+                        <span id="tempo-value" class="font-mono text-base sm:text-lg w-12 text-center text-gray-300">120</span>
+                    </div>
+                </div>
+                <div class="flex items-center space-x-2">
+                    <button id="loop-toggle-btn" class="btn btn-secondary p-2 active" title="Toggle Loop">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
+                    </button>
+                    <button id="play-stop-btn" class="btn btn-primary px-4 py-2 sm:px-6 sm:py-3 text-sm sm:text-base">
+                        Play
+                    </button>
+                </div>
+            </div>
+        </header>
+
+        <!-- Song Arrangement Section -->
+        <section class="flex-shrink-0 pt-4">
+            <h2 class="text-sm font-semibold text-gray-400 mb-2">Song Arrangement</h2>
+            <div id="arrangement-container" class="scroll-container flex space-x-1 overflow-x-auto pb-2"></div>
+        </section>
+
+        <!-- Sequencer Tracks -->
+        <main id="sequencer-tracks" class="flex-grow flex space-x-3 overflow-x-auto py-4 border-t border-b border-gray-700/50 my-2">
+        </main>
+
+        <div class="flex-shrink-0 flex flex-col sm:flex-row justify-between items-center pt-4 border-t border-gray-700">
+             <div class="flex items-center space-x-2">
+                <button id="add-track-btn" class="btn btn-secondary text-sm">
+                    + Add Track
+                </button>
+             </div>
+
+            <!-- Pattern Management -->
+            <div class="flex items-center space-x-2 my-4 sm:my-0">
+                <span class="text-sm font-semibold text-gray-400">Patterns:</span>
+                <div id="pattern-list" class="flex items-center space-x-1"></div>
+                <button id="add-pattern-btn" class="btn btn-secondary px-2 py-1 text-xs font-bold">+</button>
+                <button id="dup-pattern-btn" class="btn btn-ghost px-2 py-1 text-xs">Dup</button>
+            </div>
+
+            <!-- Save/Load Buttons -->
+            <div class="flex space-x-2">
+                 <button id="save-project-btn" class="btn btn-secondary text-sm">Save Project</button>
+                 <button id="load-project-btn" class="btn btn-secondary text-sm">Load Project</button>
+                 <input type="file" id="load-project-input" class="hidden" accept=".wmus">
+            </div>
+        </div>
+    </div>
+    
+    <!-- Track Template -->
+    <template id="track-template">
+        <div class="track p-2 rounded-lg flex flex-col space-y-3 w-40 flex-shrink-0" style="background-color: var(--bg-track);">
+            <div class="track-controls w-full flex flex-col space-y-2">
+                <div class="relative w-full">
+                    <input type="file" class="hidden file-input" accept="audio/*">
+                    <button class="w-full text-left p-2 text-xs sm:text-sm rounded-md truncate btn btn-secondary load-sound-btn">Load Sound</button>
+                </div>
+                <div class="flex items-center justify-between w-full">
+                    <div class="flex items-center space-x-1">
+                        <label class="text-xs sm:text-sm text-gray-400">Div:</label>
+                        <select class="division-select custom-select text-xs sm:text-sm">
+                            <option value="8">1/8</option>
+                            <option value="16" selected>1/16</option>
+                            <option value="32">1/32</option>
+                        </select>
+                    </div>
+                     <button class="remove-track-btn text-gray-500 hover:text-red-400 font-bold text-lg sm:text-xl px-1">&times;</button>
+                </div>
+            </div>
+            <div class="steps-container flex-grow flex flex-col gap-1"></div>
+        </div>
+    </template>
+
+
+    <script>
+        // Abstraction for audio encoding/decoding. A real implementation would use a WASM library.
+        const OpusEncoder = { encode: async (buffer) => new Blob([buffer.getChannelData(0).buffer], { type: 'audio/opus' }) };
+        const OpusDecoder = { decode: async (blob) => ({ channelData: [new Float32Array(await blob.arrayBuffer())], sampleRate: 48000 }) };
+
+        document.addEventListener('DOMContentLoaded', () => {
+            // --- STATE & CONSTANTS ---
+            let audioContext;
+            let sequencerNode;
+            let isPlaying = false;
+            let isLooping = true;
+            let tempo = 120;
+            let patterns = [];
+            let currentPatternId = null;
+            let patternIdCounter = 0;
+            let arrangement = Array(16).fill(null);
+            
+            // Pre-calculated look-up table for gain. Maps linear UI control to an equal-power curve.
+            const gainLut = (() => {
+                const lut = new Float32Array(101);
+                for (let i = 0; i < 101; i++) {
+                    lut[i] = Math.pow(i / 100, 2);
+                }
+                return lut;
+            })();
+            const UNITY_GAIN_VALUE = 100; 
+
+            // Cache for DOM elements.
+            const dom = {
+                playStopBtn: document.getElementById('play-stop-btn'),
+                loopToggleBtn: document.getElementById('loop-toggle-btn'),
+                tempoSlider: document.getElementById('tempo'),
+                tempoValue: document.getElementById('tempo-value'),
+                addTrackBtn: document.getElementById('add-track-btn'),
+                sequencerTracks: document.getElementById('sequencer-tracks'),
+                trackTemplate: document.getElementById('track-template'),
+                arrangementContainer: document.getElementById('arrangement-container'),
+                patternList: document.getElementById('pattern-list'),
+                addPatternBtn: document.getElementById('add-pattern-btn'),
+                dupPatternBtn: document.getElementById('dup-pattern-btn'),
+                saveProjectBtn: document.getElementById('save-project-btn'),
+                loadProjectBtn: document.getElementById('load-project-btn'),
+                loadProjectInput: document.getElementById('load-project-input'),
+            };
+            
+            // --- WORKLET ---
+            // AudioWorkletProcessor: a dedicated, high-priority audio thread for the master clock.
+            // Its isolation from the main thread prevents UI lag from affecting timing.
+            const sequencerWorkletCode = `
+                class SequencerProcessor extends AudioWorkletProcessor {
+                    constructor() {
+                        super();
+                        this.isPlaying = false;
+                        this.tempo = 120;
+                        this.stepDuration = 0;
+                        this.nextStepTime = 0;
+                        this.currentStep = 0;
+                        this.port.onmessage = this.handleMessage.bind(this);
+                        this._updateStepDuration();
+                    }
+
+                    handleMessage(event) {
+                        const { type, value } = event.data;
+                        if (type === 'start') {
+                            this.isPlaying = true;
+                            this.currentStep = 0;
+                            this.nextStepTime = currentTime;
+                        } else if (type === 'stop') {
+                            this.isPlaying = false;
+                        } else if (type === 'setTempo') {
+                            this.tempo = value;
+                            this._updateStepDuration();
+                        }
+                    }
+
+                    _updateStepDuration() {
+                        const secondsPerBeat = 60.0 / this.tempo;
+                        // The master clock resolution is 32nd notes. A beat (quarter note) has eight.
+                        this.stepDuration = secondsPerBeat / 8;
+                    }
+
+                    process(inputs, outputs, parameters) {
+                        if (!this.isPlaying) { return true; }
+
+                        // Look-ahead scheduling: queue upcoming steps to ensure sample-accurate playback.
+                        while (this.nextStepTime < currentTime + 0.1) {
+                            this.port.postMessage({ type: 'tick', step: this.currentStep });
+                            this.nextStepTime += this.stepDuration;
+                            this.currentStep++;
+                        }
+                        return true;
+                    }
+                }
+                registerProcessor('sequencer-processor', SequencerProcessor);
+            `;
+
+            // --- AUDIO ENGINE ---
+            // Initializes the AudioContext and the timing worklet.
+            async function initAudio() {
+                if (!audioContext) {
+                    audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                    if (audioContext.state === 'suspended') await audioContext.resume();
+                    const blob = new Blob([sequencerWorkletCode.trim()], { type: 'application/javascript' });
+                    const url = URL.createObjectURL(blob);
+                    await audioContext.audioWorklet.addModule(url);
+                    sequencerNode = new AudioWorkletNode(audioContext, 'sequencer-processor');
+                    sequencerNode.port.onmessage = e => e.data.type === 'tick' && handleTick(e.data.step);
+                    sequencerNode.connect(audioContext.destination);
+                }
+            }
+            
+            // Determines the final occupied slot in the song arrangement.
+            function findLastArrangementSlot() {
+                let lastIndex = -1;
+                for (let i = arrangement.length - 1; i >= 0; i--) {
+                    if (arrangement[i] !== null) {
+                        lastIndex = i;
+                        break;
+                    }
+                }
+                return lastIndex;
+            }
+
+            // The core scheduler, called for every tick from the AudioWorklet.
+            function handleTick(step) {
+                const lastPatternSlot = findLastArrangementSlot();
+                if (lastPatternSlot === -1) {
+                    if (isPlaying) togglePlayback();
+                    return;
+                }
+
+                // A bar in the arrangement contains 32 high-resolution steps (32nd notes).
+                const totalSongSteps = (lastPatternSlot + 1) * 32;
+
+                if (!isLooping && step >= totalSongSteps) {
+                    if(isPlaying) togglePlayback();
+                    return;
+                }
+
+                const currentStepInLoop = isLooping ? (step % totalSongSteps) : step;
+                const arrangementIndex = Math.floor(currentStepInLoop / 32);
+                const patternIdToPlay = arrangement[arrangementIndex];
+                
+                updatePlayhead(currentStepInLoop, arrangementIndex);
+                
+                if (patternIdToPlay === null) return;
+                const patternToPlay = patterns.find(p => p.id === patternIdToPlay);
+                if (!patternToPlay) return;
+
+                const stepInPattern = currentStepInLoop % 32;
+                patternToPlay.tracks.forEach(track => scheduleNote(track, stepInPattern, audioContext.currentTime));
+            }
+
+            // Schedules a single audio event to be played by the browser's audio engine.
+            function scheduleNote(track, stepInPattern, time) {
+                const stepData = track.steps[stepInPattern];
+                if (!track.audioBuffer || !stepData.active) return;
+
+                const source = audioContext.createBufferSource();
+                source.buffer = track.audioBuffer;
+                const gainNode = audioContext.createGain();
+                gainNode.gain.setValueAtTime(gainLut[Math.round(stepData.gain)], time);
+                source.playbackRate.setValueAtTime(Math.pow(2, (stepData.pitch - 50) / 50), time);
+                source.connect(gainNode).connect(audioContext.destination);
+                source.start(time);
+            }
+
+            // --- UI RENDERING ---
+            function renderAll() {
+                renderPatternList();
+                renderArrangement();
+                renderTracksForCurrentPattern();
+            }
+
+            // Updates the visual playhead on both the arrangement and track views.
+            function updatePlayhead(currentStepInLoop, currentArrangementIndex) {
+                 requestAnimationFrame(() => {
+                    document.querySelectorAll('.arranger-step.playing').forEach(el => el.classList.remove('playing'));
+                    if (currentArrangementIndex !== null && currentArrangementIndex < arrangement.length) {
+                        const arrangerStepEl = document.querySelectorAll('.arranger-step')[currentArrangementIndex];
+                        if(arrangerStepEl) arrangerStepEl.classList.add('playing');
+                    }
+
+                     const patternIdToPlay = arrangement[currentArrangementIndex];
+                     const patternToPlay = patterns.find(p => p.id === patternIdToPlay);
+                     
+                     document.querySelectorAll('.step-button.playing').forEach(el => el.classList.remove('playing'));
+
+                     if (!patternToPlay) return;
+                    
+                     const stepInPattern = currentStepInLoop % 32;
+
+                     patternToPlay.tracks.forEach(track => {
+                         if (!track.element) return;
+                         const visibleSteps = track.division;
+                         const divisionFactor = 32 / visibleSteps;
+                         
+                         const stepIndexToLight = Math.floor(stepInPattern / divisionFactor);
+
+                         if ((stepInPattern % divisionFactor) === 0) {
+                            const nextStepButton = track.element.querySelectorAll('.step-button')[stepIndexToLight];
+                            if (nextStepButton) nextStepButton.classList.add('playing');
+                         }
+                     });
+                });
+            }
+
+            // Renders the list of available patterns.
+            function renderPatternList() {
+                dom.patternList.innerHTML = '';
+                patterns.forEach(pattern => {
+                    const btn = document.createElement('button');
+                    btn.textContent = pattern.name;
+                    btn.className = 'pattern-btn btn btn-secondary px-3 py-1 text-xs';
+                    if (pattern.id === currentPatternId) btn.classList.add('selected');
+                    btn.onclick = () => switchPattern(pattern.id);
+                    dom.patternList.appendChild(btn);
+                });
+            }
+
+            // Renders the song arrangement timeline.
+            function renderArrangement() {
+                dom.arrangementContainer.innerHTML = '';
+                arrangement.forEach((patternId, index) => {
+                    const stepEl = document.createElement('button');
+                    stepEl.className = 'arranger-step';
+                    const pattern = patterns.find(p => p.id === patternId);
+                    if (pattern) {
+                        stepEl.textContent = pattern.name;
+                    }
+                    stepEl.onclick = () => {
+                        if (patterns.length === 0) return;
+                        const currentPatternIndex = patternId === null ? -1 : patterns.findIndex(p => p.id === patternId);
+                        const nextPatternIndex = (currentPatternIndex + 1);
+                        arrangement[index] = (nextPatternIndex >= patterns.length) ? null : patterns[nextPatternIndex].id;
+                        renderArrangement();
+                    };
+                    dom.arrangementContainer.appendChild(stepEl);
+                });
+            }
+            
+            // Renders all tracks for the currently selected pattern.
+            function renderTracksForCurrentPattern() {
+                dom.sequencerTracks.innerHTML = '';
+                const currentPattern = patterns.find(p => p.id === currentPatternId);
+                if (!currentPattern) return;
+
+                currentPattern.tracks.forEach(track => {
+                    const trackElement = dom.trackTemplate.content.cloneNode(true).firstElementChild;
+                    track.element = trackElement;
+                    trackElement.dataset.id = track.id;
+                    dom.sequencerTracks.appendChild(trackElement);
+                    setupTrackUI(track);
+                });
+            }
+
+            // --- STATE & UI LOGIC ---
+            // Configures the UI and event listeners for a single track.
+            function setupTrackUI(track) {
+                const stepsContainer = track.element.querySelector('.steps-container');
+                stepsContainer.innerHTML = '';
+                const stepsToShow = track.division;
+                for (let i = 0; i < stepsToShow; i++) {
+                    const stepBtn = document.createElement('button');
+                    const stepDataIndex = i * (32 / track.division);
+                    const stepData = track.steps[stepDataIndex];
+                    stepBtn.className = 'step-button';
+                    if (i % 4 === 0) stepBtn.classList.add('beat-marker');
+                    if (stepData.active) stepBtn.classList.add('active');
+                    const gainIndicator = document.createElement('div');
+                    gainIndicator.className = 'indicator gain-indicator';
+                    const pitchIndicator = document.createElement('div');
+                    pitchIndicator.className = 'indicator pitch-indicator';
+                    const updateIndicators = () => {
+                        gainIndicator.style.height = `${stepData.gain}%`;
+                        pitchIndicator.style.height = `${stepData.pitch}%`;
+                    };
+                    stepBtn.append(gainIndicator, pitchIndicator);
+                    updateIndicators();
+                    stepBtn.addEventListener('mousedown', e => {
+                        if (e.button !== 0) return;
+                        let isDragging = false;
+                        const initialY = e.clientY, rect = e.target.getBoundingClientRect();
+                        const dragTarget = (e.clientX - rect.left < rect.width / 2) ? 'gain' : 'pitch';
+                        const initialValue = stepData[dragTarget];
+                        const onMouseMove = moveEvent => {
+                            const deltaY = initialY - moveEvent.clientY;
+                            if (!isDragging && Math.abs(deltaY) > 4) isDragging = true;
+                            if (isDragging) {
+                                stepData[dragTarget] = Math.max(0, Math.min(100, initialValue + deltaY * 0.5));
+                                updateIndicators();
+                            }
+                        };
+                        const onMouseUp = () => {
+                            window.removeEventListener('mousemove', onMouseMove);
+                            window.removeEventListener('mouseup', onMouseUp);
+                            if (!isDragging) {
+                                stepData.active = !stepData.active;
+                                stepBtn.classList.toggle('active');
+                            }
+                        };
+                        window.addEventListener('mousemove', onMouseMove);
+                        window.addEventListener('mouseup', onMouseUp);
+                    });
+                    stepBtn.addEventListener('dblclick', e => {
+                        e.preventDefault();
+                        const rect = e.target.getBoundingClientRect();
+                        if (e.clientX - rect.left < rect.width / 2) stepData.gain = UNITY_GAIN_VALUE;
+                        else stepData.pitch = 50;
+                        updateIndicators();
+                    });
+                    stepsContainer.appendChild(stepBtn);
+                }
+                const loadBtn = track.element.querySelector('.load-sound-btn');
+                if (track.audioBuffer) {
+                    loadBtn.textContent = track.fileName || 'Loaded Sample';
+                }
+                const fileInput = track.element.querySelector('.file-input');
+                loadBtn.addEventListener('click', () => fileInput.click());
+                fileInput.addEventListener('change', async e => {
+                    const file = e.target.files[0];
+                    if (!file) return;
+                    loadBtn.textContent = 'Loading...';
+                    await initAudio();
+                    const arrayBuffer = await file.arrayBuffer();
+                    track.audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+                    track.fileName = file.name;
+                    loadBtn.textContent = file.name;
+                });
+                const divisionSelect = track.element.querySelector('.division-select');
+                divisionSelect.value = track.division;
+                divisionSelect.addEventListener('change', e => {
+                    track.division = parseInt(e.target.value);
+                    setupTrackUI(track);
+                });
+                track.element.querySelector('.remove-track-btn').addEventListener('click', () => removeTrack(track.id));
+            }
+
+            function addPattern(duplicate = false) {
+                const newPatternId = patternIdCounter++;
+                let newTracksData = [];
+                if (duplicate && currentPatternId !== null) {
+                    const sourcePattern = patterns.find(p => p.id === currentPatternId);
+                    if (sourcePattern) {
+                        newTracksData = JSON.parse(JSON.stringify(sourcePattern.tracks));
+                        newTracksData.forEach(t => t.element = null); 
+                    }
+                }
+                patterns.push({ id: newPatternId, name: `P${newPatternId + 1}`, tracks: newTracksData });
+                switchPattern(newPatternId);
+                renderArrangement();
+            }
+
+            function switchPattern(patternId) {
+                currentPatternId = patternId;
+                renderTracksForCurrentPattern();
+                renderPatternList();
+            }
+
+            function addTrack() {
+                const currentPattern = patterns.find(p => p.id === currentPatternId);
+                if (!currentPattern) {
+                    alert("Please select a pattern before adding a track.");
+                    return;
+                }
+                const trackId = `${currentPatternId}-${currentPattern.tracks.length}`;
+                const newTrack = {
+                    id: trackId,
+                    element: null, audioBuffer: null, fileName: null, division: 16,
+                    steps: Array(32).fill(null).map(() => ({ active: false, pitch: 50, gain: UNITY_GAIN_VALUE }))
+                };
+                currentPattern.tracks.push(newTrack);
+                renderTracksForCurrentPattern();
+            }
+
+            function removeTrack(trackId) {
+                const currentPattern = patterns.find(p => p.id === currentPatternId);
+                if (!currentPattern) return;
+                const trackIndex = currentPattern.tracks.findIndex(t => t.id === trackId);
+                if (trackIndex > -1) {
+                    currentPattern.tracks.splice(trackIndex, 1);
+                    renderTracksForCurrentPattern();
+                }
+            }
+            
+            async function togglePlayback() {
+                if(isPlaying){
+                    sequencerNode.port.postMessage({ type: 'stop' });
+                    dom.playStopBtn.textContent = 'Play';
+                    dom.playStopBtn.classList.add('btn-primary');
+                    dom.playStopBtn.style.backgroundColor = '';
+                    dom.playStopBtn.style.color = '';
+                    document.querySelectorAll('.playing').forEach(el => el.classList.remove('playing'));
+                    isPlaying = false;
+                } else {
+                    await initAudio(); 
+                    sequencerNode.port.postMessage({ type: 'setTempo', value: tempo });
+                    sequencerNode.port.postMessage({ type: 'start' });
+                    dom.playStopBtn.textContent = 'Stop';
+                    dom.playStopBtn.classList.remove('btn-primary');
+                    dom.playStopBtn.style.backgroundColor = 'var(--accent-cyan)';
+                    dom.playStopBtn.style.color = 'var(--bg-main)';
+                    isPlaying = true;
+                }
+            }
+            
+            // --- SAVE / LOAD LOGIC ---
+            async function saveProject() {
+                setButtonLoading(dom.saveProjectBtn, true);
+                try {
+                    const zip = new JSZip();
+                    const audioAssets = new Map();
+                    let audioCounter = 0;
+
+                    // Map unique AudioBuffers to filenames to prevent duplicate encoding.
+                    for (const p of patterns) {
+                        for (const t of p.tracks) {
+                            if (t.audioBuffer && !audioAssets.has(t.audioBuffer)) {
+                                const fileName = `audio_${audioCounter++}.opus`;
+                                // Audio data is encoded here, without pitch/gain effects.
+                                const opusBlob = await OpusEncoder.encode(t.audioBuffer);
+                                zip.file(fileName, opusBlob);
+                                audioAssets.set(t.audioBuffer, { file: fileName, originalName: t.fileName });
+                            }
+                        }
+                    }
+
+                    // Serialize the project's state. Audio is referenced by filename, not embedded.
+                    const projectState = {
+                        tempo,
+                        arrangement,
+                        patterns: patterns.map(p => ({
+                            id: p.id,
+                            name: p.name,
+                            tracks: p.tracks.map(t => ({
+                                division: t.division,
+                                audioFile: t.audioBuffer ? audioAssets.get(t.audioBuffer).file : null,
+                                fileName: t.audioBuffer ? audioAssets.get(t.audioBuffer).originalName : null,
+                                steps: t.steps, // Saves all 32 steps with their pitch/gain data.
+                            })),
+                        })),
+                    };
+
+                    const stateBlob = new Blob([JSON.stringify(projectState)], { type: 'application/json' });
+                    zip.file('project.json', stateBlob);
+
+                    const content = await zip.generateAsync({ type: 'blob' });
+                    const a = document.createElement('a');
+                    a.href = URL.createObjectURL(content);
+                    a.download = `my-project.wmus`;
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    URL.revokeObjectURL(a.href);
+
+                } catch (error) {
+                    console.error("Failed to save project:", error);
+                    alert("Error saving project. Check console for details.");
+                } finally {
+                    setButtonLoading(dom.saveProjectBtn, false);
+                }
+            }
+
+            async function loadProject(file) {
+                if (!file) return;
+                setButtonLoading(dom.loadProjectBtn, true);
+                try {
+                    await initAudio();
+                    const zip = await JSZip.loadAsync(file);
+                    const projectFile = zip.file('project.json');
+                    if (!projectFile) throw new Error('Invalid project file: project.json not found.');
+                    
+                    const state = JSON.parse(await projectFile.async('string'));
+                    
+                    // Decode all raw audio files from the archive.
+                    const audioFilePromises = Object.values(zip.files)
+                        .filter(f => f.name.startsWith('audio_') && !f.dir)
+                        .map(async f => {
+                            const blob = await f.async('blob');
+                            const decoded = await OpusDecoder.decode(blob);
+                            const audioBuffer = audioContext.createBuffer(1, decoded.channelData[0].length, decoded.sampleRate);
+                            audioBuffer.copyToChannel(decoded.channelData[0], 0);
+                            return { fileName: f.name, buffer: audioBuffer };
+                        });
+                    
+                    const decodedAudios = await Promise.all(audioFilePromises);
+                    const audioMap = new Map(decodedAudios.map(a => [a.fileName, a.buffer]));
+
+                    // Reconstruct the sequencer state from the loaded data.
+                    tempo = state.tempo;
+                    arrangement = state.arrangement;
+                    patterns = state.patterns.map(p => ({
+                        id: p.id,
+                        name: p.name,
+                        tracks: p.tracks.map((t, i) => ({
+                            id: `${p.id}-${i}`,
+                            element: null,
+                            audioBuffer: t.audioFile ? audioMap.get(t.audioFile) : null,
+                            fileName: t.fileName,
+                            division: t.division,
+                            steps: t.steps, // Restore pitch/gain data for every step.
+                        })),
+                    }));
+
+                    patternIdCounter = Math.max(-1, ...patterns.map(p => p.id)) + 1;
+                    currentPatternId = patterns[0]?.id ?? null;
+
+                    dom.tempoSlider.value = tempo;
+                    dom.tempoValue.textContent = tempo;
+                    if (sequencerNode) sequencerNode.port.postMessage({ type: 'setTempo', value: tempo });
+                    
+                    // Render the UI with the newly loaded state.
+                    renderAll();
+
+                } catch (error) {
+                    console.error("Failed to load project:", error);
+                    alert("Error loading project. It may be corrupted or in an invalid format.");
+                } finally {
+                    setButtonLoading(dom.loadProjectBtn, false);
+                    dom.loadProjectInput.value = '';
+                }
+            }
+            
+            function setButtonLoading(button, isLoading) {
+                const originalText = button.dataset.originalText || button.textContent;
+                if (!button.dataset.originalText) {
+                    button.dataset.originalText = originalText;
+                }
+
+                if (isLoading) {
+                    button.disabled = true;
+                    button.innerHTML = `<div class="spinner mr-2"></div><span>Loading...</span>`;
+                } else {
+                    button.disabled = false;
+                    button.innerHTML = originalText;
+                }
+            }
+
+            // --- EVENT LISTENERS & INITIALIZATION ---
+            dom.playStopBtn.addEventListener('click', togglePlayback);
+
+            dom.loopToggleBtn.addEventListener('click', () => {
+                isLooping = !isLooping;
+                dom.loopToggleBtn.classList.toggle('active', isLooping);
+            });
+
+            dom.tempoSlider.addEventListener('input', e => {
+                tempo = parseInt(e.target.value);
+                dom.tempoValue.textContent = tempo;
+                if (sequencerNode) sequencerNode.port.postMessage({ type: 'setTempo', value: tempo });
+            });
+            dom.addTrackBtn.addEventListener('click', addTrack);
+            dom.addPatternBtn.addEventListener('click', () => addPattern(false));
+            dom.dupPatternBtn.addEventListener('click', () => addPattern(true));
+            dom.saveProjectBtn.addEventListener('click', saveProject);
+            dom.loadProjectBtn.addEventListener('click', () => dom.loadProjectInput.click());
+            dom.loadProjectInput.addEventListener('change', (e) => loadProject(e.target.files[0]));
+
+            addPattern();
+        });
+    </script>
+</body>
+</html>
+
