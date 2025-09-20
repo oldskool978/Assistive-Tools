@@ -179,8 +179,8 @@
                         <label class="text-xs font-medium text-gray-400 mb-1">Tempo</label>
                         <div class="flex items-center space-x-2">
                              <button id="metronome-toggle-btn" class="btn btn-secondary p-2" title="Toggle Metronome">
-                                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 12H3M21 12h-9m-9 0a9 9 0 0 0 18 0a9 9 0 0 0-18 0Z"/></svg>
-                            </button>
+                                 <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 12H3M21 12h-9m-9 0a9 9 0 0 0 18 0a9 9 0 0 0-18 0Z"/></svg>
+                             </button>
                             <input type="range" id="tempo" min="40" max="240" value="120" class="w-24 sm:w-32 custom-slider">
                             <span id="tempo-value" class="font-mono text-base sm:text-lg w-12 text-center text-gray-300">120</span>
                         </div>
@@ -263,9 +263,9 @@
 
     <script>
         // --- PREAMBLE ---
-        // Abstraction for audio encoding/decoding. A production implementation would use a robust WASM library.
-        const OpusEncoder = { encode: async (buffer) => new Blob([buffer.getChannelData(0).buffer], { type: 'audio/opus' }) };
-        const OpusDecoder = { decode: async (blob) => ({ channelData: [new Float32Array(await blob.arrayBuffer())], sampleRate: 48000 }) };
+        // Placeholder encoder/decoder. Does not perform real compression but ensures functionality.
+        const OpusEncoder = { encode: async (buffer) => new Blob([buffer.getChannelData(0)], { type: 'audio/opus' }) };
+        const OpusDecoder = { decode: async (blob) => new Float32Array(await blob.arrayBuffer()) };
 
         document.addEventListener('DOMContentLoaded', () => {
             // --- APPLICATION STATE & CONSTANTS ---
@@ -280,16 +280,14 @@
             let patternIdCounter = 0;
             let arrangement = [];
             
-            // Pre-calculated look-up table for gain. This maps a linear UI control to an equal-power curve (pow^2),
-            // which provides a more perceptually uniform response. It is calculated once to optimize runtime performance.
-            const gainLut = (() => {
-                const lut = new Float32Array(101);
-                for (let i = 0; i < 101; i++) {
-                    lut[i] = Math.pow(i / 100, 2);
-                }
-                return lut;
-            })();
-            const UNITY_GAIN_VALUE = 100; 
+            // --- Pre-calculated Look-Up Tables for Optimization ---
+            const gainToDbLut = new Float32Array(101);
+            const MIN_DB = -60.0;
+            for (let i = 0; i < 101; i++) {
+                const gain = Math.pow(i / 100, 2); // Perceptual (power) curve.
+                const db = gain > 0 ? 20 * Math.log10(gain) : MIN_DB;
+                gainToDbLut[i] = Math.max(MIN_DB, db);
+            }
 
             // A single, cached object for all DOM element references.
             const dom = {
@@ -311,8 +309,6 @@
             };
             
             // --- AUDIO WORKLET PROCESSOR ---
-            // This code runs on a separate, high-priority audio thread. Its sole purpose is to act as a
-            // precise, resilient master clock, immune to UI thread latency or garbage collection pauses.
             const sequencerWorkletCode = `
                 class SequencerProcessor extends AudioWorkletProcessor {
                     constructor() {
@@ -325,32 +321,18 @@
                         this.port.onmessage = this.handleMessage.bind(this);
                         this._updateStepDuration();
                     }
-
                     handleMessage(event) {
                         const { type, value } = event.data;
-                        if (type === 'start') {
-                            this.isPlaying = true;
-                            this.currentStep = 0;
-                            this.nextStepTime = currentTime;
-                        } else if (type === 'stop') {
-                            this.isPlaying = false;
-                        } else if (type === 'setTempo') {
-                            this.tempo = value;
-                            this._updateStepDuration();
-                        }
+                        if (type === 'start') { this.isPlaying = true; this.currentStep = 0; this.nextStepTime = currentTime; }
+                        else if (type === 'stop') { this.isPlaying = false; }
+                        else if (type === 'setTempo') { this.tempo = value; this._updateStepDuration(); }
                     }
-
                     _updateStepDuration() {
                         const secondsPerBeat = 60.0 / this.tempo;
-                        // The engine's highest resolution is a 32nd note. A quarter-note beat contains eight.
-                        this.stepDuration = secondsPerBeat / 8;
+                        this.stepDuration = secondsPerBeat / 8; // 32nd note resolution
                     }
-
                     process(inputs, outputs, parameters) {
-                        if (!this.isPlaying) { return true; }
-
-                        // Employs look-ahead scheduling to ensure audio events are queued before they
-                        // are needed, preventing timing jitter.
+                        if (!this.isPlaying) return true;
                         while (this.nextStepTime < currentTime + 0.1) {
                             this.port.postMessage({ type: 'tick', step: this.currentStep });
                             this.nextStepTime += this.stepDuration;
@@ -363,7 +345,6 @@
             `;
 
             // --- AUDIO ENGINE ---
-            // Initializes the Web Audio API context and the timing worklet.
             async function initAudio() {
                 if (!audioContext) {
                     audioContext = new (window.AudioContext || window.webkitAudioContext)();
@@ -377,70 +358,41 @@
                 }
             }
             
-            // The primary scheduling function, called for every tick from the AudioWorklet.
             function handleTick(step) {
-                if (arrangement.length === 0) {
-                     if (isPlaying) togglePlayback();
-                     return;
-                }
-
-                // A bar in the song arrangement is defined as 32 steps of the master clock.
+                if (arrangement.length === 0) { if (isPlaying) togglePlayback(); return; }
                 const totalSongSteps = arrangement.length * 32;
-
-                if (!isLooping && step >= totalSongSteps) {
-                    if(isPlaying) togglePlayback();
-                    return;
-                }
-
+                if (!isLooping && step >= totalSongSteps) { if(isPlaying) togglePlayback(); return; }
                 const currentStepInLoop = isLooping ? (step % totalSongSteps) : step;
                 const arrangementIndex = Math.floor(currentStepInLoop / 32);
                 const patternIdToPlay = arrangement[arrangementIndex];
-                
                 updatePlayhead(currentStepInLoop, arrangementIndex);
-                
-                // Trigger metronome on every quarter note (every 8th tick of the 32nd-note clock).
-                if (isMetronomeOn && (currentStepInLoop % 8 === 0)) {
-                    scheduleMetronomeClick(audioContext.currentTime);
-                }
-
+                if (isMetronomeOn && (currentStepInLoop % 8 === 0)) { scheduleMetronomeClick(audioContext.currentTime); }
                 if (patternIdToPlay === null) return;
                 const patternToPlay = patterns.find(p => p.id === patternIdToPlay);
                 if (!patternToPlay) return;
-
                 const stepInPattern = currentStepInLoop % 32;
                 patternToPlay.tracks.forEach(track => scheduleNote(track, stepInPattern, audioContext.currentTime));
             }
             
-            // Finds the subsequent active step within a track's data for calculating adaptive release.
             function findNextStep(track, startStep) {
                 for (let i = 1; i < 32; i++) {
                     const nextStepIndex = (startStep + i) % 32;
-                    if (track.steps[nextStepIndex].active) {
-                        return { index: nextStepIndex, stepsAway: i };
-                    }
+                    if (track.steps[nextStepIndex].active) { return { index: nextStepIndex, stepsAway: i }; }
                 }
-                return null; // Indicates no other active note was found in the pattern.
+                return null;
             }
 
-            // Schedules a single audio event with all its parameters.
             function scheduleNote(track, stepInPattern, time) {
                 const stepData = track.steps[stepInPattern];
                 if (!track.audioBuffer || !stepData.active) return;
                 
-                // --- Adaptive Release Envelope ---
-                // Calculate the duration until the next note on this track to create a perfectly timed fade.
-                let releaseDuration = 0.01; // A default, short fade to prevent clicks if it's the last note.
+                let releaseDuration = 0.01;
                 const nextStepInfo = findNextStep(track, stepInPattern);
-
                 if (nextStepInfo) {
                     const thirtySecondNoteDuration = (60 / tempo) / 8;
-                    const timeUntilNextNote = nextStepInfo.stepsAway * thirtySecondNoteDuration;
-                    // The release is set to 98% of the interval to ensure the fade is complete before the next onset.
-                    releaseDuration = timeUntilNextNote * 0.98;
+                    releaseDuration = (nextStepInfo.stepsAway * thirtySecondNoteDuration) * 0.98;
                 }
 
-                // If a note is already playing on this track, schedule a fade-out on its GainNode.
-                // This prevents signal discontinuities (clicks) and enforces monophonic behavior.
                 if (track.playingNode) {
                     track.playingNode.gain.cancelScheduledValues(time);
                     track.playingNode.gain.setValueAtTime(track.playingNode.gain.value, time);
@@ -448,10 +400,7 @@
                 }
                 
                 let scheduledTime = time;
-                // --- Swing Calculation ---
-                // Delay off-beat notes based on the track's swing parameter.
                 if (track.swing > 50) {
-                     // In a 32-step grid, off-beat 8th notes fall on steps 4, 12, 20, 28.
                     if (stepInPattern % 8 !== 0 && stepInPattern % 4 === 0) {
                         const eighthNoteDuration = (60 / tempo) / 2;
                         const delayRatio = (track.swing - 50) / 25;
@@ -462,17 +411,21 @@
 
                 const source = audioContext.createBufferSource();
                 source.buffer = track.audioBuffer;
+                const panner = audioContext.createStereoPanner();
+                const panValue = (track.balanceFactor * 2) - 1;
+                panner.pan.setValueAtTime(panValue, scheduledTime);
                 const gainNode = audioContext.createGain();
-                gainNode.gain.setValueAtTime(gainLut[Math.round(stepData.gain)], scheduledTime);
+                const stepGainDb = gainToDbLut[Math.round(stepData.gain)];
+                // Apply normalization compensation. A positive normalizationGainDb means the sample was quiet.
+                const finalDb = stepGainDb - track.normalizationGainDb;
+                const finalLinearGain = Math.pow(10, finalDb / 20);
+                gainNode.gain.setValueAtTime(finalLinearGain, scheduledTime);
                 source.playbackRate.setValueAtTime(Math.pow(2, (stepData.pitch - 50) / 50), scheduledTime);
-                source.connect(gainNode).connect(audioContext.destination);
+                source.connect(panner).connect(gainNode).connect(audioContext.destination);
                 source.start(scheduledTime);
-                
-                // Store a reference to this new note's gain node, to be faded by the next note.
                 track.playingNode = gainNode;
             }
 
-            // Synthesizes a simple, computationally inexpensive click for the metronome.
             function scheduleMetronomeClick(time) {
                 const osc = audioContext.createOscillator();
                 const gain = audioContext.createGain();
@@ -486,40 +439,37 @@
             }
 
             // --- UI RENDERING ---
-            // Main render function; re-draws the primary UI components.
             function renderAll() {
                 renderPatternList();
                 renderArrangement();
                 renderTracksForCurrentPattern();
             }
-
-            // Updates the visual playhead position on the UI.
+            
             function updatePlayhead(currentStepInLoop, currentArrangementIndex) {
                  requestAnimationFrame(() => {
-                    document.querySelectorAll('.arranger-step.playing').forEach(el => el.classList.remove('playing'));
-                    if (currentArrangementIndex !== null && currentArrangementIndex < arrangement.length) {
-                        const arrangerStepEl = document.querySelectorAll('.arranger-step')[currentArrangementIndex];
-                        if(arrangerStepEl) arrangerStepEl.classList.add('playing');
-                    }
-                     const patternIdToPlay = arrangement[currentArrangementIndex];
-                     const patternToPlay = patterns.find(p => p.id === patternIdToPlay);
-                     document.querySelectorAll('.step-button.playing').forEach(el => el.classList.remove('playing'));
-                     if (!patternToPlay) return;
-                     const stepInPattern = currentStepInLoop % 32;
-                     patternToPlay.tracks.forEach(track => {
-                         if (!track.element) return;
-                         const visibleSteps = track.division;
-                         const divisionFactor = 32 / visibleSteps;
-                         const stepIndexToLight = Math.floor(stepInPattern / divisionFactor);
-                         if ((stepInPattern % divisionFactor) === 0) {
-                            const nextStepButton = track.element.querySelectorAll('.step-button')[stepIndexToLight];
-                            if (nextStepButton) nextStepButton.classList.add('playing');
-                         }
-                     });
-                });
+                     document.querySelectorAll('.arranger-step.playing').forEach(el => el.classList.remove('playing'));
+                     if (currentArrangementIndex !== null && currentArrangementIndex < arrangement.length) {
+                         const arrangerStepEl = document.querySelectorAll('.arranger-step')[currentArrangementIndex];
+                         if(arrangerStepEl) arrangerStepEl.classList.add('playing');
+                     }
+                      const patternIdToPlay = arrangement[currentArrangementIndex];
+                      const patternToPlay = patterns.find(p => p.id === patternIdToPlay);
+                      document.querySelectorAll('.step-button.playing').forEach(el => el.classList.remove('playing'));
+                      if (!patternToPlay) return;
+                      const stepInPattern = currentStepInLoop % 32;
+                      patternToPlay.tracks.forEach(track => {
+                          if (!track.element) return;
+                          const visibleSteps = track.division;
+                          const divisionFactor = 32 / visibleSteps;
+                          const stepIndexToLight = Math.floor(stepInPattern / divisionFactor);
+                          if ((stepInPattern % divisionFactor) === 0) {
+                              const nextStepButton = track.element.querySelectorAll('.step-button')[stepIndexToLight];
+                              if (nextStepButton) nextStepButton.classList.add('playing');
+                          }
+                      });
+                 });
             }
 
-            // Renders the list of selectable patterns.
             function renderPatternList() {
                 dom.patternList.innerHTML = '';
                 patterns.forEach(pattern => {
@@ -532,7 +482,6 @@
                 });
             }
 
-            // Renders the dynamic song arrangement timeline.
             function renderArrangement() {
                 dom.arrangementContainer.innerHTML = '';
                 arrangement.forEach((patternId, index) => {
@@ -559,7 +508,6 @@
                 dom.arrangementContainer.appendChild(addBtn);
             }
             
-            // Renders all track views for the currently selected pattern.
             function renderTracksForCurrentPattern() {
                 dom.sequencerTracks.innerHTML = '';
                 const currentPattern = patterns.find(p => p.id === currentPatternId);
@@ -573,19 +521,23 @@
                 });
             }
 
-            // --- STATE & UI MANAGEMENT ---
-            // Configures the UI and event listeners for a single track view.
             function setupTrackUI(track) {
                 const stepsContainer = track.element.querySelector('.steps-container');
                 stepsContainer.innerHTML = '';
                 const stepsToShow = track.division;
+                let groupContainer = null;
                 for (let i = 0; i < stepsToShow; i++) {
+                    if (i % 4 === 0) {
+                        groupContainer = document.createElement('div');
+                        groupContainer.className = 'flex flex-col gap-1';
+                        if (i > 0) { groupContainer.classList.add('mt-2'); }
+                        stepsContainer.appendChild(groupContainer);
+                    }
                     const stepDataIndex = i * (32 / track.division);
                     const stepBtn = document.createElement('button');
                     stepBtn.dataset.stepIndex = stepDataIndex;
                     const stepData = track.steps[stepDataIndex];
                     stepBtn.className = 'step-button';
-                    // Corrected logic for placing beat markers based on musical time.
                     if (i % (stepsToShow / 4) === 0) {
                         stepBtn.classList.add('beat-marker');
                     }
@@ -628,11 +580,11 @@
                     stepBtn.addEventListener('dblclick', e => {
                         e.preventDefault();
                         const rect = e.target.getBoundingClientRect();
-                        if (e.clientX - rect.left < rect.width / 2) track.steps[stepDataIndex].gain = UNITY_GAIN_VALUE;
+                        if (e.clientX - rect.left < rect.width / 2) track.steps[stepDataIndex].gain = 100;
                         else track.steps[stepDataIndex].pitch = 50;
                         updateIndicators();
                     });
-                    stepsContainer.appendChild(stepBtn);
+                    groupContainer.appendChild(stepBtn);
                 }
                 const loadBtn = track.element.querySelector('.load-sound-btn');
                 if (track.audioBuffer) { loadBtn.textContent = track.fileName || 'Loaded Sample'; }
@@ -646,6 +598,9 @@
                     const arrayBuffer = await file.arrayBuffer();
                     track.audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
                     track.fileName = file.name;
+                    track.normalizationGainDb = 0;
+                    track.balanceFactor = 0.5;
+                    track.originalOpusBlob = null;
                     loadBtn.textContent = file.name;
                 });
                 const divisionSelect = track.element.querySelector('.division-select');
@@ -665,20 +620,13 @@
                 track.element.querySelector('.remove-track-btn').addEventListener('click', () => removeTrack(track.id));
             }
 
-            // --- State Management Functions ---
             function addPattern(duplicate = false) {
                 const newPatternId = patternIdCounter++;
                 let newTracksData = [];
                 if (duplicate && currentPatternId !== null) {
                     const sourcePattern = patterns.find(p => p.id === currentPatternId);
                     if (sourcePattern) {
-                        newTracksData = sourcePattern.tracks.map((sourceTrack, index) => ({
-                            ...sourceTrack,
-                            id: `${newPatternId}-${index}`,
-                            element: null,
-                            steps: JSON.parse(JSON.stringify(sourceTrack.steps)),
-                            playingNode: null
-                        }));
+                        newTracksData = sourcePattern.tracks.map((sourceTrack, index) => ({ ...sourceTrack, id: `${newPatternId}-${index}`, element: null, steps: JSON.parse(JSON.stringify(sourceTrack.steps)), playingNode: null }));
                     }
                 }
                 patterns.push({ id: newPatternId, name: `P${newPatternId + 1}`, tracks: newTracksData });
@@ -697,11 +645,7 @@
                 const currentPattern = patterns.find(p => p.id === currentPatternId);
                 if (!currentPattern) { return; }
                 const trackId = `${currentPatternId}-${currentPattern.tracks.length}`;
-                const newTrack = {
-                    id: trackId, element: null, audioBuffer: null, fileName: null, 
-                    division: 16, swing: 50, playingNode: null,
-                    steps: Array(32).fill(null).map(() => ({ active: false, pitch: 50, gain: UNITY_GAIN_VALUE }))
-                };
+                const newTrack = { id: trackId, element: null, audioBuffer: null, fileName: null, division: 16, swing: 50, playingNode: null, normalizationGainDb: 0, balanceFactor: 0.5, originalOpusBlob: null, steps: Array(32).fill(null).map(() => ({ active: false, pitch: 50, gain: 100 })) };
                 currentPattern.tracks.push(newTrack);
                 renderTracksForCurrentPattern();
             }
@@ -727,7 +671,7 @@
                     document.querySelectorAll('.playing').forEach(el => el.classList.remove('playing'));
                     isPlaying = false;
                 } else {
-                    await initAudio(); 
+                    await initAudio();
                     sequencerNode.port.postMessage({ type: 'setTempo', value: tempo });
                     sequencerNode.port.postMessage({ type: 'start' });
                     dom.playStopBtn.textContent = 'Stop';
@@ -739,49 +683,242 @@
             }
             
             // --- SAVE & LOAD ---
+
+            /**
+             * [FIXED] This function was missing. It processes an audio buffer by
+             * trimming silence and calculating normalization gain.
+             */
+            function processAudioForSaving(audioBuffer) {
+                if (!audioContext || !audioBuffer) {
+                    const emptyBuf = audioContext ? audioContext.createBuffer(1, 1, 44100) : null;
+                    return { buffer: emptyBuf, normalizationGainDb: 0, balanceFactor: 0.5 };
+                }
+
+                // For simplicity, we process as mono, taking the first channel.
+                const channelData = audioBuffer.getChannelData(0);
+                let firstActiveSample = 0;
+                let lastActiveSample = channelData.length - 1;
+                const threshold = 0.001; // Silence threshold
+
+                // Pruning: find the first sample above the threshold
+                for (let i = 0; i < channelData.length; i++) {
+                    if (Math.abs(channelData[i]) > threshold) {
+                        firstActiveSample = i;
+                        break;
+                    }
+                }
+
+                // Pruning: find the last sample above the threshold
+                for (let i = channelData.length - 1; i >= 0; i--) {
+                    if (Math.abs(channelData[i]) > threshold) {
+                        lastActiveSample = i;
+                        break;
+                    }
+                }
+                
+                // Handle completely silent clips to avoid errors
+                if (firstActiveSample >= lastActiveSample) {
+                    const emptyBuffer = audioContext.createBuffer(1, 1, audioBuffer.sampleRate);
+                    return { buffer: emptyBuffer, normalizationGainDb: 0, balanceFactor: 0.5 };
+                }
+
+                const trimmedLength = lastActiveSample - firstActiveSample + 1;
+                const trimmedData = channelData.slice(firstActiveSample, lastActiveSample + 1);
+
+                // Conditioning: Calculate gain needed to normalize the peak to 0 dBFS.
+                // This value is used as a *compensation* during playback.
+                let peak = 0;
+                for (let i = 0; i < trimmedData.length; i++) {
+                    const absSample = Math.abs(trimmedData[i]);
+                    if (absSample > peak) {
+                        peak = absSample;
+                    }
+                }
+                const normalizationGainDb = peak > 0 ? 20 * Math.log10(1 / peak) : 0;
+                
+                // Create a new, trimmed audio buffer.
+                const newBuffer = audioContext.createBuffer(1, trimmedLength, audioBuffer.sampleRate);
+                newBuffer.copyToChannel(trimmedData, 0);
+
+                return {
+                    buffer: newBuffer,
+                    normalizationGainDb: normalizationGainDb,
+                    balanceFactor: 0.5 // Default to center pan as we're converting to mono
+                };
+            }
+
+            function serializeState(audioAssets, audioBufferMap) {
+                // This pre-calculation is fragile but memory-efficient. It must perfectly
+                // match the write operations below.
+                let totalSize = 5; // Header: tempo(2), arrLen(1), patLen(1), audLen(1)
+                totalSize += arrangement.length;
+                totalSize += audioAssets.length * (4 + 4 + 4); // sampleRate, normGain, balanceFactor
+                const textEncoder = new TextEncoder();
+                patterns.forEach(p => {
+                    const nameBytes = textEncoder.encode(p.name);
+                    totalSize += 3 + nameBytes.length; 
+                    p.tracks.forEach(t => {
+                        totalSize += 3; // audioIndex, division, swing
+                        totalSize += 96; // 32 steps * 3 bytes/step
+                    });
+                });
+
+                const buffer = new ArrayBuffer(totalSize);
+                const view = new DataView(buffer);
+                let offset = 0;
+
+                view.setUint16(offset, tempo); offset += 2;
+                view.setUint8(offset, arrangement.length); offset += 1;
+                view.setUint8(offset, patterns.length); offset += 1;
+                view.setUint8(offset, audioAssets.length); offset += 1;
+                arrangement.forEach(pId => { view.setUint8(offset, pId === null ? 255 : pId); offset += 1; });
+                
+                audioAssets.forEach(asset => {
+                    view.setUint32(offset, asset.buffer.sampleRate); offset += 4;
+                    view.setFloat32(offset, asset.normalizationGainDb); offset += 4;
+                    view.setFloat32(offset, asset.balanceFactor); offset += 4;
+                });
+
+                patterns.forEach(p => {
+                    const nameBytes = textEncoder.encode(p.name);
+                    view.setUint8(offset, p.id); offset += 1;
+                    view.setUint8(offset, p.tracks.length); offset += 1;
+                    view.setUint8(offset, nameBytes.length); offset += 1;
+                    nameBytes.forEach(byte => { view.setUint8(offset, byte); offset += 1; });
+                    
+                    p.tracks.forEach(t => {
+                        const audioIndex = t.audioBuffer ? audioBufferMap.get(t.audioBuffer) : 255;
+                        view.setUint8(offset, audioIndex); offset += 1;
+                        view.setUint8(offset, t.division); offset += 1;
+                        view.setUint8(offset, t.swing); offset += 1;
+                        
+                        t.steps.forEach(step => {
+                            view.setUint8(offset, step.active ? 1 : 0); offset += 1;
+                            view.setUint8(offset, Math.round(step.pitch)); offset += 1;
+                            view.setUint8(offset, Math.round(step.gain)); offset += 1;
+                        });
+                    });
+                });
+                return new Blob([buffer]);
+            }
+
+            function parseState(buffer, decodedAudios) {
+                const view = new DataView(buffer);
+                const textDecoder = new TextDecoder();
+                let offset = 0;
+
+                tempo = view.getUint16(offset); offset += 2;
+                const arrangementLength = view.getUint8(offset); offset += 1;
+                const patternCount = view.getUint8(offset); offset += 1;
+                const audioAssetCount = view.getUint8(offset); offset += 1;
+                dom.tempoSlider.value = tempo;
+                dom.tempoValue.textContent = tempo;
+                if (sequencerNode) sequencerNode.port.postMessage({ type: 'setTempo', value: tempo });
+
+                arrangement = [];
+                for (let i = 0; i < arrangementLength; i++) {
+                    const pId = view.getUint8(offset); offset += 1;
+                    arrangement.push(pId === 255 ? null : pId);
+                }
+
+                const audioMap = [];
+                const metadataMap = [];
+                for (let i = 0; i < audioAssetCount; i++) {
+                    const sampleRate = view.getUint32(offset); offset += 4;
+                    const normalizationGainDb = view.getFloat32(offset); offset += 4;
+                    const balanceFactor = view.getFloat32(offset); offset += 4;
+                    metadataMap[i] = { normalizationGainDb, balanceFactor };
+                    const audioData = decodedAudios.find(a => a.index === i);
+                    if (audioData) {
+                        const audioBuffer = audioContext.createBuffer(1, audioData.pcmData.length, sampleRate);
+                        audioBuffer.copyToChannel(audioData.pcmData, 0);
+                        audioMap.push({buffer: audioBuffer, originalBlob: audioData.blob});
+                    }
+                }
+
+                patterns = [];
+                let maxId = -1;
+                for (let i = 0; i < patternCount; i++) {
+                    const pId = view.getUint8(offset); offset += 1;
+                    if (pId > maxId) maxId = pId;
+                    const trackCount = view.getUint8(offset); offset += 1;
+                    const nameLength = view.getUint8(offset); offset += 1;
+                    const nameBytes = new Uint8Array(buffer, offset, nameLength);
+                    const name = textDecoder.decode(nameBytes); offset += nameLength;
+                    
+                    const newPattern = { id: pId, name, tracks: [] };
+                    for (let j = 0; j < trackCount; j++) {
+                        const audioIndex = view.getUint8(offset); offset += 1;
+                        const division = view.getUint8(offset); offset += 1;
+                        const swing = view.getUint8(offset); offset += 1;
+                        
+                        const audioAsset = audioIndex === 255 ? null : audioMap[audioIndex];
+                        const metadata = audioIndex === 255 ? {} : metadataMap[audioIndex];
+
+                        const newTrack = {
+                            id: `${pId}-${j}`, element: null, playingNode: null,
+                            audioBuffer: audioAsset ? audioAsset.buffer : null,
+                            originalOpusBlob: audioAsset ? audioAsset.originalBlob : null,
+                            fileName: audioIndex === 255 ? null : `audio_${audioIndex}.opus`,
+                            normalizationGainDb: metadata.normalizationGainDb || 0,
+                            balanceFactor: metadata.balanceFactor || 0.5,
+                            division, swing, steps: []
+                        };
+                        
+                        for (let k = 0; k < 32; k++) {
+                            const active = view.getUint8(offset) === 1; offset += 1;
+                            const pitch = view.getUint8(offset); offset += 1;
+                            const gain = view.getUint8(offset); offset += 1;
+                            newTrack.steps.push({ active, pitch, gain });
+                        }
+                        newPattern.tracks.push(newTrack);
+                    }
+                    patterns.push(newPattern);
+                }
+                patternIdCounter = maxId + 1;
+                currentPatternId = patterns[0]?.id ?? null;
+            }
+            
             async function saveProject() {
                 setButtonLoading(dom.saveProjectBtn, true);
                 try {
                     const zip = new JSZip();
-                    const audioAssets = new Map();
-                    let audioCounter = 0;
+                    const audioAssets = [];
+                    const audioBufferMap = new Map();
+                    
+                    // Collect unique audio buffers from all tracks and process them.
                     for (const p of patterns) {
                         for (const t of p.tracks) {
-                            if (t.audioBuffer && !audioAssets.has(t.audioBuffer)) {
-                                const fileName = `audio_${audioCounter++}.opus`;
-                                const opusBlob = await OpusEncoder.encode(t.audioBuffer);
-                                zip.file(fileName, opusBlob);
-                                audioAssets.set(t.audioBuffer, { file: fileName, originalName: t.fileName });
+                            if (t.audioBuffer && !audioBufferMap.has(t.audioBuffer)) {
+                                audioBufferMap.set(t.audioBuffer, audioAssets.length);
+                                // [FIXED] Always process the audio on save to apply pruning/conditioning.
+                                const processed = processAudioForSaving(t.audioBuffer);
+                                audioAssets.push({ 
+                                    buffer: processed.buffer, 
+                                    normalizationGainDb: processed.normalizationGainDb, 
+                                    balanceFactor: processed.balanceFactor,
+                                });
                             }
                         }
                     }
 
-                    const projectState = {
-                        tempo,
-                        arrangement,
-                        patterns: patterns.map(p => ({
-                            id: p.id,
-                            name: p.name,
-                            tracks: p.tracks.map(t => ({
-                                division: t.division,
-                                swing: t.swing,
-                                audioFile: t.audioBuffer ? audioAssets.get(t.audioBuffer).file : null,
-                                fileName: t.audioBuffer ? audioAssets.get(t.audioBuffer).originalName : null,
-                                steps: t.steps,
-                            })),
-                        })),
-                    };
+                    // [FIXED] Always re-encode the processed audio buffers.
+                    const encodedAudioPromises = audioAssets.map(asset => OpusEncoder.encode(asset.buffer));
+                    const encodedAudioBlobs = await Promise.all(encodedAudioPromises);
+                    encodedAudioBlobs.forEach((blob, i) => zip.file(`audio_${i}.opus`, blob));
 
-                    const stateBlob = new Blob([JSON.stringify(projectState)], { type: 'application/json' });
-                    zip.file('project.json', stateBlob);
+                    const stateBlob = serializeState(audioAssets, audioBufferMap);
+                    zip.file('project.bin', stateBlob);
+
                     const content = await zip.generateAsync({ type: 'blob' });
                     const a = document.createElement('a');
                     a.href = URL.createObjectURL(content);
-                    a.download = `my-project.wmus`;
+                    a.download = `project.wmus`;
                     document.body.appendChild(a);
                     a.click();
                     document.body.removeChild(a);
                     URL.revokeObjectURL(a.href);
+
                 } catch (error) {
                     console.error("Failed to save project:", error);
                     alert("Error saving project. Check console for details.");
@@ -789,70 +926,43 @@
                     setButtonLoading(dom.saveProjectBtn, false);
                 }
             }
-
+            
             async function loadProject(file) {
-                if (!file) return;
-                setButtonLoading(dom.loadProjectBtn, true);
-                try {
-                    await initAudio();
-                    const zip = await JSZip.loadAsync(file);
-                    const projectFile = zip.file('project.json');
-                    if (!projectFile) throw new Error('Invalid project file.');
-                    
-                    const state = JSON.parse(await projectFile.async('string'));
-                    
-                    const audioFilePromises = Object.values(zip.files)
-                        .filter(f => f.name.startsWith('audio_') && !f.dir)
-                        .map(async f => {
-                            const blob = await f.async('blob');
-                            const decoded = await OpusDecoder.decode(blob);
-                            const audioBuffer = audioContext.createBuffer(1, decoded.channelData[0].length, decoded.sampleRate);
-                            audioBuffer.copyToChannel(decoded.channelData[0], 0);
-                            return { fileName: f.name, buffer: audioBuffer };
-                        });
-                    
-                    const decodedAudios = await Promise.all(audioFilePromises);
-                    const audioMap = new Map(decodedAudios.map(a => [a.fileName, a.buffer]));
+                 if (!file) return;
+                 setButtonLoading(dom.loadProjectBtn, true);
+                 try {
+                     await initAudio();
+                     const zip = await JSZip.loadAsync(file);
+                     const projectFile = zip.file('project.bin');
+                     if (!projectFile) throw new Error('Invalid project file.');
+                     
+                     const projectBuffer = await projectFile.async('arraybuffer');
 
-                    tempo = state.tempo;
-                    arrangement = state.arrangement;
-                    patterns = state.patterns.map(p => ({
-                        id: p.id,
-                        name: p.name,
-                        tracks: p.tracks.map((t, i) => ({
-                            id: `${p.id}-${i}`,
-                            element: null,
-                            audioBuffer: t.audioFile ? audioMap.get(t.audioFile) : null,
-                            fileName: t.fileName,
-                            division: t.division,
-                            swing: t.swing || 50,
-                            steps: t.steps,
-                            playingNode: null // Ensure clean state on load.
-                        })),
-                    }));
-
-                    patternIdCounter = Math.max(-1, ...patterns.map(p => p.id)) + 1;
-                    currentPatternId = patterns[0]?.id ?? null;
-                    dom.tempoSlider.value = tempo;
-                    dom.tempoValue.textContent = tempo;
-                    if (sequencerNode) sequencerNode.port.postMessage({ type: 'setTempo', value: tempo });
-                    
-                    renderAll();
-                } catch (error) {
-                    console.error("Failed to load project:", error);
-                    alert("Error loading project. It may be corrupted or in an invalid format.");
-                } finally {
-                    setButtonLoading(dom.loadProjectBtn, false);
-                    dom.loadProjectInput.value = '';
-                }
+                     const audioFilePromises = Object.values(zip.files)
+                         .filter(f => f.name.startsWith('audio_') && !f.dir)
+                         .map(async (f) => {
+                             const index = parseInt(f.name.split('_')[1].split('.')[0]);
+                             const blob = await f.async('blob');
+                             const pcmData = await OpusDecoder.decode(blob);
+                             return { index, pcmData, blob };
+                         });
+                     
+                     const decodedAudios = await Promise.all(audioFilePromises);
+                     decodedAudios.sort((a,b) => a.index - b.index);
+                     
+                     parseState(projectBuffer, decodedAudios);
+                     renderAll();
+                 } catch (error) {
+                     console.error("Failed to load project:", error);
+                 } finally {
+                     setButtonLoading(dom.loadProjectBtn, false);
+                     dom.loadProjectInput.value = '';
+                 }
             }
             
             function setButtonLoading(button, isLoading) {
                 const originalText = button.dataset.originalText || button.textContent;
-                if (!button.dataset.originalText) {
-                    button.dataset.originalText = originalText;
-                }
-
+                if (!button.dataset.originalText) { button.dataset.originalText = originalText; }
                 if (isLoading) {
                     button.disabled = true;
                     button.innerHTML = `<div class="spinner mr-2"></div><span>Loading...</span>`;
@@ -864,19 +974,9 @@
 
             // --- EVENT LISTENERS & INITIALIZATION ---
             dom.playStopBtn.addEventListener('click', togglePlayback);
-            dom.loopToggleBtn.addEventListener('click', () => {
-                isLooping = !isLooping;
-                dom.loopToggleBtn.classList.toggle('active', isLooping);
-            });
-            dom.metronomeToggleBtn.addEventListener('click', () => {
-                isMetronomeOn = !isMetronomeOn;
-                dom.metronomeToggleBtn.classList.toggle('active', isMetronomeOn);
-            });
-            dom.tempoSlider.addEventListener('input', e => {
-                tempo = parseInt(e.target.value);
-                dom.tempoValue.textContent = tempo;
-                if (sequencerNode) sequencerNode.port.postMessage({ type: 'setTempo', value: tempo });
-            });
+            dom.loopToggleBtn.addEventListener('click', () => { isLooping = !isLooping; dom.loopToggleBtn.classList.toggle('active', isLooping); });
+            dom.metronomeToggleBtn.addEventListener('click', () => { isMetronomeOn = !isMetronomeOn; dom.metronomeToggleBtn.classList.toggle('active', isMetronomeOn); });
+            dom.tempoSlider.addEventListener('input', e => { tempo = parseInt(e.target.value); dom.tempoValue.textContent = tempo; if (sequencerNode) sequencerNode.port.postMessage({ type: 'setTempo', value: tempo }); });
             dom.addTrackBtn.addEventListener('click', addTrack);
             dom.addPatternBtn.addEventListener('click', () => addPattern(false));
             dom.dupPatternBtn.addEventListener('click', () => addPattern(true));
