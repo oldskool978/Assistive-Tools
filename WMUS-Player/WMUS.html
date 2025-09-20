@@ -111,7 +111,7 @@
             box-shadow: inset 0 1px 2px rgba(0,0,0,0.3);
         }
         .step-button { width: 100%; height: 32px; }
-        .step-button.beat-marker { background-color: #4A4A4A; }
+        .step-button.beat-marker { background-color: #52525B; } /* Enhanced visibility for beat markers */
         
         .step-button.active {
             background-color: var(--accent-cyan);
@@ -138,7 +138,7 @@
             opacity: 0.8;
         }
 
-        .arranger-step {
+        .arranger-step, .add-arrangement-btn {
             width: 60px; height: 40px; display: flex; align-items: center; justify-content: center;
             font-size: 14px; font-weight: 500; border: 1px solid var(--border-color);
         }
@@ -147,6 +147,10 @@
             color: var(--bg-main);
             border-color: transparent;
             filter: saturate(0.5);
+        }
+        .add-arrangement-btn {
+            font-size: 20px;
+            color: var(--text-secondary);
         }
 
         .pattern-btn.selected {
@@ -162,61 +166,67 @@
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
     </style>
 </head>
-<body>
+<body class="bg-gray-800/50">
 
-    <div class="w-full max-w-screen-2xl mx-auto main-container rounded-xl shadow-2xl p-4 flex flex-col flex-grow h-screen">
-        <!-- Header & Global Controls -->
-        <header class="flex-shrink-0 flex flex-col sm:flex-row justify-between items-center pb-4 border-b border-gray-700">
-            <h1 class="text-2xl sm:text-3xl font-bold text-white mb-4 sm:mb-0">Web Sequencer</h1>
-            <div class="flex items-center space-x-6">
-                <div class="flex flex-col items-center">
-                    <label for="tempo" class="text-xs font-medium text-gray-400 mb-1">Tempo</label>
+    <!-- Modal Container -->
+    <div class="fixed inset-0 flex items-center justify-center p-4">
+        <div class="w-full max-w-7xl h-full max-h-[95vh] main-container rounded-xl shadow-2xl p-4 flex flex-col">
+            <!-- Header & Global Controls -->
+            <header class="flex-shrink-0 flex flex-col sm:flex-row justify-between items-center pb-4 border-b border-gray-700">
+                <h1 class="text-2xl sm:text-3xl font-bold text-white mb-4 sm:mb-0">Web Sequencer</h1>
+                <div class="flex items-center space-x-6">
+                    <div class="flex flex-col items-center">
+                        <label class="text-xs font-medium text-gray-400 mb-1">Tempo</label>
+                        <div class="flex items-center space-x-2">
+                             <button id="metronome-toggle-btn" class="btn btn-secondary p-2" title="Toggle Metronome">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 12H3M21 12h-9m-9 0a9 9 0 0 0 18 0a9 9 0 0 0-18 0Z"/></svg>
+                            </button>
+                            <input type="range" id="tempo" min="40" max="240" value="120" class="w-24 sm:w-32 custom-slider">
+                            <span id="tempo-value" class="font-mono text-base sm:text-lg w-12 text-center text-gray-300">120</span>
+                        </div>
+                    </div>
                     <div class="flex items-center space-x-2">
-                        <input type="range" id="tempo" min="40" max="240" value="120" class="w-24 sm:w-32 custom-slider">
-                        <span id="tempo-value" class="font-mono text-base sm:text-lg w-12 text-center text-gray-300">120</span>
+                        <button id="loop-toggle-btn" class="btn btn-secondary p-2 active" title="Toggle Loop">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
+                        </button>
+                        <button id="play-stop-btn" class="btn btn-primary px-4 py-2 sm:px-6 sm:py-3 text-sm sm:text-base">
+                            Play
+                        </button>
                     </div>
                 </div>
+            </header>
+
+            <!-- Song Arrangement Section -->
+            <section class="flex-shrink-0 pt-4">
+                <h2 class="text-sm font-semibold text-gray-400 mb-2">Song Arrangement</h2>
+                <div id="arrangement-container" class="scroll-container flex space-x-1 overflow-x-auto pb-2 items-center"></div>
+            </section>
+
+            <!-- Sequencer Tracks -->
+            <main id="sequencer-tracks" class="flex-grow flex space-x-3 overflow-x-auto py-4 border-t border-b border-gray-700/50 my-2">
+            </main>
+
+            <div class="flex-shrink-0 flex flex-col sm:flex-row justify-between items-center pt-4 border-t border-gray-700">
                 <div class="flex items-center space-x-2">
-                    <button id="loop-toggle-btn" class="btn btn-secondary p-2 active" title="Toggle Loop">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
-                    </button>
-                    <button id="play-stop-btn" class="btn btn-primary px-4 py-2 sm:px-6 sm:py-3 text-sm sm:text-base">
-                        Play
+                    <button id="add-track-btn" class="btn btn-secondary text-sm">
+                        + Add Track
                     </button>
                 </div>
-            </div>
-        </header>
 
-        <!-- Song Arrangement Section -->
-        <section class="flex-shrink-0 pt-4">
-            <h2 class="text-sm font-semibold text-gray-400 mb-2">Song Arrangement</h2>
-            <div id="arrangement-container" class="scroll-container flex space-x-1 overflow-x-auto pb-2"></div>
-        </section>
+                <!-- Pattern Management -->
+                <div class="flex items-center space-x-2 my-4 sm:my-0">
+                    <span class="text-sm font-semibold text-gray-400">Patterns:</span>
+                    <div id="pattern-list" class="flex items-center space-x-1"></div>
+                    <button id="add-pattern-btn" class="btn btn-secondary px-2 py-1 text-xs font-bold">+</button>
+                    <button id="dup-pattern-btn" class="btn btn-ghost px-2 py-1 text-xs">Dup</button>
+                </div>
 
-        <!-- Sequencer Tracks -->
-        <main id="sequencer-tracks" class="flex-grow flex space-x-3 overflow-x-auto py-4 border-t border-b border-gray-700/50 my-2">
-        </main>
-
-        <div class="flex-shrink-0 flex flex-col sm:flex-row justify-between items-center pt-4 border-t border-gray-700">
-             <div class="flex items-center space-x-2">
-                <button id="add-track-btn" class="btn btn-secondary text-sm">
-                    + Add Track
-                </button>
-             </div>
-
-            <!-- Pattern Management -->
-            <div class="flex items-center space-x-2 my-4 sm:my-0">
-                <span class="text-sm font-semibold text-gray-400">Patterns:</span>
-                <div id="pattern-list" class="flex items-center space-x-1"></div>
-                <button id="add-pattern-btn" class="btn btn-secondary px-2 py-1 text-xs font-bold">+</button>
-                <button id="dup-pattern-btn" class="btn btn-ghost px-2 py-1 text-xs">Dup</button>
-            </div>
-
-            <!-- Save/Load Buttons -->
-            <div class="flex space-x-2">
-                 <button id="save-project-btn" class="btn btn-secondary text-sm">Save Project</button>
-                 <button id="load-project-btn" class="btn btn-secondary text-sm">Load Project</button>
-                 <input type="file" id="load-project-input" class="hidden" accept=".wmus">
+                <!-- Save/Load Buttons -->
+                <div class="flex space-x-2">
+                    <button id="save-project-btn" class="btn btn-secondary text-sm">Save Project</button>
+                    <button id="load-project-btn" class="btn btn-secondary text-sm">Load Project</button>
+                    <input type="file" id="load-project-input" class="hidden" accept=".wmus">
+                </div>
             </div>
         </div>
     </div>
@@ -240,6 +250,11 @@
                     </div>
                      <button class="remove-track-btn text-gray-500 hover:text-red-400 font-bold text-lg sm:text-xl px-1">&times;</button>
                 </div>
+                <div class="flex items-center justify-between w-full text-xs text-gray-400">
+                    <label>Swing</label>
+                    <span class="swing-value font-mono">50%</span>
+                </div>
+                <input type="range" min="50" max="75" value="50" class="swing-slider custom-slider w-full">
             </div>
             <div class="steps-container flex-grow flex flex-col gap-1"></div>
         </div>
@@ -247,23 +262,26 @@
 
 
     <script>
-        // Abstraction for audio encoding/decoding. A real implementation would use a WASM library.
+        // --- PREAMBLE ---
+        // Abstraction for audio encoding/decoding. A production implementation would use a robust WASM library.
         const OpusEncoder = { encode: async (buffer) => new Blob([buffer.getChannelData(0).buffer], { type: 'audio/opus' }) };
         const OpusDecoder = { decode: async (blob) => ({ channelData: [new Float32Array(await blob.arrayBuffer())], sampleRate: 48000 }) };
 
         document.addEventListener('DOMContentLoaded', () => {
-            // --- STATE & CONSTANTS ---
+            // --- APPLICATION STATE & CONSTANTS ---
             let audioContext;
             let sequencerNode;
             let isPlaying = false;
             let isLooping = true;
+            let isMetronomeOn = false;
             let tempo = 120;
             let patterns = [];
             let currentPatternId = null;
             let patternIdCounter = 0;
-            let arrangement = Array(16).fill(null);
+            let arrangement = [];
             
-            // Pre-calculated look-up table for gain. Maps linear UI control to an equal-power curve.
+            // Pre-calculated look-up table for gain. This maps a linear UI control to an equal-power curve (pow^2),
+            // which provides a more perceptually uniform response. It is calculated once to optimize runtime performance.
             const gainLut = (() => {
                 const lut = new Float32Array(101);
                 for (let i = 0; i < 101; i++) {
@@ -273,10 +291,11 @@
             })();
             const UNITY_GAIN_VALUE = 100; 
 
-            // Cache for DOM elements.
+            // A single, cached object for all DOM element references.
             const dom = {
                 playStopBtn: document.getElementById('play-stop-btn'),
                 loopToggleBtn: document.getElementById('loop-toggle-btn'),
+                metronomeToggleBtn: document.getElementById('metronome-toggle-btn'),
                 tempoSlider: document.getElementById('tempo'),
                 tempoValue: document.getElementById('tempo-value'),
                 addTrackBtn: document.getElementById('add-track-btn'),
@@ -291,9 +310,9 @@
                 loadProjectInput: document.getElementById('load-project-input'),
             };
             
-            // --- WORKLET ---
-            // AudioWorkletProcessor: a dedicated, high-priority audio thread for the master clock.
-            // Its isolation from the main thread prevents UI lag from affecting timing.
+            // --- AUDIO WORKLET PROCESSOR ---
+            // This code runs on a separate, high-priority audio thread. Its sole purpose is to act as a
+            // precise, resilient master clock, immune to UI thread latency or garbage collection pauses.
             const sequencerWorkletCode = `
                 class SequencerProcessor extends AudioWorkletProcessor {
                     constructor() {
@@ -323,14 +342,15 @@
 
                     _updateStepDuration() {
                         const secondsPerBeat = 60.0 / this.tempo;
-                        // The master clock resolution is 32nd notes. A beat (quarter note) has eight.
+                        // The engine's highest resolution is a 32nd note. A quarter-note beat contains eight.
                         this.stepDuration = secondsPerBeat / 8;
                     }
 
                     process(inputs, outputs, parameters) {
                         if (!this.isPlaying) { return true; }
 
-                        // Look-ahead scheduling: queue upcoming steps to ensure sample-accurate playback.
+                        // Employs look-ahead scheduling to ensure audio events are queued before they
+                        // are needed, preventing timing jitter.
                         while (this.nextStepTime < currentTime + 0.1) {
                             this.port.postMessage({ type: 'tick', step: this.currentStep });
                             this.nextStepTime += this.stepDuration;
@@ -343,7 +363,7 @@
             `;
 
             // --- AUDIO ENGINE ---
-            // Initializes the AudioContext and the timing worklet.
+            // Initializes the Web Audio API context and the timing worklet.
             async function initAudio() {
                 if (!audioContext) {
                     audioContext = new (window.AudioContext || window.webkitAudioContext)();
@@ -357,28 +377,15 @@
                 }
             }
             
-            // Determines the final occupied slot in the song arrangement.
-            function findLastArrangementSlot() {
-                let lastIndex = -1;
-                for (let i = arrangement.length - 1; i >= 0; i--) {
-                    if (arrangement[i] !== null) {
-                        lastIndex = i;
-                        break;
-                    }
-                }
-                return lastIndex;
-            }
-
-            // The core scheduler, called for every tick from the AudioWorklet.
+            // The primary scheduling function, called for every tick from the AudioWorklet.
             function handleTick(step) {
-                const lastPatternSlot = findLastArrangementSlot();
-                if (lastPatternSlot === -1) {
-                    if (isPlaying) togglePlayback();
-                    return;
+                if (arrangement.length === 0) {
+                     if (isPlaying) togglePlayback();
+                     return;
                 }
 
-                // A bar in the arrangement contains 32 high-resolution steps (32nd notes).
-                const totalSongSteps = (lastPatternSlot + 1) * 32;
+                // A bar in the song arrangement is defined as 32 steps of the master clock.
+                const totalSongSteps = arrangement.length * 32;
 
                 if (!isLooping && step >= totalSongSteps) {
                     if(isPlaying) togglePlayback();
@@ -391,6 +398,11 @@
                 
                 updatePlayhead(currentStepInLoop, arrangementIndex);
                 
+                // Trigger metronome on every quarter note (every 8th tick of the 32nd-note clock).
+                if (isMetronomeOn && (currentStepInLoop % 8 === 0)) {
+                    scheduleMetronomeClick(audioContext.currentTime);
+                }
+
                 if (patternIdToPlay === null) return;
                 const patternToPlay = patterns.find(p => p.id === patternIdToPlay);
                 if (!patternToPlay) return;
@@ -398,29 +410,90 @@
                 const stepInPattern = currentStepInLoop % 32;
                 patternToPlay.tracks.forEach(track => scheduleNote(track, stepInPattern, audioContext.currentTime));
             }
+            
+            // Finds the subsequent active step within a track's data for calculating adaptive release.
+            function findNextStep(track, startStep) {
+                for (let i = 1; i < 32; i++) {
+                    const nextStepIndex = (startStep + i) % 32;
+                    if (track.steps[nextStepIndex].active) {
+                        return { index: nextStepIndex, stepsAway: i };
+                    }
+                }
+                return null; // Indicates no other active note was found in the pattern.
+            }
 
-            // Schedules a single audio event to be played by the browser's audio engine.
+            // Schedules a single audio event with all its parameters.
             function scheduleNote(track, stepInPattern, time) {
                 const stepData = track.steps[stepInPattern];
                 if (!track.audioBuffer || !stepData.active) return;
+                
+                // --- Adaptive Release Envelope ---
+                // Calculate the duration until the next note on this track to create a perfectly timed fade.
+                let releaseDuration = 0.01; // A default, short fade to prevent clicks if it's the last note.
+                const nextStepInfo = findNextStep(track, stepInPattern);
+
+                if (nextStepInfo) {
+                    const thirtySecondNoteDuration = (60 / tempo) / 8;
+                    const timeUntilNextNote = nextStepInfo.stepsAway * thirtySecondNoteDuration;
+                    // The release is set to 98% of the interval to ensure the fade is complete before the next onset.
+                    releaseDuration = timeUntilNextNote * 0.98;
+                }
+
+                // If a note is already playing on this track, schedule a fade-out on its GainNode.
+                // This prevents signal discontinuities (clicks) and enforces monophonic behavior.
+                if (track.playingNode) {
+                    track.playingNode.gain.cancelScheduledValues(time);
+                    track.playingNode.gain.setValueAtTime(track.playingNode.gain.value, time);
+                    track.playingNode.gain.exponentialRampToValueAtTime(0.0001, time + releaseDuration);
+                }
+                
+                let scheduledTime = time;
+                // --- Swing Calculation ---
+                // Delay off-beat notes based on the track's swing parameter.
+                if (track.swing > 50) {
+                     // In a 32-step grid, off-beat 8th notes fall on steps 4, 12, 20, 28.
+                    if (stepInPattern % 8 !== 0 && stepInPattern % 4 === 0) {
+                        const eighthNoteDuration = (60 / tempo) / 2;
+                        const delayRatio = (track.swing - 50) / 25;
+                        const swingDelay = (eighthNoteDuration / 3) * delayRatio;
+                        scheduledTime += swingDelay;
+                    }
+                }
 
                 const source = audioContext.createBufferSource();
                 source.buffer = track.audioBuffer;
                 const gainNode = audioContext.createGain();
-                gainNode.gain.setValueAtTime(gainLut[Math.round(stepData.gain)], time);
-                source.playbackRate.setValueAtTime(Math.pow(2, (stepData.pitch - 50) / 50), time);
+                gainNode.gain.setValueAtTime(gainLut[Math.round(stepData.gain)], scheduledTime);
+                source.playbackRate.setValueAtTime(Math.pow(2, (stepData.pitch - 50) / 50), scheduledTime);
                 source.connect(gainNode).connect(audioContext.destination);
-                source.start(time);
+                source.start(scheduledTime);
+                
+                // Store a reference to this new note's gain node, to be faded by the next note.
+                track.playingNode = gainNode;
+            }
+
+            // Synthesizes a simple, computationally inexpensive click for the metronome.
+            function scheduleMetronomeClick(time) {
+                const osc = audioContext.createOscillator();
+                const gain = audioContext.createGain();
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(1000, time);
+                gain.gain.setValueAtTime(1, time);
+                gain.gain.exponentialRampToValueAtTime(0.001, time + 0.05);
+                osc.connect(gain).connect(audioContext.destination);
+                osc.start(time);
+                osc.stop(time + 0.05);
             }
 
             // --- UI RENDERING ---
+            // Main render function; re-draws the primary UI components.
             function renderAll() {
                 renderPatternList();
                 renderArrangement();
                 renderTracksForCurrentPattern();
             }
 
-            // Updates the visual playhead on both the arrangement and track views.
+            // Updates the visual playhead position on the UI.
             function updatePlayhead(currentStepInLoop, currentArrangementIndex) {
                  requestAnimationFrame(() => {
                     document.querySelectorAll('.arranger-step.playing').forEach(el => el.classList.remove('playing'));
@@ -428,23 +501,16 @@
                         const arrangerStepEl = document.querySelectorAll('.arranger-step')[currentArrangementIndex];
                         if(arrangerStepEl) arrangerStepEl.classList.add('playing');
                     }
-
                      const patternIdToPlay = arrangement[currentArrangementIndex];
                      const patternToPlay = patterns.find(p => p.id === patternIdToPlay);
-                     
                      document.querySelectorAll('.step-button.playing').forEach(el => el.classList.remove('playing'));
-
                      if (!patternToPlay) return;
-                    
                      const stepInPattern = currentStepInLoop % 32;
-
                      patternToPlay.tracks.forEach(track => {
                          if (!track.element) return;
                          const visibleSteps = track.division;
                          const divisionFactor = 32 / visibleSteps;
-                         
                          const stepIndexToLight = Math.floor(stepInPattern / divisionFactor);
-
                          if ((stepInPattern % divisionFactor) === 0) {
                             const nextStepButton = track.element.querySelectorAll('.step-button')[stepIndexToLight];
                             if (nextStepButton) nextStepButton.classList.add('playing');
@@ -453,7 +519,7 @@
                 });
             }
 
-            // Renders the list of available patterns.
+            // Renders the list of selectable patterns.
             function renderPatternList() {
                 dom.patternList.innerHTML = '';
                 patterns.forEach(pattern => {
@@ -466,16 +532,14 @@
                 });
             }
 
-            // Renders the song arrangement timeline.
+            // Renders the dynamic song arrangement timeline.
             function renderArrangement() {
                 dom.arrangementContainer.innerHTML = '';
                 arrangement.forEach((patternId, index) => {
                     const stepEl = document.createElement('button');
                     stepEl.className = 'arranger-step';
                     const pattern = patterns.find(p => p.id === patternId);
-                    if (pattern) {
-                        stepEl.textContent = pattern.name;
-                    }
+                    if (pattern) { stepEl.textContent = pattern.name; }
                     stepEl.onclick = () => {
                         if (patterns.length === 0) return;
                         const currentPatternIndex = patternId === null ? -1 : patterns.findIndex(p => p.id === patternId);
@@ -485,35 +549,46 @@
                     };
                     dom.arrangementContainer.appendChild(stepEl);
                 });
+                const addBtn = document.createElement('button');
+                addBtn.className = 'add-arrangement-btn btn btn-ghost';
+                addBtn.textContent = '+';
+                addBtn.onclick = () => {
+                    arrangement.push(null);
+                    renderArrangement();
+                };
+                dom.arrangementContainer.appendChild(addBtn);
             }
             
-            // Renders all tracks for the currently selected pattern.
+            // Renders all track views for the currently selected pattern.
             function renderTracksForCurrentPattern() {
                 dom.sequencerTracks.innerHTML = '';
                 const currentPattern = patterns.find(p => p.id === currentPatternId);
                 if (!currentPattern) return;
-
                 currentPattern.tracks.forEach(track => {
                     const trackElement = dom.trackTemplate.content.cloneNode(true).firstElementChild;
                     track.element = trackElement;
-                    trackElement.dataset.id = track.id;
+                    track.element.dataset.id = track.id;
                     dom.sequencerTracks.appendChild(trackElement);
                     setupTrackUI(track);
                 });
             }
 
-            // --- STATE & UI LOGIC ---
-            // Configures the UI and event listeners for a single track.
+            // --- STATE & UI MANAGEMENT ---
+            // Configures the UI and event listeners for a single track view.
             function setupTrackUI(track) {
                 const stepsContainer = track.element.querySelector('.steps-container');
                 stepsContainer.innerHTML = '';
                 const stepsToShow = track.division;
                 for (let i = 0; i < stepsToShow; i++) {
-                    const stepBtn = document.createElement('button');
                     const stepDataIndex = i * (32 / track.division);
+                    const stepBtn = document.createElement('button');
+                    stepBtn.dataset.stepIndex = stepDataIndex;
                     const stepData = track.steps[stepDataIndex];
                     stepBtn.className = 'step-button';
-                    if (i % 4 === 0) stepBtn.classList.add('beat-marker');
+                    // Corrected logic for placing beat markers based on musical time.
+                    if (i % (stepsToShow / 4) === 0) {
+                        stepBtn.classList.add('beat-marker');
+                    }
                     if (stepData.active) stepBtn.classList.add('active');
                     const gainIndicator = document.createElement('div');
                     gainIndicator.className = 'indicator gain-indicator';
@@ -530,12 +605,12 @@
                         let isDragging = false;
                         const initialY = e.clientY, rect = e.target.getBoundingClientRect();
                         const dragTarget = (e.clientX - rect.left < rect.width / 2) ? 'gain' : 'pitch';
-                        const initialValue = stepData[dragTarget];
+                        const initialValue = track.steps[stepDataIndex][dragTarget];
                         const onMouseMove = moveEvent => {
                             const deltaY = initialY - moveEvent.clientY;
                             if (!isDragging && Math.abs(deltaY) > 4) isDragging = true;
                             if (isDragging) {
-                                stepData[dragTarget] = Math.max(0, Math.min(100, initialValue + deltaY * 0.5));
+                                track.steps[stepDataIndex][dragTarget] = Math.max(0, Math.min(100, initialValue + deltaY * 0.5));
                                 updateIndicators();
                             }
                         };
@@ -543,7 +618,7 @@
                             window.removeEventListener('mousemove', onMouseMove);
                             window.removeEventListener('mouseup', onMouseUp);
                             if (!isDragging) {
-                                stepData.active = !stepData.active;
+                                track.steps[stepDataIndex].active = !track.steps[stepDataIndex].active;
                                 stepBtn.classList.toggle('active');
                             }
                         };
@@ -553,16 +628,14 @@
                     stepBtn.addEventListener('dblclick', e => {
                         e.preventDefault();
                         const rect = e.target.getBoundingClientRect();
-                        if (e.clientX - rect.left < rect.width / 2) stepData.gain = UNITY_GAIN_VALUE;
-                        else stepData.pitch = 50;
+                        if (e.clientX - rect.left < rect.width / 2) track.steps[stepDataIndex].gain = UNITY_GAIN_VALUE;
+                        else track.steps[stepDataIndex].pitch = 50;
                         updateIndicators();
                     });
                     stepsContainer.appendChild(stepBtn);
                 }
                 const loadBtn = track.element.querySelector('.load-sound-btn');
-                if (track.audioBuffer) {
-                    loadBtn.textContent = track.fileName || 'Loaded Sample';
-                }
+                if (track.audioBuffer) { loadBtn.textContent = track.fileName || 'Loaded Sample'; }
                 const fileInput = track.element.querySelector('.file-input');
                 loadBtn.addEventListener('click', () => fileInput.click());
                 fileInput.addEventListener('change', async e => {
@@ -581,20 +654,35 @@
                     track.division = parseInt(e.target.value);
                     setupTrackUI(track);
                 });
+                const swingSlider = track.element.querySelector('.swing-slider');
+                const swingValue = track.element.querySelector('.swing-value');
+                swingSlider.value = track.swing;
+                swingValue.textContent = `${track.swing}%`;
+                swingSlider.addEventListener('input', e => {
+                    track.swing = parseInt(e.target.value);
+                    swingValue.textContent = `${track.swing}%`;
+                });
                 track.element.querySelector('.remove-track-btn').addEventListener('click', () => removeTrack(track.id));
             }
 
+            // --- State Management Functions ---
             function addPattern(duplicate = false) {
                 const newPatternId = patternIdCounter++;
                 let newTracksData = [];
                 if (duplicate && currentPatternId !== null) {
                     const sourcePattern = patterns.find(p => p.id === currentPatternId);
                     if (sourcePattern) {
-                        newTracksData = JSON.parse(JSON.stringify(sourcePattern.tracks));
-                        newTracksData.forEach(t => t.element = null); 
+                        newTracksData = sourcePattern.tracks.map((sourceTrack, index) => ({
+                            ...sourceTrack,
+                            id: `${newPatternId}-${index}`,
+                            element: null,
+                            steps: JSON.parse(JSON.stringify(sourceTrack.steps)),
+                            playingNode: null
+                        }));
                     }
                 }
                 patterns.push({ id: newPatternId, name: `P${newPatternId + 1}`, tracks: newTracksData });
+                if (patterns.length === 1 && arrangement.length === 0) { arrangement.push(newPatternId); }
                 switchPattern(newPatternId);
                 renderArrangement();
             }
@@ -607,14 +695,11 @@
 
             function addTrack() {
                 const currentPattern = patterns.find(p => p.id === currentPatternId);
-                if (!currentPattern) {
-                    alert("Please select a pattern before adding a track.");
-                    return;
-                }
+                if (!currentPattern) { return; }
                 const trackId = `${currentPatternId}-${currentPattern.tracks.length}`;
                 const newTrack = {
-                    id: trackId,
-                    element: null, audioBuffer: null, fileName: null, division: 16,
+                    id: trackId, element: null, audioBuffer: null, fileName: null, 
+                    division: 16, swing: 50, playingNode: null,
                     steps: Array(32).fill(null).map(() => ({ active: false, pitch: 50, gain: UNITY_GAIN_VALUE }))
                 };
                 currentPattern.tracks.push(newTrack);
@@ -634,6 +719,7 @@
             async function togglePlayback() {
                 if(isPlaying){
                     sequencerNode.port.postMessage({ type: 'stop' });
+                    patterns.forEach(p => p.tracks.forEach(t => t.playingNode = null));
                     dom.playStopBtn.textContent = 'Play';
                     dom.playStopBtn.classList.add('btn-primary');
                     dom.playStopBtn.style.backgroundColor = '';
@@ -652,20 +738,17 @@
                 }
             }
             
-            // --- SAVE / LOAD LOGIC ---
+            // --- SAVE & LOAD ---
             async function saveProject() {
                 setButtonLoading(dom.saveProjectBtn, true);
                 try {
                     const zip = new JSZip();
                     const audioAssets = new Map();
                     let audioCounter = 0;
-
-                    // Map unique AudioBuffers to filenames to prevent duplicate encoding.
                     for (const p of patterns) {
                         for (const t of p.tracks) {
                             if (t.audioBuffer && !audioAssets.has(t.audioBuffer)) {
                                 const fileName = `audio_${audioCounter++}.opus`;
-                                // Audio data is encoded here, without pitch/gain effects.
                                 const opusBlob = await OpusEncoder.encode(t.audioBuffer);
                                 zip.file(fileName, opusBlob);
                                 audioAssets.set(t.audioBuffer, { file: fileName, originalName: t.fileName });
@@ -673,7 +756,6 @@
                         }
                     }
 
-                    // Serialize the project's state. Audio is referenced by filename, not embedded.
                     const projectState = {
                         tempo,
                         arrangement,
@@ -682,16 +764,16 @@
                             name: p.name,
                             tracks: p.tracks.map(t => ({
                                 division: t.division,
+                                swing: t.swing,
                                 audioFile: t.audioBuffer ? audioAssets.get(t.audioBuffer).file : null,
                                 fileName: t.audioBuffer ? audioAssets.get(t.audioBuffer).originalName : null,
-                                steps: t.steps, // Saves all 32 steps with their pitch/gain data.
+                                steps: t.steps,
                             })),
                         })),
                     };
 
                     const stateBlob = new Blob([JSON.stringify(projectState)], { type: 'application/json' });
                     zip.file('project.json', stateBlob);
-
                     const content = await zip.generateAsync({ type: 'blob' });
                     const a = document.createElement('a');
                     a.href = URL.createObjectURL(content);
@@ -700,7 +782,6 @@
                     a.click();
                     document.body.removeChild(a);
                     URL.revokeObjectURL(a.href);
-
                 } catch (error) {
                     console.error("Failed to save project:", error);
                     alert("Error saving project. Check console for details.");
@@ -716,11 +797,10 @@
                     await initAudio();
                     const zip = await JSZip.loadAsync(file);
                     const projectFile = zip.file('project.json');
-                    if (!projectFile) throw new Error('Invalid project file: project.json not found.');
+                    if (!projectFile) throw new Error('Invalid project file.');
                     
                     const state = JSON.parse(await projectFile.async('string'));
                     
-                    // Decode all raw audio files from the archive.
                     const audioFilePromises = Object.values(zip.files)
                         .filter(f => f.name.startsWith('audio_') && !f.dir)
                         .map(async f => {
@@ -734,7 +814,6 @@
                     const decodedAudios = await Promise.all(audioFilePromises);
                     const audioMap = new Map(decodedAudios.map(a => [a.fileName, a.buffer]));
 
-                    // Reconstruct the sequencer state from the loaded data.
                     tempo = state.tempo;
                     arrangement = state.arrangement;
                     patterns = state.patterns.map(p => ({
@@ -746,20 +825,19 @@
                             audioBuffer: t.audioFile ? audioMap.get(t.audioFile) : null,
                             fileName: t.fileName,
                             division: t.division,
-                            steps: t.steps, // Restore pitch/gain data for every step.
+                            swing: t.swing || 50,
+                            steps: t.steps,
+                            playingNode: null // Ensure clean state on load.
                         })),
                     }));
 
                     patternIdCounter = Math.max(-1, ...patterns.map(p => p.id)) + 1;
                     currentPatternId = patterns[0]?.id ?? null;
-
                     dom.tempoSlider.value = tempo;
                     dom.tempoValue.textContent = tempo;
                     if (sequencerNode) sequencerNode.port.postMessage({ type: 'setTempo', value: tempo });
                     
-                    // Render the UI with the newly loaded state.
                     renderAll();
-
                 } catch (error) {
                     console.error("Failed to load project:", error);
                     alert("Error loading project. It may be corrupted or in an invalid format.");
@@ -786,12 +864,14 @@
 
             // --- EVENT LISTENERS & INITIALIZATION ---
             dom.playStopBtn.addEventListener('click', togglePlayback);
-
             dom.loopToggleBtn.addEventListener('click', () => {
                 isLooping = !isLooping;
                 dom.loopToggleBtn.classList.toggle('active', isLooping);
             });
-
+            dom.metronomeToggleBtn.addEventListener('click', () => {
+                isMetronomeOn = !isMetronomeOn;
+                dom.metronomeToggleBtn.classList.toggle('active', isMetronomeOn);
+            });
             dom.tempoSlider.addEventListener('input', e => {
                 tempo = parseInt(e.target.value);
                 dom.tempoValue.textContent = tempo;
@@ -809,4 +889,3 @@
     </script>
 </body>
 </html>
-
