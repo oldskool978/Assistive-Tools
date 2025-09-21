@@ -263,12 +263,130 @@
 
     <script>
         // --- PREAMBLE ---
-        // Placeholder encoder/decoder. Does not perform real compression but ensures functionality.
-        const OpusEncoder = { encode: async (buffer) => new Blob([buffer.getChannelData(0)], { type: 'audio/opus' }) };
-        const OpusDecoder = { decode: async (blob) => new Float32Array(await blob.arrayBuffer()) };
+
+        class OpusEncoder {
+            constructor() {
+                this.isSupported = window.AudioEncoder && typeof AudioEncoder.isConfigSupported === 'function';
+            }
+            async encode(audioBuffer, options = { bitrate: 32000 }) {
+                const config = {
+                    codec: 'opus',
+                    sampleRate: audioBuffer.sampleRate,
+                    numberOfChannels: 1,
+                    bitrate: options.bitrate,
+                    bitrateMode: 'variable', 
+                    opus: {
+                        complexity: 10,
+                        frameDuration: 20000,
+                    }
+                };
+                if (!this.isSupported || !(await AudioEncoder.isConfigSupported(config))) {
+                    return Promise.reject(new Error("Opus encoding is not supported in this browser."));
+                }
+                return new Promise((resolve, reject) => {
+                    const encodedChunks = [];
+                    const packetSizes = [];
+                    const encoder = new AudioEncoder({
+                        output: chunk => {
+                            const chunkData = new Uint8Array(chunk.byteLength);
+                            chunk.copyTo(chunkData);
+                            encodedChunks.push(chunkData);
+                            packetSizes.push(chunk.byteLength);
+                        },
+                        error: e => reject(e),
+                    });
+                    encoder.configure(config);
+                    const pcmData = audioBuffer.getChannelData(0);
+                    const sampleRate = audioBuffer.sampleRate;
+                    let currentTime = 0;
+                    const frameDuration = 0.02;
+                    const samplesPerFrame = sampleRate * frameDuration;
+                    for (let i = 0; i < pcmData.length; i += samplesPerFrame) {
+                        const frameData = pcmData.subarray(i, i + samplesPerFrame);
+                        if (frameData.length === 0) continue;
+                        const audioData = new AudioData({
+                            format: 'f32-planar', sampleRate,
+                            numberOfFrames: frameData.length, numberOfChannels: 1,
+                            timestamp: currentTime * 1e6, data: frameData,
+                        });
+                        encoder.encode(audioData);
+                        currentTime += frameDuration;
+                    }
+                    encoder.flush().then(() => resolve({
+                        blob: new Blob(encodedChunks, { type: 'audio/opus' }),
+                        packetSizes: packetSizes
+                    })).catch(reject);
+                });
+            }
+        }
+        
+        class OpusDecoder {
+            constructor() {
+                this.isSupported = window.AudioDecoder && typeof AudioDecoder.isConfigSupported === 'function';
+            }
+            async decode(blob, sampleRate, packetSizes) {
+                const config = {
+                    codec: 'opus',
+                    sampleRate: sampleRate,
+                    numberOfChannels: 1,
+                };
+                if (!this.isSupported || !(await AudioDecoder.isConfigSupported(config))) {
+                     console.error("Opus decoding is not supported, but an opus file was provided.");
+                     return new Float32Array(0);
+                }
+                return new Promise(async (resolve, reject) => {
+                    const decodedFrames = [];
+                    let totalFrames = 0;
+                    const decoder = new AudioDecoder({
+                        output: audioData => {
+                            const planarData = new Float32Array(audioData.numberOfFrames);
+                            audioData.copyTo(planarData, { planeIndex: 0 });
+                            decodedFrames.push(planarData);
+                            totalFrames += audioData.numberOfFrames;
+                            audioData.close();
+                        },
+                        error: e => reject(e),
+                    });
+                    decoder.configure(config);
+                    
+                    try {
+                        const buffer = await blob.arrayBuffer();
+                        let offset = 0;
+                        for (const packetSize of packetSizes) {
+                            if (offset + packetSize > buffer.byteLength) {
+                                console.error("Packet size map exceeds buffer length.");
+                                break;
+                            }
+                            const packetData = buffer.slice(offset, offset + packetSize);
+                            const chunk = new EncodedAudioChunk({
+                                type: 'key',
+                                timestamp: 0,
+                                data: packetData
+                            });
+                            decoder.decode(chunk);
+                            offset += packetSize;
+                        }
+
+                        await decoder.flush();
+                        
+                        const pcmData = new Float32Array(totalFrames);
+                        let pcmOffset = 0;
+                        for (const frame of decodedFrames) {
+                            pcmData.set(frame, pcmOffset);
+                            pcmOffset += frame.length;
+                        }
+                        resolve(pcmData);
+                    } catch (e) {
+                        reject(e);
+                    }
+                });
+            }
+        }
+
+        const opusEncoder = new OpusEncoder();
+        const opusDecoder = new OpusDecoder();
 
         document.addEventListener('DOMContentLoaded', () => {
-            // --- APPLICATION STATE & CONSTANTS ---
             let audioContext;
             let sequencerNode;
             let isPlaying = false;
@@ -279,17 +397,16 @@
             let currentPatternId = null;
             let patternIdCounter = 0;
             let arrangement = [];
+            const TARGET_SAMPLE_RATE = 44100;
             
-            // --- Pre-calculated Look-Up Tables for Optimization ---
             const gainToDbLut = new Float32Array(101);
             const MIN_DB = -60.0;
             for (let i = 0; i < 101; i++) {
-                const gain = Math.pow(i / 100, 2); // Perceptual (power) curve.
+                const gain = Math.pow(i / 100, 2);
                 const db = gain > 0 ? 20 * Math.log10(gain) : MIN_DB;
                 gainToDbLut[i] = Math.max(MIN_DB, db);
             }
 
-            // A single, cached object for all DOM element references.
             const dom = {
                 playStopBtn: document.getElementById('play-stop-btn'),
                 loopToggleBtn: document.getElementById('loop-toggle-btn'),
@@ -308,16 +425,12 @@
                 loadProjectInput: document.getElementById('load-project-input'),
             };
             
-            // --- AUDIO WORKLET PROCESSOR ---
             const sequencerWorkletCode = `
                 class SequencerProcessor extends AudioWorkletProcessor {
                     constructor() {
                         super();
-                        this.isPlaying = false;
-                        this.tempo = 120;
-                        this.stepDuration = 0;
-                        this.nextStepTime = 0;
-                        this.currentStep = 0;
+                        this.isPlaying = false; this.tempo = 120; this.stepDuration = 0;
+                        this.nextStepTime = 0; this.currentStep = 0;
                         this.port.onmessage = this.handleMessage.bind(this);
                         this._updateStepDuration();
                     }
@@ -327,10 +440,7 @@
                         else if (type === 'stop') { this.isPlaying = false; }
                         else if (type === 'setTempo') { this.tempo = value; this._updateStepDuration(); }
                     }
-                    _updateStepDuration() {
-                        const secondsPerBeat = 60.0 / this.tempo;
-                        this.stepDuration = secondsPerBeat / 8; // 32nd note resolution
-                    }
+                    _updateStepDuration() { this.stepDuration = (60.0 / this.tempo) / 8; }
                     process(inputs, outputs, parameters) {
                         if (!this.isPlaying) return true;
                         while (this.nextStepTime < currentTime + 0.1) {
@@ -344,10 +454,16 @@
                 registerProcessor('sequencer-processor', SequencerProcessor);
             `;
 
-            // --- AUDIO ENGINE ---
             async function initAudio() {
                 if (!audioContext) {
-                    audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                    try {
+                         audioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: TARGET_SAMPLE_RATE });
+                         console.log(`[INIT] AudioContext initialized. Requested ${TARGET_SAMPLE_RATE}Hz, actual rate is ${audioContext.sampleRate}Hz.`);
+                    } catch(e) {
+                         console.warn(`[INIT] Could not create AudioContext with target sample rate. Falling back to default.`);
+                         audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                    }
+                   
                     if (audioContext.state === 'suspended') await audioContext.resume();
                     const blob = new Blob([sequencerWorkletCode.trim()], { type: 'application/javascript' });
                     const url = URL.createObjectURL(blob);
@@ -389,8 +505,7 @@
                 let releaseDuration = 0.01;
                 const nextStepInfo = findNextStep(track, stepInPattern);
                 if (nextStepInfo) {
-                    const thirtySecondNoteDuration = (60 / tempo) / 8;
-                    releaseDuration = (nextStepInfo.stepsAway * thirtySecondNoteDuration) * 0.98;
+                    releaseDuration = (nextStepInfo.stepsAway * ((60 / tempo) / 8)) * 0.98;
                 }
 
                 if (track.playingNode) {
@@ -400,26 +515,17 @@
                 }
                 
                 let scheduledTime = time;
-                if (track.swing > 50) {
-                    if (stepInPattern % 8 !== 0 && stepInPattern % 4 === 0) {
-                        const eighthNoteDuration = (60 / tempo) / 2;
-                        const delayRatio = (track.swing - 50) / 25;
-                        const swingDelay = (eighthNoteDuration / 3) * delayRatio;
-                        scheduledTime += swingDelay;
-                    }
+                if (track.swing > 50 && (stepInPattern % 8 !== 0 && stepInPattern % 4 === 0)) {
+                    scheduledTime += (((60 / tempo) / 2) / 3) * ((track.swing - 50) / 25);
                 }
 
                 const source = audioContext.createBufferSource();
                 source.buffer = track.audioBuffer;
                 const panner = audioContext.createStereoPanner();
-                const panValue = (track.balanceFactor * 2) - 1;
-                panner.pan.setValueAtTime(panValue, scheduledTime);
+                panner.pan.setValueAtTime((track.balanceFactor * 2) - 1, scheduledTime);
                 const gainNode = audioContext.createGain();
-                const stepGainDb = gainToDbLut[Math.round(stepData.gain)];
-                // Apply normalization compensation. A positive normalizationGainDb means the sample was quiet.
-                const finalDb = stepGainDb - track.normalizationGainDb;
-                const finalLinearGain = Math.pow(10, finalDb / 20);
-                gainNode.gain.setValueAtTime(finalLinearGain, scheduledTime);
+                const finalDb = gainToDbLut[Math.round(stepData.gain)] - track.normalizationGainDb;
+                gainNode.gain.setValueAtTime(Math.pow(10, finalDb / 20), scheduledTime);
                 source.playbackRate.setValueAtTime(Math.pow(2, (stepData.pitch - 50) / 50), scheduledTime);
                 source.connect(panner).connect(gainNode).connect(audioContext.destination);
                 source.start(scheduledTime);
@@ -429,7 +535,6 @@
             function scheduleMetronomeClick(time) {
                 const osc = audioContext.createOscillator();
                 const gain = audioContext.createGain();
-                osc.type = 'sine';
                 osc.frequency.setValueAtTime(1000, time);
                 gain.gain.setValueAtTime(1, time);
                 gain.gain.exponentialRampToValueAtTime(0.001, time + 0.05);
@@ -438,7 +543,6 @@
                 osc.stop(time + 0.05);
             }
 
-            // --- UI RENDERING ---
             function renderAll() {
                 renderPatternList();
                 renderArrangement();
@@ -447,24 +551,20 @@
             
             function updatePlayhead(currentStepInLoop, currentArrangementIndex) {
                  requestAnimationFrame(() => {
-                     document.querySelectorAll('.arranger-step.playing').forEach(el => el.classList.remove('playing'));
-                     if (currentArrangementIndex !== null && currentArrangementIndex < arrangement.length) {
+                     document.querySelectorAll('.arranger-step.playing, .step-button.playing').forEach(el => el.classList.remove('playing'));
+                     if (currentArrangementIndex < arrangement.length) {
                          const arrangerStepEl = document.querySelectorAll('.arranger-step')[currentArrangementIndex];
                          if(arrangerStepEl) arrangerStepEl.classList.add('playing');
                      }
-                      const patternIdToPlay = arrangement[currentArrangementIndex];
-                      const patternToPlay = patterns.find(p => p.id === patternIdToPlay);
-                      document.querySelectorAll('.step-button.playing').forEach(el => el.classList.remove('playing'));
+                      const patternToPlay = patterns.find(p => p.id === arrangement[currentArrangementIndex]);
                       if (!patternToPlay) return;
                       const stepInPattern = currentStepInLoop % 32;
                       patternToPlay.tracks.forEach(track => {
                           if (!track.element) return;
-                          const visibleSteps = track.division;
-                          const divisionFactor = 32 / visibleSteps;
-                          const stepIndexToLight = Math.floor(stepInPattern / divisionFactor);
+                          const divisionFactor = 32 / track.division;
                           if ((stepInPattern % divisionFactor) === 0) {
-                              const nextStepButton = track.element.querySelectorAll('.step-button')[stepIndexToLight];
-                              if (nextStepButton) nextStepButton.classList.add('playing');
+                              const stepBtn = track.element.querySelectorAll('.step-button')[Math.floor(stepInPattern / divisionFactor)];
+                              if (stepBtn) stepBtn.classList.add('playing');
                           }
                       });
                  });
@@ -491,9 +591,9 @@
                     if (pattern) { stepEl.textContent = pattern.name; }
                     stepEl.onclick = () => {
                         if (patterns.length === 0) return;
-                        const currentPatternIndex = patternId === null ? -1 : patterns.findIndex(p => p.id === patternId);
-                        const nextPatternIndex = (currentPatternIndex + 1);
-                        arrangement[index] = (nextPatternIndex >= patterns.length) ? null : patterns[nextPatternIndex].id;
+                        const currentIndex = patternId === null ? -1 : patterns.findIndex(p => p.id === patternId);
+                        const nextIndex = (currentIndex + 1);
+                        arrangement[index] = (nextIndex >= patterns.length) ? null : patterns[nextIndex].id;
                         renderArrangement();
                     };
                     dom.arrangementContainer.appendChild(stepEl);
@@ -501,10 +601,7 @@
                 const addBtn = document.createElement('button');
                 addBtn.className = 'add-arrangement-btn btn btn-ghost';
                 addBtn.textContent = '+';
-                addBtn.onclick = () => {
-                    arrangement.push(null);
-                    renderArrangement();
-                };
+                addBtn.onclick = () => { arrangement.push(null); renderArrangement(); };
                 dom.arrangementContainer.appendChild(addBtn);
             }
             
@@ -515,7 +612,6 @@
                 currentPattern.tracks.forEach(track => {
                     const trackElement = dom.trackTemplate.content.cloneNode(true).firstElementChild;
                     track.element = trackElement;
-                    track.element.dataset.id = track.id;
                     dom.sequencerTracks.appendChild(trackElement);
                     setupTrackUI(track);
                 });
@@ -524,24 +620,19 @@
             function setupTrackUI(track) {
                 const stepsContainer = track.element.querySelector('.steps-container');
                 stepsContainer.innerHTML = '';
-                const stepsToShow = track.division;
-                let groupContainer = null;
-                for (let i = 0; i < stepsToShow; i++) {
-                    if (i % 4 === 0) {
-                        groupContainer = document.createElement('div');
-                        groupContainer.className = 'flex flex-col gap-1';
-                        if (i > 0) { groupContainer.classList.add('mt-2'); }
-                        stepsContainer.appendChild(groupContainer);
-                    }
+                for (let i = 0; i < track.division; i++) {
                     const stepDataIndex = i * (32 / track.division);
                     const stepBtn = document.createElement('button');
-                    stepBtn.dataset.stepIndex = stepDataIndex;
                     const stepData = track.steps[stepDataIndex];
                     stepBtn.className = 'step-button';
-                    if (i % (stepsToShow / 4) === 0) {
-                        stepBtn.classList.add('beat-marker');
+
+                    if (i > 0 && i % 4 === 0) {
+                        stepBtn.classList.add('mt-2');
                     }
+
+                    if (i % (track.division / 4) === 0) stepBtn.classList.add('beat-marker');
                     if (stepData.active) stepBtn.classList.add('active');
+                    
                     const gainIndicator = document.createElement('div');
                     gainIndicator.className = 'indicator gain-indicator';
                     const pitchIndicator = document.createElement('div');
@@ -552,10 +643,12 @@
                     };
                     stepBtn.append(gainIndicator, pitchIndicator);
                     updateIndicators();
+
                     stepBtn.addEventListener('mousedown', e => {
                         if (e.button !== 0) return;
                         let isDragging = false;
-                        const initialY = e.clientY, rect = e.target.getBoundingClientRect();
+                        const initialY = e.clientY;
+                        const rect = e.target.getBoundingClientRect();
                         const dragTarget = (e.clientX - rect.left < rect.width / 2) ? 'gain' : 'pitch';
                         const initialValue = track.steps[stepDataIndex][dragTarget];
                         const onMouseMove = moveEvent => {
@@ -584,40 +677,40 @@
                         else track.steps[stepDataIndex].pitch = 50;
                         updateIndicators();
                     });
-                    groupContainer.appendChild(stepBtn);
+                    stepsContainer.appendChild(stepBtn);
                 }
                 const loadBtn = track.element.querySelector('.load-sound-btn');
                 if (track.audioBuffer) { loadBtn.textContent = track.fileName || 'Loaded Sample'; }
                 const fileInput = track.element.querySelector('.file-input');
-                loadBtn.addEventListener('click', () => fileInput.click());
-                fileInput.addEventListener('change', async e => {
+                loadBtn.onclick = () => fileInput.click();
+                fileInput.onchange = async e => {
                     const file = e.target.files[0];
                     if (!file) return;
                     loadBtn.textContent = 'Loading...';
                     await initAudio();
-                    const arrayBuffer = await file.arrayBuffer();
-                    track.audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+                    track.audioBuffer = await audioContext.decodeAudioData(await file.arrayBuffer());
                     track.fileName = file.name;
                     track.normalizationGainDb = 0;
                     track.balanceFactor = 0.5;
                     track.originalOpusBlob = null;
+                    track.packetSizes = null;
                     loadBtn.textContent = file.name;
-                });
+                };
                 const divisionSelect = track.element.querySelector('.division-select');
                 divisionSelect.value = track.division;
-                divisionSelect.addEventListener('change', e => {
+                divisionSelect.onchange = e => {
                     track.division = parseInt(e.target.value);
-                    setupTrackUI(track);
-                });
+                    renderTracksForCurrentPattern();
+                };
                 const swingSlider = track.element.querySelector('.swing-slider');
                 const swingValue = track.element.querySelector('.swing-value');
                 swingSlider.value = track.swing;
                 swingValue.textContent = `${track.swing}%`;
-                swingSlider.addEventListener('input', e => {
+                swingSlider.oninput = e => {
                     track.swing = parseInt(e.target.value);
                     swingValue.textContent = `${track.swing}%`;
-                });
-                track.element.querySelector('.remove-track-btn').addEventListener('click', () => removeTrack(track.id));
+                };
+                track.element.querySelector('.remove-track-btn').onclick = () => removeTrack(track.id);
             }
 
             function addPattern(duplicate = false) {
@@ -626,11 +719,11 @@
                 if (duplicate && currentPatternId !== null) {
                     const sourcePattern = patterns.find(p => p.id === currentPatternId);
                     if (sourcePattern) {
-                        newTracksData = sourcePattern.tracks.map((sourceTrack, index) => ({ ...sourceTrack, id: `${newPatternId}-${index}`, element: null, steps: JSON.parse(JSON.stringify(sourceTrack.steps)), playingNode: null }));
+                        newTracksData = sourcePattern.tracks.map((t, i) => ({ ...t, id: `${newPatternId}-${i}`, element: null, steps: JSON.parse(JSON.stringify(t.steps)), playingNode: null }));
                     }
                 }
                 patterns.push({ id: newPatternId, name: `P${newPatternId + 1}`, tracks: newTracksData });
-                if (patterns.length === 1 && arrangement.length === 0) { arrangement.push(newPatternId); }
+                if (patterns.length === 1 && arrangement.length === 0) arrangement.push(newPatternId);
                 switchPattern(newPatternId);
                 renderArrangement();
             }
@@ -643,9 +736,9 @@
 
             function addTrack() {
                 const currentPattern = patterns.find(p => p.id === currentPatternId);
-                if (!currentPattern) { return; }
+                if (!currentPattern) return;
                 const trackId = `${currentPatternId}-${currentPattern.tracks.length}`;
-                const newTrack = { id: trackId, element: null, audioBuffer: null, fileName: null, division: 16, swing: 50, playingNode: null, normalizationGainDb: 0, balanceFactor: 0.5, originalOpusBlob: null, steps: Array(32).fill(null).map(() => ({ active: false, pitch: 50, gain: 100 })) };
+                const newTrack = { id: trackId, division: 16, swing: 50, normalizationGainDb: 0, balanceFactor: 0.5, steps: Array(32).fill(null).map(() => ({ active: false, pitch: 50, gain: 100 })), originalOpusBlob: null, packetSizes: null };
                 currentPattern.tracks.push(newTrack);
                 renderTracksForCurrentPattern();
             }
@@ -661,16 +754,8 @@
             }
             
             async function togglePlayback() {
+                isPlaying = !isPlaying;
                 if(isPlaying){
-                    sequencerNode.port.postMessage({ type: 'stop' });
-                    patterns.forEach(p => p.tracks.forEach(t => t.playingNode = null));
-                    dom.playStopBtn.textContent = 'Play';
-                    dom.playStopBtn.classList.add('btn-primary');
-                    dom.playStopBtn.style.backgroundColor = '';
-                    dom.playStopBtn.style.color = '';
-                    document.querySelectorAll('.playing').forEach(el => el.classList.remove('playing'));
-                    isPlaying = false;
-                } else {
                     await initAudio();
                     sequencerNode.port.postMessage({ type: 'setTempo', value: tempo });
                     sequencerNode.port.postMessage({ type: 'start' });
@@ -678,95 +763,189 @@
                     dom.playStopBtn.classList.remove('btn-primary');
                     dom.playStopBtn.style.backgroundColor = 'var(--accent-cyan)';
                     dom.playStopBtn.style.color = 'var(--bg-main)';
-                    isPlaying = true;
+                } else {
+                    sequencerNode.port.postMessage({ type: 'stop' });
+                    patterns.forEach(p => p.tracks.forEach(t => t.playingNode = null));
+                    dom.playStopBtn.textContent = 'Play';
+                    dom.playStopBtn.classList.add('btn-primary');
+                    dom.playStopBtn.style.backgroundColor = '';
+                    dom.playStopBtn.style.color = '';
+                    document.querySelectorAll('.playing').forEach(el => el.classList.remove('playing'));
                 }
             }
             
-            // --- SAVE & LOAD ---
-
-            /**
-             * [FIXED] This function was missing. It processes an audio buffer by
-             * trimming silence and calculating normalization gain.
-             */
-            function processAudioForSaving(audioBuffer) {
-                if (!audioContext || !audioBuffer) {
-                    const emptyBuf = audioContext ? audioContext.createBuffer(1, 1, 44100) : null;
-                    return { buffer: emptyBuf, normalizationGainDb: 0, balanceFactor: 0.5 };
+            async function resampleBuffer(audioBuffer, targetSampleRate) {
+                const offlineContext = new OfflineAudioContext(
+                    audioBuffer.numberOfChannels,
+                    Math.ceil(audioBuffer.duration * targetSampleRate),
+                    targetSampleRate
+                );
+                const bufferSource = offlineContext.createBufferSource();
+                bufferSource.buffer = audioBuffer;
+                bufferSource.connect(offlineContext.destination);
+                bufferSource.start(0);
+                return await offlineContext.startRendering();
+            }
+            
+            // --- NEW: DSP Filter Functions ---
+            function applyPreEmphasis(data, alpha = 0.97) {
+                const filteredData = new Float32Array(data.length);
+                filteredData[0] = data[0];
+                for (let i = 1; i < data.length; i++) {
+                    filteredData[i] = data[i] - alpha * data[i - 1];
                 }
+                return filteredData;
+            }
 
-                // For simplicity, we process as mono, taking the first channel.
-                const channelData = audioBuffer.getChannelData(0);
-                let firstActiveSample = 0;
-                let lastActiveSample = channelData.length - 1;
-                const threshold = 0.001; // Silence threshold
+            function applyDeEmphasis(data, alpha = 0.97) {
+                const filteredData = new Float32Array(data.length);
+                filteredData[0] = data[0];
+                for (let i = 1; i < data.length; i++) {
+                    filteredData[i] = data[i] + alpha * filteredData[i - 1];
+                }
+                return filteredData;
+            }
 
-                // Pruning: find the first sample above the threshold
-                for (let i = 0; i < channelData.length; i++) {
-                    if (Math.abs(channelData[i]) > threshold) {
-                        firstActiveSample = i;
-                        break;
+            // --- NEW: Cross-correlation for phase alignment ---
+            function crossCorrelate(ch1, ch2) {
+                const len = ch1.length;
+                let maxCorr = 0;
+                let bestLag = 0;
+                // Search a limited lag range for efficiency
+                const searchRange = Math.min(len, Math.floor(audioContext.sampleRate * 0.002)); // 2ms search window
+
+                for (let lag = -searchRange; lag <= searchRange; lag++) {
+                    let corr = 0;
+                    for (let i = 0; i < len; i++) {
+                        const ch2Index = i + lag;
+                        if (ch2Index >= 0 && ch2Index < len) {
+                            corr += ch1[i] * ch2[ch2Index];
+                        }
+                    }
+                    if (Math.abs(corr) > Math.abs(maxCorr)) {
+                        maxCorr = corr;
+                        bestLag = lag;
                     }
                 }
+                return bestLag;
+            }
 
-                // Pruning: find the last sample above the threshold
-                for (let i = channelData.length - 1; i >= 0; i--) {
-                    if (Math.abs(channelData[i]) > threshold) {
-                        lastActiveSample = i;
-                        break;
-                    }
-                }
+
+            async function processAudioForSaving(buffer) {
+                console.log(`[SAVE] Starting audio processing for buffer with ${buffer.numberOfChannels} channels and sample rate: ${buffer.sampleRate} Hz.`);
                 
-                // Handle completely silent clips to avoid errors
-                if (firstActiveSample >= lastActiveSample) {
-                    const emptyBuffer = audioContext.createBuffer(1, 1, audioBuffer.sampleRate);
-                    return { buffer: emptyBuffer, normalizationGainDb: 0, balanceFactor: 0.5 };
+                let monoBuffer;
+                let balanceFactor = 0.5;
+
+                if (buffer.numberOfChannels > 1) {
+                    console.log('[SAVE] Analyzing stereo energy and phase.');
+                    let leftChannel = buffer.getChannelData(0);
+                    let rightChannel = buffer.getChannelData(1);
+                    
+                    // --- PHASE ALIGNMENT via CROSS-CORRELATION ---
+                    const lag = crossCorrelate(leftChannel, rightChannel);
+                    if (lag !== 0) {
+                        console.log(`[SAVE] Applying phase correction lag of ${lag} samples.`);
+                        const newLeft = new Float32Array(leftChannel.length);
+                        const newRight = new Float32Array(rightChannel.length);
+                        if (lag > 0) { // right leads left, shift right forward
+                           rightChannel.copyWithin(0, lag);
+                        } else { // left leads right, shift left forward
+                           leftChannel.copyWithin(0, -lag);
+                        }
+                    }
+
+                    // --- Energy analysis for balance factor ---
+                    let sumSquaresL = 0.0, sumSquaresR = 0.0;
+                    for (let i = 0; i < leftChannel.length; i++) {
+                        sumSquaresL += leftChannel[i] * leftChannel[i];
+                        sumSquaresR += rightChannel[i] * rightChannel[i];
+                    }
+                    const rmsL = Math.sqrt(sumSquaresL / leftChannel.length);
+                    const rmsR = Math.sqrt(sumSquaresR / rightChannel.length);
+                    const totalRms = rmsL + rmsR;
+                    if (totalRms > 1e-5) balanceFactor = rmsR / totalRms;
+                    console.log(`[SAVE] RMS L: ${rmsL.toFixed(3)}, RMS R: ${rmsR.toFixed(3)}. Balance factor: ${balanceFactor.toFixed(3)}`);
+
+                    // --- Phase-corrected mono sum ---
+                    const monoData = new Float32Array(leftChannel.length);
+                    for (let i = 0; i < leftChannel.length; i++) {
+                        monoData[i] = (leftChannel[i] + rightChannel[i]) / 2.0;
+                    }
+                    monoBuffer = audioContext.createBuffer(1, monoData.length, buffer.sampleRate);
+                    monoBuffer.copyToChannel(monoData, 0);
+
+                } else {
+                    monoBuffer = buffer;
                 }
 
-                const trimmedLength = lastActiveSample - firstActiveSample + 1;
-                const trimmedData = channelData.slice(firstActiveSample, lastActiveSample + 1);
+                // --- RESAMPLING ---
+                let processedBuffer = monoBuffer;
+                if (processedBuffer.sampleRate !== TARGET_SAMPLE_RATE) {
+                    console.log(`[SAVE] Resampling from ${processedBuffer.sampleRate} Hz to ${TARGET_SAMPLE_RATE} Hz.`);
+                    processedBuffer = await resampleBuffer(processedBuffer, TARGET_SAMPLE_RATE);
+                }
 
-                // Conditioning: Calculate gain needed to normalize the peak to 0 dBFS.
-                // This value is used as a *compensation* during playback.
-                let peak = 0;
+                // --- SILENCE TRIMMING ---
+                const channelData = processedBuffer.getChannelData(0);
+                let first = 0, last = channelData.length - 1;
+                while (first < last && Math.abs(channelData[first]) < 1e-4) first++;
+                while (last > first && Math.abs(channelData[last]) < 1e-4) last--;
+                if (first >= last) return { buffer: audioContext.createBuffer(1, 1, TARGET_SAMPLE_RATE), normalizationGainDb: 0, balanceFactor: 0.5 };
+                const trimmedData = channelData.slice(first, last + 1);
+                
+                // --- DYNAMIC-PRESERVING NORMALIZATION ---
+                const TARGET_PEAK = 0.97; // -0.3 dBFS
+                const TARGET_RMS = 0.5;
+                let currentPeak = 0, sumSquares = 0.0;
                 for (let i = 0; i < trimmedData.length; i++) {
-                    const absSample = Math.abs(trimmedData[i]);
-                    if (absSample > peak) {
-                        peak = absSample;
+                    const sample = trimmedData[i];
+                    sumSquares += sample * sample;
+                    if (Math.abs(sample) > currentPeak) currentPeak = Math.abs(sample);
+                }
+                const currentRms = Math.sqrt(sumSquares / trimmedData.length);
+                
+                let gainToApply = 1.0;
+                let normDb = 0;
+
+                if (currentRms > 1e-5) {
+                    const gainForPeak = (currentPeak > 1e-5) ? TARGET_PEAK / currentPeak : Infinity;
+                    const gainForRms = TARGET_RMS / currentRms;
+                    gainToApply = Math.min(gainForPeak, gainForRms);
+                    normDb = 20 * Math.log10(gainToApply);
+
+                    for (let i = 0; i < trimmedData.length; i++) {
+                        trimmedData[i] *= gainToApply;
                     }
                 }
-                const normalizationGainDb = peak > 0 ? 20 * Math.log10(1 / peak) : 0;
+                 console.log(`[SAVE] Normalization complete. Peak: ${currentPeak.toFixed(3)}, RMS: ${currentRms.toFixed(3)}. Applied gain: ${normDb.toFixed(2)} dB.`);
                 
-                // Create a new, trimmed audio buffer.
-                const newBuffer = audioContext.createBuffer(1, trimmedLength, audioBuffer.sampleRate);
-                newBuffer.copyToChannel(trimmedData, 0);
+                // --- PRE-EMPHASIS ---
+                console.log('[SAVE] Applying pre-emphasis filter...');
+                const emphasizedData = applyPreEmphasis(trimmedData);
 
-                return {
-                    buffer: newBuffer,
-                    normalizationGainDb: normalizationGainDb,
-                    balanceFactor: 0.5 // Default to center pan as we're converting to mono
-                };
+                const finalBuffer = audioContext.createBuffer(1, emphasizedData.length, TARGET_SAMPLE_RATE);
+                finalBuffer.copyToChannel(emphasizedData, 0);
+                
+                return { buffer: finalBuffer, normalizationGainDb: normDb, balanceFactor: balanceFactor };
             }
 
             function serializeState(audioAssets, audioBufferMap) {
-                // This pre-calculation is fragile but memory-efficient. It must perfectly
-                // match the write operations below.
-                let totalSize = 5; // Header: tempo(2), arrLen(1), patLen(1), audLen(1)
-                totalSize += arrangement.length;
-                totalSize += audioAssets.length * (4 + 4 + 4); // sampleRate, normGain, balanceFactor
                 const textEncoder = new TextEncoder();
+                let totalSize = 5 + arrangement.length;
                 patterns.forEach(p => {
-                    const nameBytes = textEncoder.encode(p.name);
-                    totalSize += 3 + nameBytes.length; 
-                    p.tracks.forEach(t => {
-                        totalSize += 3; // audioIndex, division, swing
-                        totalSize += 96; // 32 steps * 3 bytes/step
-                    });
+                    totalSize += 3 + textEncoder.encode(p.name).length;
+                    totalSize += p.tracks.length * (3 + 96);
+                });
+                audioAssets.forEach(asset => {
+                    totalSize += 9; 
+                    totalSize += 2; 
+                    totalSize += asset.packetSizes.length * 2;
                 });
 
                 const buffer = new ArrayBuffer(totalSize);
                 const view = new DataView(buffer);
                 let offset = 0;
-
                 view.setUint16(offset, tempo); offset += 2;
                 view.setUint8(offset, arrangement.length); offset += 1;
                 view.setUint8(offset, patterns.length); offset += 1;
@@ -776,7 +955,11 @@
                 audioAssets.forEach(asset => {
                     view.setUint32(offset, asset.buffer.sampleRate); offset += 4;
                     view.setFloat32(offset, asset.normalizationGainDb); offset += 4;
-                    view.setFloat32(offset, asset.balanceFactor); offset += 4;
+                    view.setUint8(offset, Math.round(asset.balanceFactor * 255)); offset += 1;
+                    view.setUint16(offset, asset.packetSizes.length); offset += 2;
+                    asset.packetSizes.forEach(size => {
+                        view.setUint16(offset, size); offset += 2;
+                    });
                 });
 
                 patterns.forEach(p => {
@@ -784,144 +967,171 @@
                     view.setUint8(offset, p.id); offset += 1;
                     view.setUint8(offset, p.tracks.length); offset += 1;
                     view.setUint8(offset, nameBytes.length); offset += 1;
-                    nameBytes.forEach(byte => { view.setUint8(offset, byte); offset += 1; });
-                    
+                    nameBytes.forEach(b => { view.setUint8(offset, b); offset++; });
                     p.tracks.forEach(t => {
-                        const audioIndex = t.audioBuffer ? audioBufferMap.get(t.audioBuffer) : 255;
-                        view.setUint8(offset, audioIndex); offset += 1;
-                        view.setUint8(offset, t.division); offset += 1;
-                        view.setUint8(offset, t.swing); offset += 1;
-                        
-                        t.steps.forEach(step => {
-                            view.setUint8(offset, step.active ? 1 : 0); offset += 1;
-                            view.setUint8(offset, Math.round(step.pitch)); offset += 1;
-                            view.setUint8(offset, Math.round(step.gain)); offset += 1;
+                        view.setUint8(offset, t.audioBuffer ? audioBufferMap.get(t.audioBuffer) : 255); offset++;
+                        view.setUint8(offset, t.division); offset++;
+                        view.setUint8(offset, t.swing); offset++;
+                        t.steps.forEach(s => {
+                            view.setUint8(offset, s.active ? 1 : 0); offset++;
+                            view.setUint8(offset, Math.round(s.pitch)); offset++;
+                            view.setUint8(offset, Math.round(s.gain)); offset++;
                         });
                     });
                 });
+                console.log(`[SAVE] State serialization complete. Total size: ${offset} bytes.`);
                 return new Blob([buffer]);
             }
-
-            function parseState(buffer, decodedAudios) {
+            
+            async function parseState(buffer, audioFileMap) {
+                console.log(`[LOAD] Beginning state parsing.`);
                 const view = new DataView(buffer);
-                const textDecoder = new TextDecoder();
                 let offset = 0;
-
                 tempo = view.getUint16(offset); offset += 2;
-                const arrangementLength = view.getUint8(offset); offset += 1;
-                const patternCount = view.getUint8(offset); offset += 1;
-                const audioAssetCount = view.getUint8(offset); offset += 1;
-                dom.tempoSlider.value = tempo;
-                dom.tempoValue.textContent = tempo;
+                dom.tempoSlider.value = tempo; dom.tempoValue.textContent = tempo;
                 if (sequencerNode) sequencerNode.port.postMessage({ type: 'setTempo', value: tempo });
 
-                arrangement = [];
-                for (let i = 0; i < arrangementLength; i++) {
-                    const pId = view.getUint8(offset); offset += 1;
-                    arrangement.push(pId === 255 ? null : pId);
-                }
+                const arrLen = view.getUint8(offset++);
+                const patLen = view.getUint8(offset++);
+                const audLen = view.getUint8(offset++);
+                console.log(`[LOAD] Project metadata: ${arrLen} arrangement steps, ${patLen} patterns, ${audLen} audio assets.`);
+                
+                arrangement = Array.from({ length: arrLen }, () => {
+                    const id = view.getUint8(offset++);
+                    return id === 255 ? null : id;
+                });
 
-                const audioMap = [];
-                const metadataMap = [];
-                for (let i = 0; i < audioAssetCount; i++) {
+                const audioAssets = [];
+                for (let i = 0; i < audLen; i++) {
                     const sampleRate = view.getUint32(offset); offset += 4;
-                    const normalizationGainDb = view.getFloat32(offset); offset += 4;
-                    const balanceFactor = view.getFloat32(offset); offset += 4;
-                    metadataMap[i] = { normalizationGainDb, balanceFactor };
-                    const audioData = decodedAudios.find(a => a.index === i);
-                    if (audioData) {
-                        const audioBuffer = audioContext.createBuffer(1, audioData.pcmData.length, sampleRate);
-                        audioBuffer.copyToChannel(audioData.pcmData, 0);
-                        audioMap.push({buffer: audioBuffer, originalBlob: audioData.blob});
+                    const normDb = view.getFloat32(offset); offset += 4;
+                    const bal = view.getUint8(offset++) / 255.0;
+                    
+                    const packetCount = view.getUint16(offset); offset += 2;
+                    const packetSizes = [];
+                    for(let j = 0; j < packetCount; j++) {
+                        packetSizes.push(view.getUint16(offset)); offset += 2;
+                    }
+
+                    const audioFile = audioFileMap.get(i);
+                    let pcmData;
+                    
+                    console.log(`[LOAD] Processing audio asset #${i} with stored sample rate ${sampleRate} Hz.`);
+
+                    if (audioFile && audioFile.name.endsWith('.opus')) {
+                        console.log(`[LOAD]   Type is Opus. Decoding with ${packetSizes.length} packets...`);
+                        pcmData = await opusDecoder.decode(audioFile.blob, sampleRate, packetSizes);
+
+                        if (pcmData && pcmData.length > 0) {
+                            console.log('[LOAD]   Applying de-emphasis filter...');
+                            pcmData = applyDeEmphasis(pcmData);
+                        }
+                    } 
+                    if (pcmData && pcmData.length > 0) {
+                        const audioBuffer = audioContext.createBuffer(1, pcmData.length, sampleRate);
+                        audioBuffer.copyToChannel(pcmData, 0);
+                        audioAssets.push({ buffer: audioBuffer, normDb, bal, blob: audioFile.blob, packetSizes });
+                        console.log(`[LOAD]   Asset #${i} successfully loaded into AudioBuffer.`);
+                    } else {
+                         console.error(`[LOAD]   Failed to load or decode asset #${i}.`);
                     }
                 }
-
+                
+                const textDecoder = new TextDecoder();
                 patterns = [];
                 let maxId = -1;
-                for (let i = 0; i < patternCount; i++) {
-                    const pId = view.getUint8(offset); offset += 1;
-                    if (pId > maxId) maxId = pId;
-                    const trackCount = view.getUint8(offset); offset += 1;
-                    const nameLength = view.getUint8(offset); offset += 1;
-                    const nameBytes = new Uint8Array(buffer, offset, nameLength);
-                    const name = textDecoder.decode(nameBytes); offset += nameLength;
-                    
-                    const newPattern = { id: pId, name, tracks: [] };
+                for (let i = 0; i < patLen; i++) {
+                    const id = view.getUint8(offset++); maxId = Math.max(maxId, id);
+                    const trackCount = view.getUint8(offset++);
+                    const nameLen = view.getUint8(offset++);
+                    const name = textDecoder.decode(new Uint8Array(buffer, offset, nameLen)); offset += nameLen;
+                    const newPattern = { id, name, tracks: [] };
                     for (let j = 0; j < trackCount; j++) {
-                        const audioIndex = view.getUint8(offset); offset += 1;
-                        const division = view.getUint8(offset); offset += 1;
-                        const swing = view.getUint8(offset); offset += 1;
-                        
-                        const audioAsset = audioIndex === 255 ? null : audioMap[audioIndex];
-                        const metadata = audioIndex === 255 ? {} : metadataMap[audioIndex];
-
+                        const audioIndex = view.getUint8(offset++);
+                        const asset = audioAssets[audioIndex];
                         const newTrack = {
-                            id: `${pId}-${j}`, element: null, playingNode: null,
-                            audioBuffer: audioAsset ? audioAsset.buffer : null,
-                            originalOpusBlob: audioAsset ? audioAsset.originalBlob : null,
-                            fileName: audioIndex === 255 ? null : `audio_${audioIndex}.opus`,
-                            normalizationGainDb: metadata.normalizationGainDb || 0,
-                            balanceFactor: metadata.balanceFactor || 0.5,
-                            division, swing, steps: []
+                            id: `${id}-${j}`,
+                            audioBuffer: !asset ? null : asset.buffer,
+                            originalOpusBlob: !asset ? null : asset.blob,
+                            packetSizes: !asset ? null : asset.packetSizes,
+                            fileName: !asset ? null : `audio_${audioIndex}`,
+                            normalizationGainDb: !asset ? 0 : asset.normDb,
+                            balanceFactor: !asset ? 0.5 : asset.bal,
+                            division: view.getUint8(offset++),
+                            swing: view.getUint8(offset++),
+                            steps: Array.from({ length: 32 }, () => ({
+                                active: view.getUint8(offset++) === 1,
+                                pitch: view.getUint8(offset++),
+                                gain: view.getUint8(offset++),
+                            }))
                         };
-                        
-                        for (let k = 0; k < 32; k++) {
-                            const active = view.getUint8(offset) === 1; offset += 1;
-                            const pitch = view.getUint8(offset); offset += 1;
-                            const gain = view.getUint8(offset); offset += 1;
-                            newTrack.steps.push({ active, pitch, gain });
-                        }
                         newPattern.tracks.push(newTrack);
                     }
                     patterns.push(newPattern);
                 }
                 patternIdCounter = maxId + 1;
                 currentPatternId = patterns[0]?.id ?? null;
+                console.log(`[LOAD] State parsing complete.`);
             }
             
             async function saveProject() {
                 setButtonLoading(dom.saveProjectBtn, true);
                 try {
+                    console.log(`[SAVE] Starting project save...`);
+                    await initAudio();
                     const zip = new JSZip();
                     const audioAssets = [];
                     const audioBufferMap = new Map();
-                    
-                    // Collect unique audio buffers from all tracks and process them.
-                    for (const p of patterns) {
-                        for (const t of p.tracks) {
-                            if (t.audioBuffer && !audioBufferMap.has(t.audioBuffer)) {
-                                audioBufferMap.set(t.audioBuffer, audioAssets.length);
-                                // [FIXED] Always process the audio on save to apply pruning/conditioning.
-                                const processed = processAudioForSaving(t.audioBuffer);
-                                audioAssets.push({ 
-                                    buffer: processed.buffer, 
-                                    normalizationGainDb: processed.normalizationGainDb, 
-                                    balanceFactor: processed.balanceFactor,
-                                });
-                            }
+                    const tracksWithAudio = patterns.flatMap(p => p.tracks).filter(t => t.audioBuffer);
+
+                    for (const track of tracksWithAudio) {
+                        if (audioBufferMap.has(track.audioBuffer)) continue;
+
+                        const assetIndex = audioAssets.length;
+                        audioBufferMap.set(track.audioBuffer, assetIndex);
+                        
+                        if (track.originalOpusBlob && track.originalOpusBlob.type === 'audio/opus' && track.packetSizes) {
+                            console.log(`[SAVE] Asset #${assetIndex} is already optimized. Re-using existing blob.`);
+                             audioAssets.push({
+                                 buffer: track.audioBuffer,
+                                 normalizationGainDb: track.normalizationGainDb,
+                                 balanceFactor: track.balanceFactor,
+                                 packetSizes: track.packetSizes,
+                                 blob: track.originalOpusBlob,
+                                 extension: 'opus'
+                             });
+                        } else {
+                            console.log(`[SAVE] Asset #${assetIndex} is new or legacy. Processing...`);
+                            const processedAsset = await processAudioForSaving(track.audioBuffer);
+                            const encodeResult = await opusEncoder.encode(processedAsset.buffer, { bitrate: 32000 });
+                            audioAssets.push({
+                                ...processedAsset,
+                                packetSizes: encodeResult.packetSizes,
+                                blob: encodeResult.blob,
+                                extension: 'opus'
+                            });
                         }
                     }
 
-                    // [FIXED] Always re-encode the processed audio buffers.
-                    const encodedAudioPromises = audioAssets.map(asset => OpusEncoder.encode(asset.buffer));
-                    const encodedAudioBlobs = await Promise.all(encodedAudioPromises);
-                    encodedAudioBlobs.forEach((blob, i) => zip.file(`audio_${i}.opus`, blob));
+                    audioAssets.forEach((asset, i) => {
+                         console.log(`[SAVE] Adding asset #${i} as ${asset.extension} with size ${asset.blob.size} bytes.`);
+                         zip.file(`audio_${i}.${asset.extension}`, asset.blob);
+                    });
 
-                    const stateBlob = serializeState(audioAssets, audioBufferMap);
-                    zip.file('project.bin', stateBlob);
+                    zip.file('project.bin', serializeState(audioAssets, audioBufferMap));
 
-                    const content = await zip.generateAsync({ type: 'blob' });
+                    const content = await zip.generateAsync({ type: 'blob', compression: "DEFLATE", compressionOptions: { level: 9 } });
                     const a = document.createElement('a');
                     a.href = URL.createObjectURL(content);
                     a.download = `project.wmus`;
-                    document.body.appendChild(a);
                     a.click();
-                    document.body.removeChild(a);
+                    a.remove();
                     URL.revokeObjectURL(a.href);
-
+                    console.log(`[SAVE] Project save complete. Total size: ${content.size} bytes.`);
                 } catch (error) {
                     console.error("Failed to save project:", error);
-                    alert("Error saving project. Check console for details.");
+                    // NOTE: The original code used alert(), which is blocked in this environment.
+                    // A proper implementation would use a custom modal for user feedback.
                 } finally {
                     setButtonLoading(dom.saveProjectBtn, false);
                 }
@@ -931,27 +1141,29 @@
                  if (!file) return;
                  setButtonLoading(dom.loadProjectBtn, true);
                  try {
+                     console.log(`[LOAD] Loading project file: ${file.name}`);
                      await initAudio();
                      const zip = await JSZip.loadAsync(file);
                      const projectFile = zip.file('project.bin');
-                     if (!projectFile) throw new Error('Invalid project file.');
+                     if (!projectFile) throw new Error('Invalid project file: project.bin not found.');
                      
                      const projectBuffer = await projectFile.async('arraybuffer');
-
+                     
+                     const audioFileMap = new Map();
                      const audioFilePromises = Object.values(zip.files)
-                         .filter(f => f.name.startsWith('audio_') && !f.dir)
+                         .filter(f => f.name.startsWith('audio_') && f.name.endsWith('.opus'))
                          .map(async (f) => {
-                             const index = parseInt(f.name.split('_')[1].split('.')[0]);
+                             const index = parseInt(f.name.match(/(\d+)/)[0]);
                              const blob = await f.async('blob');
-                             const pcmData = await OpusDecoder.decode(blob);
-                             return { index, pcmData, blob };
+                             console.log(`[LOAD] Found audio file in zip: ${f.name} (index ${index})`);
+                             audioFileMap.set(index, { blob, name: f.name });
                          });
+
+                     await Promise.all(audioFilePromises);
                      
-                     const decodedAudios = await Promise.all(audioFilePromises);
-                     decodedAudios.sort((a,b) => a.index - b.index);
-                     
-                     parseState(projectBuffer, decodedAudios);
+                     await parseState(projectBuffer, audioFileMap);
                      renderAll();
+                     console.log(`[LOAD] Project loaded successfully.`);
                  } catch (error) {
                      console.error("Failed to load project:", error);
                  } finally {
@@ -962,7 +1174,7 @@
             
             function setButtonLoading(button, isLoading) {
                 const originalText = button.dataset.originalText || button.textContent;
-                if (!button.dataset.originalText) { button.dataset.originalText = originalText; }
+                if (!button.dataset.originalText) button.dataset.originalText = originalText;
                 if (isLoading) {
                     button.disabled = true;
                     button.innerHTML = `<div class="spinner mr-2"></div><span>Loading...</span>`;
@@ -989,3 +1201,4 @@
     </script>
 </body>
 </html>
+
