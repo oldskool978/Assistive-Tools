@@ -262,8 +262,9 @@
 
 
     <script>
-        // --- PREAMBLE ---
+        // --- PREAMBLE: WebCodecs API Abstractions ---
 
+        // Encodes raw PCM float32 data to the Opus format.
         class OpusEncoder {
             constructor() {
                 this.isSupported = window.AudioEncoder && typeof AudioEncoder.isConfigSupported === 'function';
@@ -285,7 +286,7 @@
                 }
                 return new Promise((resolve, reject) => {
                     const encodedChunks = [];
-                    const packetSizes = [];
+                    const packetSizes = []; // Store byte length of each encoded packet for framing.
                     const encoder = new AudioEncoder({
                         output: chunk => {
                             const chunkData = new Uint8Array(chunk.byteLength);
@@ -298,8 +299,10 @@
                     encoder.configure(config);
                     const pcmData = audioBuffer.getChannelData(0);
                     const sampleRate = audioBuffer.sampleRate;
+
+                    // Opus encodes in frames. We manually segment the PCM data into these frames.
                     let currentTime = 0;
-                    const frameDuration = 0.02;
+                    const frameDuration = 0.02; // 20ms frames
                     const samplesPerFrame = sampleRate * frameDuration;
                     for (let i = 0; i < pcmData.length; i += samplesPerFrame) {
                         const frameData = pcmData.subarray(i, i + samplesPerFrame);
@@ -320,6 +323,7 @@
             }
         }
         
+        // Decodes an Opus blob back into raw PCM float32 data.
         class OpusDecoder {
             constructor() {
                 this.isSupported = window.AudioDecoder && typeof AudioDecoder.isConfigSupported === 'function';
@@ -352,6 +356,7 @@
                     try {
                         const buffer = await blob.arrayBuffer();
                         let offset = 0;
+                        // Reconstruct and decode each packet using the stored size map.
                         for (const packetSize of packetSizes) {
                             if (offset + packetSize > buffer.byteLength) {
                                 console.error("Packet size map exceeds buffer length.");
@@ -369,6 +374,7 @@
 
                         await decoder.flush();
                         
+                        // Concatenate all decoded frames into a single PCM array.
                         const pcmData = new Float32Array(totalFrames);
                         let pcmOffset = 0;
                         for (const frame of decodedFrames) {
@@ -387,6 +393,7 @@
         const opusDecoder = new OpusDecoder();
 
         document.addEventListener('DOMContentLoaded', () => {
+            // --- STATE MANAGEMENT ---
             let audioContext;
             let sequencerNode;
             let isPlaying = false;
@@ -397,8 +404,9 @@
             let currentPatternId = null;
             let patternIdCounter = 0;
             let arrangement = [];
-            const TARGET_SAMPLE_RATE = 44100;
+            const TARGET_SAMPLE_RATE = 48000; // Pro-audio standard for best hardware compatibility.
             
+            // Pre-calculate a lookup table for exponential gain -> decibels.
             const gainToDbLut = new Float32Array(101);
             const MIN_DB = -60.0;
             for (let i = 0; i < 101; i++) {
@@ -407,6 +415,7 @@
                 gainToDbLut[i] = Math.max(MIN_DB, db);
             }
 
+            // --- DOM ELEMENT CACHE ---
             const dom = {
                 playStopBtn: document.getElementById('play-stop-btn'),
                 loopToggleBtn: document.getElementById('loop-toggle-btn'),
@@ -425,26 +434,38 @@
                 loadProjectInput: document.getElementById('load-project-input'),
             };
             
+            // --- CORE SEQUENCER LOGIC ---
+            // AudioWorklet processor for sample-accurate timing, running on a separate thread.
             const sequencerWorkletCode = `
                 class SequencerProcessor extends AudioWorkletProcessor {
                     constructor() {
                         super();
-                        this.isPlaying = false; this.tempo = 120; this.stepDuration = 0;
-                        this.nextStepTime = 0; this.currentStep = 0;
+                        this.isPlaying = false; 
+                        this.tempo = 120; 
+                        this.stepDuration = 0;
+                        this.nextStepTime = 0; 
+                        this.currentStep = 0;
                         this.port.onmessage = this.handleMessage.bind(this);
                         this._updateStepDuration();
                     }
                     handleMessage(event) {
                         const { type, value } = event.data;
-                        if (type === 'start') { this.isPlaying = true; this.currentStep = 0; this.nextStepTime = currentTime; }
+                        if (type === 'start') {
+                            // Add a startup buffer to ensure timing is stable from the first beat.
+                            const startTime = currentTime + 0.1; 
+                            this.isPlaying = true; 
+                            this.currentStep = 0; 
+                            this.nextStepTime = startTime;
+                        }
                         else if (type === 'stop') { this.isPlaying = false; }
                         else if (type === 'setTempo') { this.tempo = value; this._updateStepDuration(); }
                     }
-                    _updateStepDuration() { this.stepDuration = (60.0 / this.tempo) / 8; }
+                    _updateStepDuration() { this.stepDuration = (60.0 / this.tempo) / 8; } // 32nd note duration
                     process(inputs, outputs, parameters) {
                         if (!this.isPlaying) return true;
+                        // Look ahead and schedule events for the next block of audio time.
                         while (this.nextStepTime < currentTime + 0.1) {
-                            this.port.postMessage({ type: 'tick', step: this.currentStep });
+                            this.port.postMessage({ type: 'tick', step: this.currentStep, time: this.nextStepTime });
                             this.nextStepTime += this.stepDuration;
                             this.currentStep++;
                         }
@@ -454,12 +475,15 @@
                 registerProcessor('sequencer-processor', SequencerProcessor);
             `;
 
+            // Initializes the AudioContext and the timing worklet. Must be called after user interaction.
             async function initAudio() {
                 if (!audioContext) {
                     try {
+                         // Attempt to create context at our target rate for maximum fidelity.
                          audioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: TARGET_SAMPLE_RATE });
                          console.log(`[INIT] AudioContext initialized. Requested ${TARGET_SAMPLE_RATE}Hz, actual rate is ${audioContext.sampleRate}Hz.`);
                     } catch(e) {
+                         // Fallback to hardware default if target rate is not supported.
                          console.warn(`[INIT] Could not create AudioContext with target sample rate. Falling back to default.`);
                          audioContext = new (window.AudioContext || window.webkitAudioContext)();
                     }
@@ -469,12 +493,13 @@
                     const url = URL.createObjectURL(blob);
                     await audioContext.audioWorklet.addModule(url);
                     sequencerNode = new AudioWorkletNode(audioContext, 'sequencer-processor');
-                    sequencerNode.port.onmessage = e => e.data.type === 'tick' && handleTick(e.data.step);
+                    sequencerNode.port.onmessage = e => e.data.type === 'tick' && handleTick(e.data.step, e.data.time);
                     sequencerNode.connect(audioContext.destination);
                 }
             }
             
-            function handleTick(step) {
+            // Main sequencer tick handler, called from the AudioWorklet.
+            function handleTick(step, time) {
                 if (arrangement.length === 0) { if (isPlaying) togglePlayback(); return; }
                 const totalSongSteps = arrangement.length * 32;
                 if (!isLooping && step >= totalSongSteps) { if(isPlaying) togglePlayback(); return; }
@@ -482,14 +507,15 @@
                 const arrangementIndex = Math.floor(currentStepInLoop / 32);
                 const patternIdToPlay = arrangement[arrangementIndex];
                 updatePlayhead(currentStepInLoop, arrangementIndex);
-                if (isMetronomeOn && (currentStepInLoop % 8 === 0)) { scheduleMetronomeClick(audioContext.currentTime); }
+                if (isMetronomeOn && (currentStepInLoop % 8 === 0)) { scheduleMetronomeClick(time); }
                 if (patternIdToPlay === null) return;
                 const patternToPlay = patterns.find(p => p.id === patternIdToPlay);
                 if (!patternToPlay) return;
                 const stepInPattern = currentStepInLoop % 32;
-                patternToPlay.tracks.forEach(track => scheduleNote(track, stepInPattern, audioContext.currentTime));
+                patternToPlay.tracks.forEach(track => scheduleNote(track, stepInPattern, time));
             }
             
+            // Finds the next active step to calculate note release duration.
             function findNextStep(track, startStep) {
                 for (let i = 1; i < 32; i++) {
                     const nextStepIndex = (startStep + i) % 32;
@@ -498,9 +524,50 @@
                 return null;
             }
 
+            // --- Linear Phase FIR Resampler: high-quality, phase-accurate sample rate conversion. ---
+            function linearPhaseResample(data, fromRate, toRate) {
+                console.log(`[DSP] Performing linear phase resampling from ${fromRate}Hz to ${toRate}Hz.`);
+                const ratio = toRate / fromRate;
+                const outputLength = Math.ceil(data.length * ratio);
+                const outputData = new Float32Array(outputLength);
+                
+                // Generate a windowed-sinc filter kernel. This is a finite, near-perfect low-pass filter.
+                const kernelLength = 64; 
+                const kernel = new Float32Array(kernelLength);
+                const cutoff = Math.min(1.0, ratio) * 0.5; // Nyquist frequency
+
+                for (let i = 0; i < kernelLength; i++) {
+                    const x = i - (kernelLength / 2);
+                    // Sinc function (the ideal low-pass filter impulse response).
+                    const sinc = x === 0 ? 1.0 : Math.sin(2 * Math.PI * cutoff * x) / (2 * Math.PI * cutoff * x);
+                    // Blackman window (tapers the sinc function to prevent artifacts).
+                    const window = 0.42 - 0.5 * Math.cos(2 * Math.PI * i / kernelLength) + 0.08 * Math.cos(4 * Math.PI * i / kernelLength);
+                    kernel[i] = sinc * window;
+                }
+
+                // Convolve the input signal with the filter kernel to resample.
+                for (let i = 0; i < outputLength; i++) {
+                    const time = i / ratio;
+                    const startIndex = Math.floor(time) - (kernelLength / 2) + 1;
+                    let sum = 0;
+
+                    for (let j = 0; j < kernelLength; j++) {
+                        const inputIndex = startIndex + j;
+                        if (inputIndex >= 0 && inputIndex < data.length) {
+                            sum += data[inputIndex] * kernel[j];
+                        }
+                    }
+                    outputData[i] = sum;
+                }
+                return outputData;
+            }
+
+
+            // Schedules a single audio note for playback.
             function scheduleNote(track, stepInPattern, time) {
                 const stepData = track.steps[stepInPattern];
-                if (!track.audioBuffer || !stepData.active) return;
+                // Use the pre-conditioned playback buffer for a WYSIWYG preview.
+                if (!track.playbackAudioBuffer || !stepData.active) return;
                 
                 let releaseDuration = 0.01;
                 const nextStepInfo = findNextStep(track, stepInPattern);
@@ -520,11 +587,12 @@
                 }
 
                 const source = audioContext.createBufferSource();
-                source.buffer = track.audioBuffer;
+                source.buffer = track.playbackAudioBuffer;
                 const panner = audioContext.createStereoPanner();
                 panner.pan.setValueAtTime((track.balanceFactor * 2) - 1, scheduledTime);
                 const gainNode = audioContext.createGain();
-                const finalDb = gainToDbLut[Math.round(stepData.gain)] - track.normalizationGainDb;
+                // Note: Normalization gain is already "baked" into the playback buffer.
+                const finalDb = gainToDbLut[Math.round(stepData.gain)];
                 gainNode.gain.setValueAtTime(Math.pow(10, finalDb / 20), scheduledTime);
                 source.playbackRate.setValueAtTime(Math.pow(2, (stepData.pitch - 50) / 50), scheduledTime);
                 source.connect(panner).connect(gainNode).connect(audioContext.destination);
@@ -543,12 +611,14 @@
                 osc.stop(time + 0.05);
             }
 
+            // --- UI RENDERING & MANAGEMENT ---
             function renderAll() {
                 renderPatternList();
                 renderArrangement();
                 renderTracksForCurrentPattern();
             }
             
+            // Updates the visual playhead on the UI.
             function updatePlayhead(currentStepInLoop, currentArrangementIndex) {
                  requestAnimationFrame(() => {
                      document.querySelectorAll('.arranger-step.playing, .step-button.playing').forEach(el => el.classList.remove('playing'));
@@ -680,21 +750,35 @@
                     stepsContainer.appendChild(stepBtn);
                 }
                 const loadBtn = track.element.querySelector('.load-sound-btn');
-                if (track.audioBuffer) { loadBtn.textContent = track.fileName || 'Loaded Sample'; }
+                if (track.playbackAudioBuffer) { loadBtn.textContent = track.fileName || 'Loaded Sample'; }
                 const fileInput = track.element.querySelector('.file-input');
                 loadBtn.onclick = () => fileInput.click();
                 fileInput.onchange = async e => {
                     const file = e.target.files[0];
                     if (!file) return;
-                    loadBtn.textContent = 'Loading...';
+                    loadBtn.textContent = 'Processing...';
+                    loadBtn.disabled = true;
+
                     await initAudio();
-                    track.audioBuffer = await audioContext.decodeAudioData(await file.arrayBuffer());
+                    const rawBuffer = await audioContext.decodeAudioData(await file.arrayBuffer());
+
+                    // Generate a pre-conditioned playback buffer for an accurate preview.
+                    const processedAsset = await processAudioForSaving(rawBuffer);
+                    const pcmData = processedAsset.buffer.getChannelData(0);
+                    const deEmphasizedPcm = applyDeEmphasis(pcmData);
+                    const playbackBuffer = audioContext.createBuffer(1, deEmphasizedPcm.length, TARGET_SAMPLE_RATE);
+                    playbackBuffer.copyToChannel(deEmphasizedPcm, 0);
+                    
+                    track.rawAudioBuffer = rawBuffer;          // Store original for lossless re-saving.
+                    track.playbackAudioBuffer = playbackBuffer; // Use this for playing.
+                    track.audioAssetId = crypto.randomUUID();   // Unique ID for this audio asset.
                     track.fileName = file.name;
-                    track.normalizationGainDb = 0;
-                    track.balanceFactor = 0.5;
-                    track.originalOpusBlob = null;
-                    track.packetSizes = null;
+                    track.normalizationGainDb = processedAsset.normalizationGainDb;
+                    track.balanceFactor = processedAsset.balanceFactor;
+                    track.isProcessed = false; // Mark as new, requiring processing on next save.
+
                     loadBtn.textContent = file.name;
+                    loadBtn.disabled = false;
                 };
                 const divisionSelect = track.element.querySelector('.division-select');
                 divisionSelect.value = track.division;
@@ -719,6 +803,7 @@
                 if (duplicate && currentPatternId !== null) {
                     const sourcePattern = patterns.find(p => p.id === currentPatternId);
                     if (sourcePattern) {
+                        // Deep copy track data, maintaining references to audio assets.
                         newTracksData = sourcePattern.tracks.map((t, i) => ({ ...t, id: `${newPatternId}-${i}`, element: null, steps: JSON.parse(JSON.stringify(t.steps)), playingNode: null }));
                     }
                 }
@@ -738,7 +823,19 @@
                 const currentPattern = patterns.find(p => p.id === currentPatternId);
                 if (!currentPattern) return;
                 const trackId = `${currentPatternId}-${currentPattern.tracks.length}`;
-                const newTrack = { id: trackId, division: 16, swing: 50, normalizationGainDb: 0, balanceFactor: 0.5, steps: Array(32).fill(null).map(() => ({ active: false, pitch: 50, gain: 100 })), originalOpusBlob: null, packetSizes: null };
+                const newTrack = { 
+                    id: trackId, 
+                    division: 16, 
+                    swing: 50,
+                    steps: Array(32).fill(null).map(() => ({ active: false, pitch: 50, gain: 100 })),
+                    // Initialize audio properties to null.
+                    rawAudioBuffer: null,
+                    playbackAudioBuffer: null,
+                    audioAssetId: null,
+                    isProcessed: false,
+                    normalizationGainDb: 0,
+                    balanceFactor: 0.5
+                };
                 currentPattern.tracks.push(newTrack);
                 renderTracksForCurrentPattern();
             }
@@ -774,20 +871,9 @@
                 }
             }
             
-            async function resampleBuffer(audioBuffer, targetSampleRate) {
-                const offlineContext = new OfflineAudioContext(
-                    audioBuffer.numberOfChannels,
-                    Math.ceil(audioBuffer.duration * targetSampleRate),
-                    targetSampleRate
-                );
-                const bufferSource = offlineContext.createBufferSource();
-                bufferSource.buffer = audioBuffer;
-                bufferSource.connect(offlineContext.destination);
-                bufferSource.start(0);
-                return await offlineContext.startRendering();
-            }
-            
-            // --- NEW: DSP Filter Functions ---
+            // --- DSP UTILITIES ---
+
+            // Applies a high-shelf filter to boost high frequencies before encoding.
             function applyPreEmphasis(data, alpha = 0.97) {
                 const filteredData = new Float32Array(data.length);
                 filteredData[0] = data[0];
@@ -797,6 +883,7 @@
                 return filteredData;
             }
 
+            // Applies the inverse filter to restore tonal balance after decoding.
             function applyDeEmphasis(data, alpha = 0.97) {
                 const filteredData = new Float32Array(data.length);
                 filteredData[0] = data[0];
@@ -806,13 +893,12 @@
                 return filteredData;
             }
 
-            // --- NEW: Cross-correlation for phase alignment ---
+            // Finds the time offset between stereo channels to correct phase issues before mono summing.
             function crossCorrelate(ch1, ch2) {
                 const len = ch1.length;
                 let maxCorr = 0;
                 let bestLag = 0;
-                // Search a limited lag range for efficiency
-                const searchRange = Math.min(len, Math.floor(audioContext.sampleRate * 0.002)); // 2ms search window
+                const searchRange = Math.min(len, Math.floor(TARGET_SAMPLE_RATE * 0.002)); // 2ms search window is sufficient.
 
                 for (let lag = -searchRange; lag <= searchRange; lag++) {
                     let corr = 0;
@@ -830,117 +916,178 @@
                 return bestLag;
             }
 
+            // --- BiquadFilter: A standard building block for audio filters. ---
+            class BiquadFilter {
+                constructor(type, Fc, Q, sampleRate) {
+                    this.x1 = 0; this.x2 = 0; this.y1 = 0; this.y2 = 0;
+                    const w0 = 2 * Math.PI * Fc / sampleRate;
+                    const cos_w0 = Math.cos(w0);
+                    const sin_w0 = Math.sin(w0);
+                    const alpha = sin_w0 / (2 * Q);
+                    let b0, b1, b2, a0, a1, a2;
 
+                    switch (type) {
+                        case 'lowpass':
+                            b0 = (1 - cos_w0) / 2;
+                            b1 = 1 - cos_w0;
+                            b2 = (1 - cos_w0) / 2;
+                            a0 = 1 + alpha;
+                            a1 = -2 * cos_w0;
+                            a2 = 1 - alpha;
+                            break;
+                        case 'highpass':
+                            b0 = (1 + cos_w0) / 2;
+                            b1 = -(1 + cos_w0);
+                            b2 = (1 + cos_w0) / 2;
+                            a0 = 1 + alpha;
+                            a1 = -2 * cos_w0;
+                            a2 = 1 - alpha;
+                            break;
+                    }
+                    this.b0 = b0 / a0; this.b1 = b1 / a0; this.b2 = b2 / a0;
+                    this.a1 = a1 / a0; this.a2 = a2 / a0;
+                }
+                process(data) {
+                    const out = new Float32Array(data.length);
+                    for (let i = 0; i < data.length; i++) {
+                        const x0 = data[i];
+                        const y0 = this.b0 * x0 + this.b1 * this.x1 + this.b2 * this.x2 - this.a1 * this.y1 - this.a2 * this.y2;
+                        out[i] = y0;
+                        this.x2 = this.x1; this.x1 = x0;
+                        this.y2 = this.y1; this.y1 = y0;
+                    }
+                    return out;
+                }
+            }
+            
+            // --- Fidelity Pass: Prepares audio for encoding by removing inaudible data. ---
+            function applyFidelityPass(data) {
+                console.log(`[DSP] Applying Fidelity Pass (Spectral Cleanup + Dither).`);
+                let processedData = data;
+                
+                // 1. Spectral Cleanup: Remove subsonic rumble and ultrasonic noise.
+                const hpFilter = new BiquadFilter('highpass', 30, 0.707, TARGET_SAMPLE_RATE);
+                processedData = hpFilter.process(processedData);
+                const lpFilter = new BiquadFilter('lowpass', 18500, 0.707, TARGET_SAMPLE_RATE);
+                processedData = lpFilter.process(processedData);
+
+                // 2. Noise-Shaped Dithering: Converts quantization errors into imperceptible high-frequency noise.
+                const ditherAmount = 1 / Math.pow(2, 23); // 1 LSB of a 24-bit signal.
+                let lastError = 0;
+                for (let i = 0; i < processedData.length; i++) {
+                    const originalSample = processedData[i];
+                    const dither = (Math.random() * 2 - 1) * ditherAmount;
+                    const withDither = originalSample + dither + lastError;
+                    const quantizedSample = Math.fround(withDither); // Simulate float32 quantization.
+                    lastError = withDither - quantizedSample; // Shape the error to higher frequencies.
+                    processedData[i] = quantizedSample;
+                }
+
+                return processedData;
+            }
+
+
+            // --- EBU R 128: Perceptual loudness (LUFS) measurement. ---
+            class EBU_R128 {
+                constructor(sampleRate) {
+                    this.sampleRate = sampleRate;
+                    // K-weighting filter mimics human hearing sensitivity.
+                    const f0=1681.9744509555319, G=3.99984385397, Q=0.707175236855;
+                    const K=Math.tan(Math.PI*f0/sampleRate), Vh=Math.pow(10,G/20), Vb=Vh*0.4, a0=1+K/Q+K*K;
+                    this.b0=(Vh+Vb*K/Q+K*K)/a0; this.b1=2*(K*K-Vh)/a0; this.b2=(Vh-Vb*K/Q+K*K)/a0;
+                    this.a1=2*(K*K-1)/a0; this.a2=(1-K/Q+K*K)/a0;
+                    this.x1=0; this.x2=0; this.y1=0; this.y2=0;
+                }
+                filter(data) {
+                    const f=new Float32Array(data.length);
+                    for(let i=0;i<data.length;i++){
+                        const x0=data[i]; const y0=this.b0*x0+this.b1*this.x1+this.b2*this.x2-this.a1*this.y1-this.a2*this.y2;
+                        this.x2=this.x1;this.x1=x0;this.y2=this.y1;this.y1=y0; f[i]=y0;
+                    }
+                    return f;
+                }
+                calculate(data) {
+                    // This function measures loudness over 400ms blocks, applying two gates
+                    // (absolute and relative) to ignore silence, per the EBU R 128 standard.
+                    const fD=this.filter(data), gD=0.4, gS=Math.floor(gD*this.sampleRate), nB=Math.floor(fD.length/gS);
+                    if(nB===0)return -70; // Signal is too short to measure.
+                    const bL=[];
+                    for(let i=0;i<nB;i++){
+                        const s=i*gS,e=s+gS; let sumSq=0;
+                        for(let j=s;j<e;j++)sumSq+=fD[j]*fD[j];
+                        const mS=sumSq/gS; if(mS>0)bL.push(-0.691+10*Math.log10(mS));
+                    }
+                    const aG=bL.filter(l=>l>-70); if(aG.length===0)return -70;
+                    const sL=aG.reduce((a,b)=>a+Math.pow(10,b/10),0), aL=10*Math.log10(sL/aG.length), rT=aL-10;
+                    const rG=aG.filter(l=>l>rT); if(rG.length===0)return -70;
+                    const fS=rG.reduce((a,b)=>a+Math.pow(10,b/10),0);
+                    return -0.691+10*Math.log10(fS/rG.length);
+                }
+            }
+
+            // --- MASTER AUDIO PROCESSING PIPELINE ---
+            // This is the "furnishing" pass that conditions raw audio for saving.
             async function processAudioForSaving(buffer) {
-                console.log(`[SAVE] Starting audio processing for buffer with ${buffer.numberOfChannels} channels and sample rate: ${buffer.sampleRate} Hz.`);
+                console.log(`[SAVE] Starting audio processing.`);
+                let monoBuffer, balanceFactor=0.5;
+                // 1. Mono Summing with Phase Correction.
+                if(buffer.numberOfChannels>1){
+                    let lC=buffer.getChannelData(0),rC=buffer.getChannelData(1),lag=crossCorrelate(lC,rC);
+                    if(lag!==0){console.log(`[SAVE] Applying phase lag: ${lag} samples.`);if(lag>0)rC.copyWithin(0,lag);else lC.copyWithin(0,-lag);}
+                    let sSL=0,sSR=0;
+                    for(let i=0;i<lC.length;i++){sSL+=lC[i]*lC[i];sSR+=rC[i]*rC[i];}
+                    const rL=Math.sqrt(sSL/lC.length),rR=Math.sqrt(sSR/rC.length),tR=rL+rR;
+                    if(tR>1e-5)balanceFactor=rR/tR;
+                    const mD=new Float32Array(lC.length);
+                    for(let i=0;i<lC.length;i++)mD[i]=(lC[i]+rC[i])/2;
+                    monoBuffer=audioContext.createBuffer(1,mD.length,buffer.sampleRate);monoBuffer.copyToChannel(mD,0);
+                }else monoBuffer=buffer;
                 
-                let monoBuffer;
-                let balanceFactor = 0.5;
-
-                if (buffer.numberOfChannels > 1) {
-                    console.log('[SAVE] Analyzing stereo energy and phase.');
-                    let leftChannel = buffer.getChannelData(0);
-                    let rightChannel = buffer.getChannelData(1);
-                    
-                    // --- PHASE ALIGNMENT via CROSS-CORRELATION ---
-                    const lag = crossCorrelate(leftChannel, rightChannel);
-                    if (lag !== 0) {
-                        console.log(`[SAVE] Applying phase correction lag of ${lag} samples.`);
-                        const newLeft = new Float32Array(leftChannel.length);
-                        const newRight = new Float32Array(rightChannel.length);
-                        if (lag > 0) { // right leads left, shift right forward
-                           rightChannel.copyWithin(0, lag);
-                        } else { // left leads right, shift left forward
-                           leftChannel.copyWithin(0, -lag);
-                        }
-                    }
-
-                    // --- Energy analysis for balance factor ---
-                    let sumSquaresL = 0.0, sumSquaresR = 0.0;
-                    for (let i = 0; i < leftChannel.length; i++) {
-                        sumSquaresL += leftChannel[i] * leftChannel[i];
-                        sumSquaresR += rightChannel[i] * rightChannel[i];
-                    }
-                    const rmsL = Math.sqrt(sumSquaresL / leftChannel.length);
-                    const rmsR = Math.sqrt(sumSquaresR / rightChannel.length);
-                    const totalRms = rmsL + rmsR;
-                    if (totalRms > 1e-5) balanceFactor = rmsR / totalRms;
-                    console.log(`[SAVE] RMS L: ${rmsL.toFixed(3)}, RMS R: ${rmsR.toFixed(3)}. Balance factor: ${balanceFactor.toFixed(3)}`);
-
-                    // --- Phase-corrected mono sum ---
-                    const monoData = new Float32Array(leftChannel.length);
-                    for (let i = 0; i < leftChannel.length; i++) {
-                        monoData[i] = (leftChannel[i] + rightChannel[i]) / 2.0;
-                    }
-                    monoBuffer = audioContext.createBuffer(1, monoData.length, buffer.sampleRate);
-                    monoBuffer.copyToChannel(monoData, 0);
-
-                } else {
-                    monoBuffer = buffer;
+                // 2. Resample to Target Rate.
+                let pB=monoBuffer;
+                if(pB.sampleRate!==TARGET_SAMPLE_RATE){
+                    const rD=linearPhaseResample(pB.getChannelData(0),pB.sampleRate,TARGET_SAMPLE_RATE);
+                    pB=audioContext.createBuffer(1,rD.length,TARGET_SAMPLE_RATE); pB.copyToChannel(rD,0);
                 }
-
-                // --- RESAMPLING ---
-                let processedBuffer = monoBuffer;
-                if (processedBuffer.sampleRate !== TARGET_SAMPLE_RATE) {
-                    console.log(`[SAVE] Resampling from ${processedBuffer.sampleRate} Hz to ${TARGET_SAMPLE_RATE} Hz.`);
-                    processedBuffer = await resampleBuffer(processedBuffer, TARGET_SAMPLE_RATE);
-                }
-
-                // --- SILENCE TRIMMING ---
-                const channelData = processedBuffer.getChannelData(0);
-                let first = 0, last = channelData.length - 1;
-                while (first < last && Math.abs(channelData[first]) < 1e-4) first++;
-                while (last > first && Math.abs(channelData[last]) < 1e-4) last--;
-                if (first >= last) return { buffer: audioContext.createBuffer(1, 1, TARGET_SAMPLE_RATE), normalizationGainDb: 0, balanceFactor: 0.5 };
-                const trimmedData = channelData.slice(first, last + 1);
+                // 3. Trim Silence.
+                const cD=pB.getChannelData(0);
+                let f=0,l=cD.length-1;
+                while(f<l&&Math.abs(cD[f])<1e-4)f++; while(l>f&&Math.abs(cD[l])<1e-4)l--;
+                if(f>=l)return{buffer:audioContext.createBuffer(1,1,TARGET_SAMPLE_RATE),normalizationGainDb:0,balanceFactor:0.5};
+                let tD=cD.slice(f,l+1);
                 
-                // --- DYNAMIC-PRESERVING NORMALIZATION ---
-                const TARGET_PEAK = 0.97; // -0.3 dBFS
-                const TARGET_RMS = 0.5;
-                let currentPeak = 0, sumSquares = 0.0;
-                for (let i = 0; i < trimmedData.length; i++) {
-                    const sample = trimmedData[i];
-                    sumSquares += sample * sample;
-                    if (Math.abs(sample) > currentPeak) currentPeak = Math.abs(sample);
-                }
-                const currentRms = Math.sqrt(sumSquares / trimmedData.length);
+                // 4. Loudness Normalization (LUFS) with Peak Limiting.
+                const TL=-18,TP=0.97,lM=new EBU_R128(TARGET_SAMPLE_RATE),mL=lM.calculate(tD),gTL=Math.pow(10,(TL-mL)/20);
+                let cP=0; for(const s of tD)if(Math.abs(s)>cP)cP=Math.abs(s);
+                const gTP=(cP>1e-5)?TP/cP:Infinity,gTA=Math.min(gTL,gTP),nDb=-20*Math.log10(gTA);
+                for(let i=0;i<tD.length;i++)tD[i]*=gTA;
+                console.log(`[SAVE] Loudness: ${mL.toFixed(2)} LUFS. Target: ${TL} LUFS. Storing gain: ${nDb.toFixed(2)} dB.`);
                 
-                let gainToApply = 1.0;
-                let normDb = 0;
-
-                if (currentRms > 1e-5) {
-                    const gainForPeak = (currentPeak > 1e-5) ? TARGET_PEAK / currentPeak : Infinity;
-                    const gainForRms = TARGET_RMS / currentRms;
-                    gainToApply = Math.min(gainForPeak, gainForRms);
-                    normDb = 20 * Math.log10(gainToApply);
-
-                    for (let i = 0; i < trimmedData.length; i++) {
-                        trimmedData[i] *= gainToApply;
-                    }
-                }
-                 console.log(`[SAVE] Normalization complete. Peak: ${currentPeak.toFixed(3)}, RMS: ${currentRms.toFixed(3)}. Applied gain: ${normDb.toFixed(2)} dB.`);
-                
-                // --- PRE-EMPHASIS ---
-                console.log('[SAVE] Applying pre-emphasis filter...');
-                const emphasizedData = applyPreEmphasis(trimmedData);
-
+                // 5. Fidelity Pass (Dither & Cleanup).
+                const fidelityData = applyFidelityPass(tD);
+                // 6. Pre-emphasis for Opus encoding.
+                const emphasizedData = applyPreEmphasis(fidelityData);
                 const finalBuffer = audioContext.createBuffer(1, emphasizedData.length, TARGET_SAMPLE_RATE);
                 finalBuffer.copyToChannel(emphasizedData, 0);
                 
-                return { buffer: finalBuffer, normalizationGainDb: normDb, balanceFactor: balanceFactor };
+                return {buffer:finalBuffer,normalizationGainDb:nDb,balanceFactor:balanceFactor};
             }
 
-            function serializeState(audioAssets, audioBufferMap) {
+            // --- FILE SAVE/LOAD & SERIALIZATION ---
+
+            // Converts the project state into a compact binary format.
+            function serializeState(audioAssets, audioAssetMap) {
                 const textEncoder = new TextEncoder();
+                // Pre-calculate buffer size to avoid dynamic resizing.
                 let totalSize = 5 + arrangement.length;
                 patterns.forEach(p => {
                     totalSize += 3 + textEncoder.encode(p.name).length;
-                    totalSize += p.tracks.length * (3 + 96);
+                    p.tracks.forEach(t => {
+                        totalSize += 1 + 1 + 1 + (32*3);
+                    });
                 });
                 audioAssets.forEach(asset => {
-                    totalSize += 9; 
-                    totalSize += 2; 
-                    totalSize += asset.packetSizes.length * 2;
+                    totalSize += 9 + 2 + (asset.packetSizes.length*2);
                 });
 
                 const buffer = new ArrayBuffer(totalSize);
@@ -953,13 +1100,11 @@
                 arrangement.forEach(pId => { view.setUint8(offset, pId === null ? 255 : pId); offset += 1; });
                 
                 audioAssets.forEach(asset => {
-                    view.setUint32(offset, asset.buffer.sampleRate); offset += 4;
+                    view.setUint32(offset, asset.sampleRate); offset += 4;
                     view.setFloat32(offset, asset.normalizationGainDb); offset += 4;
                     view.setUint8(offset, Math.round(asset.balanceFactor * 255)); offset += 1;
                     view.setUint16(offset, asset.packetSizes.length); offset += 2;
-                    asset.packetSizes.forEach(size => {
-                        view.setUint16(offset, size); offset += 2;
-                    });
+                    asset.packetSizes.forEach(size => { view.setUint16(offset, size); offset += 2; });
                 });
 
                 patterns.forEach(p => {
@@ -969,7 +1114,8 @@
                     view.setUint8(offset, nameBytes.length); offset += 1;
                     nameBytes.forEach(b => { view.setUint8(offset, b); offset++; });
                     p.tracks.forEach(t => {
-                        view.setUint8(offset, t.audioBuffer ? audioBufferMap.get(t.audioBuffer) : 255); offset++;
+                        const assetIndex = t.audioAssetId ? audioAssetMap.get(t.audioAssetId).index : 255;
+                        view.setUint8(offset, assetIndex); offset++;
                         view.setUint8(offset, t.division); offset++;
                         view.setUint8(offset, t.swing); offset++;
                         t.steps.forEach(s => {
@@ -979,197 +1125,132 @@
                         });
                     });
                 });
-                console.log(`[SAVE] State serialization complete. Total size: ${offset} bytes.`);
                 return new Blob([buffer]);
             }
             
+            // Parses a binary project file and reconstructs the application state.
             async function parseState(buffer, audioFileMap) {
-                console.log(`[LOAD] Beginning state parsing.`);
-                const view = new DataView(buffer);
-                let offset = 0;
+                const view = new DataView(buffer); let offset = 0;
                 tempo = view.getUint16(offset); offset += 2;
                 dom.tempoSlider.value = tempo; dom.tempoValue.textContent = tempo;
                 if (sequencerNode) sequencerNode.port.postMessage({ type: 'setTempo', value: tempo });
 
-                const arrLen = view.getUint8(offset++);
-                const patLen = view.getUint8(offset++);
-                const audLen = view.getUint8(offset++);
-                console.log(`[LOAD] Project metadata: ${arrLen} arrangement steps, ${patLen} patterns, ${audLen} audio assets.`);
-                
-                arrangement = Array.from({ length: arrLen }, () => {
-                    const id = view.getUint8(offset++);
-                    return id === 255 ? null : id;
-                });
+                const arrLen=view.getUint8(offset++), patLen=view.getUint8(offset++), audLen=view.getUint8(offset++);
+                arrangement = Array.from({length:arrLen},()=>(view.getUint8(offset++)===255?null:view.getUint8(offset-1)));
 
+                // Asynchronously decode all audio assets from the project.
                 const audioAssets = [];
-                for (let i = 0; i < audLen; i++) {
-                    const sampleRate = view.getUint32(offset); offset += 4;
-                    const normDb = view.getFloat32(offset); offset += 4;
-                    const bal = view.getUint8(offset++) / 255.0;
-                    
-                    const packetCount = view.getUint16(offset); offset += 2;
-                    const packetSizes = [];
-                    for(let j = 0; j < packetCount; j++) {
-                        packetSizes.push(view.getUint16(offset)); offset += 2;
-                    }
-
-                    const audioFile = audioFileMap.get(i);
+                for(let i=0;i<audLen;i++){
+                    const sampleRate=view.getUint32(offset); offset+=4;
+                    const normDb=view.getFloat32(offset); offset+=4;
+                    const bal=view.getUint8(offset++)/255;
+                    const packetCount=view.getUint16(offset); offset+=2;
+                    const packetSizes=Array.from({length:packetCount},()=>{const s=view.getUint16(offset);offset+=2;return s;});
+                    const audioFile=audioFileMap.get(i);
                     let pcmData;
-                    
-                    console.log(`[LOAD] Processing audio asset #${i} with stored sample rate ${sampleRate} Hz.`);
-
-                    if (audioFile && audioFile.name.endsWith('.opus')) {
-                        console.log(`[LOAD]   Type is Opus. Decoding with ${packetSizes.length} packets...`);
-                        pcmData = await opusDecoder.decode(audioFile.blob, sampleRate, packetSizes);
-
-                        if (pcmData && pcmData.length > 0) {
-                            console.log('[LOAD]   Applying de-emphasis filter...');
-                            pcmData = applyDeEmphasis(pcmData);
-                        }
-                    } 
-                    if (pcmData && pcmData.length > 0) {
-                        const audioBuffer = audioContext.createBuffer(1, pcmData.length, sampleRate);
-                        audioBuffer.copyToChannel(pcmData, 0);
-                        audioAssets.push({ buffer: audioBuffer, normDb, bal, blob: audioFile.blob, packetSizes });
-                        console.log(`[LOAD]   Asset #${i} successfully loaded into AudioBuffer.`);
-                    } else {
-                         console.error(`[LOAD]   Failed to load or decode asset #${i}.`);
+                    if(audioFile){
+                        pcmData=await opusDecoder.decode(audioFile.blob,sampleRate,packetSizes);
+                        // Apply de-emphasis to restore original tonal balance.
+                        if(pcmData&&pcmData.length>0)pcmData=applyDeEmphasis(pcmData);
                     }
+                    if(pcmData&&pcmData.length>0){
+                        const aB=audioContext.createBuffer(1,pcmData.length,sampleRate); aB.copyToChannel(pcmData,0);
+                        audioAssets.push({playbackBuffer:aB,normDb,bal,isProcessed:true,blob:audioFile.blob,packetSizes});
+                    } else audioAssets.push(null);
                 }
                 
-                const textDecoder = new TextDecoder();
-                patterns = [];
-                let maxId = -1;
-                for (let i = 0; i < patLen; i++) {
-                    const id = view.getUint8(offset++); maxId = Math.max(maxId, id);
-                    const trackCount = view.getUint8(offset++);
-                    const nameLen = view.getUint8(offset++);
-                    const name = textDecoder.decode(new Uint8Array(buffer, offset, nameLen)); offset += nameLen;
-                    const newPattern = { id, name, tracks: [] };
-                    for (let j = 0; j < trackCount; j++) {
-                        const audioIndex = view.getUint8(offset++);
-                        const asset = audioAssets[audioIndex];
-                        const newTrack = {
-                            id: `${id}-${j}`,
-                            audioBuffer: !asset ? null : asset.buffer,
-                            originalOpusBlob: !asset ? null : asset.blob,
-                            packetSizes: !asset ? null : asset.packetSizes,
-                            fileName: !asset ? null : `audio_${audioIndex}`,
-                            normalizationGainDb: !asset ? 0 : asset.normDb,
-                            balanceFactor: !asset ? 0.5 : asset.bal,
-                            division: view.getUint8(offset++),
-                            swing: view.getUint8(offset++),
-                            steps: Array.from({ length: 32 }, () => ({
-                                active: view.getUint8(offset++) === 1,
-                                pitch: view.getUint8(offset++),
-                                gain: view.getUint8(offset++),
-                            }))
-                        };
-                        newPattern.tracks.push(newTrack);
+                // Reconstruct patterns, tracks, and step data.
+                const textDecoder=new TextDecoder(); patterns=[]; let maxId=-1;
+                for(let i=0;i<patLen;i++){
+                    const id=view.getUint8(offset++); maxId=Math.max(maxId,id);
+                    const trackCount=view.getUint8(offset++),nameLen=view.getUint8(offset++);
+                    const name=textDecoder.decode(new Uint8Array(buffer,offset,nameLen)); offset+=nameLen;
+                    const newPattern={id,name,tracks:[]};
+                    for(let j=0;j<trackCount;j++){
+                        const audioIndex=view.getUint8(offset++);
+                        const asset=audioIndex!==255?audioAssets[audioIndex]:null;
+                        newPattern.tracks.push({
+                            id:`${id}-${j}`,
+                            playbackAudioBuffer:asset?asset.playbackBuffer:null,
+                            rawAudioBuffer:asset?asset.playbackBuffer:null, // For loaded assets, raw is the same as playback.
+                            isProcessed:asset?asset.isProcessed:false,
+                            blob:asset?asset.blob:null,
+                            packetSizes:asset?asset.packetSizes:null,
+                            audioAssetId:`loaded-${audioIndex}`,
+                            fileName:asset?`audio_${audioIndex}`:null,
+                            normalizationGainDb:asset?asset.normDb:0,
+                            balanceFactor:asset?asset.bal:0.5,
+                            division:view.getUint8(offset++),
+                            swing:view.getUint8(offset++),
+                            steps:Array.from({length:32},()=>({active:view.getUint8(offset++)===1,pitch:view.getUint8(offset++),gain:view.getUint8(offset++)}))
+                        });
                     }
                     patterns.push(newPattern);
                 }
-                patternIdCounter = maxId + 1;
-                currentPatternId = patterns[0]?.id ?? null;
-                console.log(`[LOAD] State parsing complete.`);
+                patternIdCounter=maxId+1; currentPatternId=patterns[0]?.id??null;
             }
             
             async function saveProject() {
                 setButtonLoading(dom.saveProjectBtn, true);
                 try {
-                    console.log(`[SAVE] Starting project save...`);
                     await initAudio();
-                    const zip = new JSZip();
-                    const audioAssets = [];
-                    const audioBufferMap = new Map();
-                    const tracksWithAudio = patterns.flatMap(p => p.tracks).filter(t => t.audioBuffer);
+                    const zip = new JSZip(), finalAudioAssets = [], audioAssetMap = new Map();
+                    const allTracks = patterns.flatMap(p => p.tracks);
 
-                    for (const track of tracksWithAudio) {
-                        if (audioBufferMap.has(track.audioBuffer)) continue;
-
-                        const assetIndex = audioAssets.length;
-                        audioBufferMap.set(track.audioBuffer, assetIndex);
-                        
-                        if (track.originalOpusBlob && track.originalOpusBlob.type === 'audio/opus' && track.packetSizes) {
-                            console.log(`[SAVE] Asset #${assetIndex} is already optimized. Re-using existing blob.`);
-                             audioAssets.push({
-                                 buffer: track.audioBuffer,
-                                 normalizationGainDb: track.normalizationGainDb,
-                                 balanceFactor: track.balanceFactor,
-                                 packetSizes: track.packetSizes,
-                                 blob: track.originalOpusBlob,
-                                 extension: 'opus'
-                             });
+                    // De-duplicate audio assets before processing.
+                    for (const track of allTracks) {
+                        if (!track.audioAssetId || audioAssetMap.has(track.audioAssetId)) continue;
+                        let assetToSave;
+                        // If asset is from a loaded project, re-package it without processing.
+                        if (track.isProcessed) {
+                            assetToSave = {
+                                index: finalAudioAssets.length, sampleRate: track.playbackAudioBuffer.sampleRate,
+                                normalizationGainDb: track.normalizationGainDb, balanceFactor: track.balanceFactor,
+                                packetSizes: track.packetSizes, blob: track.blob
+                            };
                         } else {
-                            console.log(`[SAVE] Asset #${assetIndex} is new or legacy. Processing...`);
-                            const processedAsset = await processAudioForSaving(track.audioBuffer);
-                            const encodeResult = await opusEncoder.encode(processedAsset.buffer, { bitrate: 32000 });
-                            audioAssets.push({
-                                ...processedAsset,
-                                packetSizes: encodeResult.packetSizes,
-                                blob: encodeResult.blob,
-                                extension: 'opus'
-                            });
+                            // If asset is new, run it through the full conditioning pipeline.
+                            const processedAsset = await processAudioForSaving(track.rawAudioBuffer);
+                            const encodeResult = await opusEncoder.encode(processedAsset.buffer,{bitrate:32000});
+                            assetToSave = {
+                                index: finalAudioAssets.length, sampleRate: processedAsset.buffer.sampleRate,
+                                normalizationGainDb: processedAsset.normalizationGainDb, balanceFactor: processedAsset.balanceFactor,
+                                packetSizes: encodeResult.packetSizes, blob: encodeResult.blob
+                            };
                         }
+                        audioAssetMap.set(track.audioAssetId, assetToSave);
+                        finalAudioAssets.push(assetToSave);
                     }
+                    finalAudioAssets.forEach(asset=>zip.file(`audio_${asset.index}.opus`,asset.blob));
+                    zip.file('project.bin', serializeState(finalAudioAssets, audioAssetMap));
 
-                    audioAssets.forEach((asset, i) => {
-                         console.log(`[SAVE] Adding asset #${i} as ${asset.extension} with size ${asset.blob.size} bytes.`);
-                         zip.file(`audio_${i}.${asset.extension}`, asset.blob);
-                    });
-
-                    zip.file('project.bin', serializeState(audioAssets, audioBufferMap));
-
-                    const content = await zip.generateAsync({ type: 'blob', compression: "DEFLATE", compressionOptions: { level: 9 } });
-                    const a = document.createElement('a');
-                    a.href = URL.createObjectURL(content);
-                    a.download = `project.wmus`;
-                    a.click();
-                    a.remove();
-                    URL.revokeObjectURL(a.href);
-                    console.log(`[SAVE] Project save complete. Total size: ${content.size} bytes.`);
-                } catch (error) {
-                    console.error("Failed to save project:", error);
-                    // NOTE: The original code used alert(), which is blocked in this environment.
-                    // A proper implementation would use a custom modal for user feedback.
-                } finally {
-                    setButtonLoading(dom.saveProjectBtn, false);
-                }
+                    const content = await zip.generateAsync({type:'blob',compression:"DEFLATE",compressionOptions:{level:9}});
+                    const a=document.createElement('a'); a.href=URL.createObjectURL(content);
+                    a.download=`project.wmus`; a.click(); a.remove(); URL.revokeObjectURL(a.href);
+                } catch (error) { console.error("Failed to save project:", error); } 
+                finally { setButtonLoading(dom.saveProjectBtn, false); }
             }
             
             async function loadProject(file) {
                  if (!file) return;
                  setButtonLoading(dom.loadProjectBtn, true);
                  try {
-                     console.log(`[LOAD] Loading project file: ${file.name}`);
                      await initAudio();
                      const zip = await JSZip.loadAsync(file);
                      const projectFile = zip.file('project.bin');
-                     if (!projectFile) throw new Error('Invalid project file: project.bin not found.');
-                     
+                     if (!projectFile) throw new Error('Invalid project file.');
                      const projectBuffer = await projectFile.async('arraybuffer');
-                     
                      const audioFileMap = new Map();
-                     const audioFilePromises = Object.values(zip.files)
-                         .filter(f => f.name.startsWith('audio_') && f.name.endsWith('.opus'))
-                         .map(async (f) => {
-                             const index = parseInt(f.name.match(/(\d+)/)[0]);
-                             const blob = await f.async('blob');
-                             console.log(`[LOAD] Found audio file in zip: ${f.name} (index ${index})`);
-                             audioFileMap.set(index, { blob, name: f.name });
-                         });
-
-                     await Promise.all(audioFilePromises);
-                     
+                     const audioPromises = Object.values(zip.files).filter(f=>f.name.startsWith('audio_'))
+                        .map(async f=>{
+                            const i=parseInt(f.name.match(/(\d+)/)[0]), blob=await f.async('blob');
+                            audioFileMap.set(i,{blob,name:f.name});
+                        });
+                     await Promise.all(audioPromises);
                      await parseState(projectBuffer, audioFileMap);
                      renderAll();
-                     console.log(`[LOAD] Project loaded successfully.`);
-                 } catch (error) {
-                     console.error("Failed to load project:", error);
-                 } finally {
-                     setButtonLoading(dom.loadProjectBtn, false);
-                     dom.loadProjectInput.value = '';
-                 }
+                 } catch (error) { console.error("Failed to load project:", error); } 
+                 finally { setButtonLoading(dom.loadProjectBtn, false); dom.loadProjectInput.value = ''; }
             }
             
             function setButtonLoading(button, isLoading) {
