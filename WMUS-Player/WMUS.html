@@ -173,8 +173,11 @@
         <div class="w-full max-w-7xl h-full max-h-[95vh] main-container rounded-xl shadow-2xl p-4 flex flex-col">
             <!-- Header & Global Controls -->
             <header class="flex-shrink-0 flex flex-col sm:flex-row justify-between items-center pb-4 border-b border-gray-700">
-                <h1 class="text-2xl sm:text-3xl font-bold text-white mb-4 sm:mb-0">Web Sequencer</h1>
-                <div class="flex items-center space-x-6">
+                <div>
+                    <h1 class="text-2xl sm:text-3xl font-bold text-white mb-2">Web Sequencer</h1>
+                    <input type="text" id="song-name-input" maxlength="13" placeholder="Song Name:" class="focus:ring-2 focus:ring-accent-cyan focus:outline-none w-52" style="background-color: var(--bg-element); border: 1px solid var(--border-color); color: var(--text-primary); border-radius: 6px; padding: 6px 12px; font-size: 14px;">
+                </div>
+                <div class="flex items-center space-x-6 mt-4 sm:mt-0">
                     <div class="flex flex-col items-center">
                         <label class="text-xs font-medium text-gray-400 mb-1">Tempo</label>
                         <div class="flex items-center space-x-2">
@@ -432,6 +435,7 @@
                 saveProjectBtn: document.getElementById('save-project-btn'),
                 loadProjectBtn: document.getElementById('load-project-btn'),
                 loadProjectInput: document.getElementById('load-project-input'),
+                songNameInput: document.getElementById('song-name-input'),
             };
             
             // --- CORE SEQUENCER LOGIC ---
@@ -487,7 +491,7 @@
                          console.warn(`[INIT] Could not create AudioContext with target sample rate. Falling back to default.`);
                          audioContext = new (window.AudioContext || window.webkitAudioContext)();
                     }
-                   
+                    
                     if (audioContext.state === 'suspended') await audioContext.resume();
                     const blob = new Blob([sequencerWorkletCode.trim()], { type: 'application/javascript' });
                     const url = URL.createObjectURL(blob);
@@ -626,17 +630,17 @@
                          const arrangerStepEl = document.querySelectorAll('.arranger-step')[currentArrangementIndex];
                          if(arrangerStepEl) arrangerStepEl.classList.add('playing');
                      }
-                      const patternToPlay = patterns.find(p => p.id === arrangement[currentArrangementIndex]);
-                      if (!patternToPlay) return;
-                      const stepInPattern = currentStepInLoop % 32;
-                      patternToPlay.tracks.forEach(track => {
-                          if (!track.element) return;
-                          const divisionFactor = 32 / track.division;
-                          if ((stepInPattern % divisionFactor) === 0) {
-                              const stepBtn = track.element.querySelectorAll('.step-button')[Math.floor(stepInPattern / divisionFactor)];
-                              if (stepBtn) stepBtn.classList.add('playing');
-                          }
-                      });
+                     const patternToPlay = patterns.find(p => p.id === arrangement[currentArrangementIndex]);
+                     if (!patternToPlay) return;
+                     const stepInPattern = currentStepInLoop % 32;
+                     patternToPlay.tracks.forEach(track => {
+                         if (!track.element) return;
+                         const divisionFactor = 32 / track.division;
+                         if ((stepInPattern % divisionFactor) === 0) {
+                             const stepBtn = track.element.querySelectorAll('.step-button')[Math.floor(stepInPattern / divisionFactor)];
+                             if (stepBtn) stepBtn.classList.add('playing');
+                         }
+                     });
                  });
             }
 
@@ -769,7 +773,7 @@
                     const playbackBuffer = audioContext.createBuffer(1, deEmphasizedPcm.length, TARGET_SAMPLE_RATE);
                     playbackBuffer.copyToChannel(deEmphasizedPcm, 0);
                     
-                    track.rawAudioBuffer = rawBuffer;          // Store original for lossless re-saving.
+                    track.rawAudioBuffer = rawBuffer;       // Store original for lossless re-saving.
                     track.playbackAudioBuffer = playbackBuffer; // Use this for playing.
                     track.audioAssetId = crypto.randomUUID();   // Unique ID for this audio asset.
                     track.fileName = file.name;
@@ -1226,7 +1230,23 @@
 
                     const content = await zip.generateAsync({type:'blob',compression:"DEFLATE",compressionOptions:{level:9}});
                     const a=document.createElement('a'); a.href=URL.createObjectURL(content);
-                    a.download=`project.wmus`; a.click(); a.remove(); URL.revokeObjectURL(a.href);
+                    
+                    let songName = dom.songNameInput.value.trim();
+                    let filenameBase = 'project';
+
+                    if (songName) {
+                        let sanitizedName = songName
+                            .toLowerCase()
+                            .replace(/\s+/g, '-')
+                            .replace(/[^a-z0-9-]/g, '');
+
+                        if (sanitizedName) {
+                            filenameBase = sanitizedName;
+                        }
+                    }
+
+                    a.download = `${filenameBase}.wmus`;
+                    a.click(); a.remove(); URL.revokeObjectURL(a.href);
                 } catch (error) { console.error("Failed to save project:", error); } 
                 finally { setButtonLoading(dom.saveProjectBtn, false); }
             }
@@ -1242,10 +1262,10 @@
                      const projectBuffer = await projectFile.async('arraybuffer');
                      const audioFileMap = new Map();
                      const audioPromises = Object.values(zip.files).filter(f=>f.name.startsWith('audio_'))
-                        .map(async f=>{
-                            const i=parseInt(f.name.match(/(\d+)/)[0]), blob=await f.async('blob');
-                            audioFileMap.set(i,{blob,name:f.name});
-                        });
+                         .map(async f=>{
+                             const i=parseInt(f.name.match(/(\d+)/)[0]), blob=await f.async('blob');
+                             audioFileMap.set(i,{blob,name:f.name});
+                         });
                      await Promise.all(audioPromises);
                      await parseState(projectBuffer, audioFileMap);
                      renderAll();
@@ -1282,4 +1302,3 @@
     </script>
 </body>
 </html>
-
