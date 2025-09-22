@@ -722,26 +722,44 @@
                     stepBtn.addEventListener('mousedown', e => {
                         if (e.button !== 0) return;
                         let isDragging = false;
+                        const isTandemDrag = e.shiftKey; // Capture shift key state on mousedown
                         const initialY = e.clientY;
                         const rect = e.target.getBoundingClientRect();
                         const dragTarget = (e.clientX - rect.left < rect.width / 2) ? 'gain' : 'pitch';
                         const initialValue = track.steps[stepDataIndex][dragTarget];
+
                         const onMouseMove = moveEvent => {
                             const deltaY = initialY - moveEvent.clientY;
                             if (!isDragging && Math.abs(deltaY) > 4) isDragging = true;
+                            
                             if (isDragging) {
-                                track.steps[stepDataIndex][dragTarget] = Math.max(0, Math.min(100, initialValue + deltaY * 0.5));
-                                updateIndicators();
+                                const newValue = Math.max(0, Math.min(100, initialValue + deltaY * 0.5));
+                                if (isTandemDrag) {
+                                    // Apply to all steps in the track
+                                    track.steps.forEach(step => {
+                                        step[dragTarget] = newValue;
+                                    });
+                                    // Update all indicators for this track
+                                    updateAllIndicatorsForTrack(track);
+                                } else {
+                                    // Apply to just this step
+                                    track.steps[stepDataIndex][dragTarget] = newValue;
+                                    updateIndicators(); // The one from the closure
+                                }
                             }
                         };
+
                         const onMouseUp = () => {
                             window.removeEventListener('mousemove', onMouseMove);
                             window.removeEventListener('mouseup', onMouseUp);
                             if (!isDragging) {
+                                // Don't toggle active state if shift is held, to avoid misclicks
+                                if (isTandemDrag) return;
                                 track.steps[stepDataIndex].active = !track.steps[stepDataIndex].active;
                                 stepBtn.classList.toggle('active');
                             }
                         };
+                        
                         window.addEventListener('mousemove', onMouseMove);
                         window.addEventListener('mouseup', onMouseUp);
                     });
@@ -801,6 +819,19 @@
                     swingValue.textContent = `${track.swing}%`;
                 };
                 track.element.querySelector('.remove-track-btn').onclick = () => removeTrack(track.id);
+            }
+
+            function updateAllIndicatorsForTrack(track) {
+                if (!track.element) return;
+                const stepButtons = track.element.querySelectorAll('.step-button');
+                stepButtons.forEach((btn, i) => {
+                    const stepDataIndex = i * (CONFIG.STEPS_PER_PATTERN / track.division);
+                    const stepData = track.steps[stepDataIndex];
+                    const gainIndicator = btn.querySelector('.gain-indicator');
+                    const pitchIndicator = btn.querySelector('.pitch-indicator');
+                    if (gainIndicator) gainIndicator.style.height = `${stepData.gain}%`;
+                    if (pitchIndicator) pitchIndicator.style.height = `${stepData.pitch}%`;
+                });
             }
 
             function addPattern(duplicate = false) {
