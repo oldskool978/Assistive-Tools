@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Web Audio Sequencer</title>
+    <title>The Sequencer</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -239,7 +239,7 @@
         <div class="track p-2 rounded-lg flex flex-col space-y-3 w-40 flex-shrink-0" style="background-color: var(--bg-track);">
             <div class="track-controls w-full flex flex-col space-y-2">
                 <div class="relative w-full">
-                    <input type="file" class="hidden file-input" accept="audio/*">
+                    <input type="file" class="hidden file-input" accept="audio/*" multiple>
                     <button class="w-full text-left p-2 text-xs sm:text-sm rounded-md truncate btn btn-secondary load-sound-btn">Load Sound</button>
                 </div>
                 <div class="flex items-center justify-between w-full">
@@ -776,32 +776,40 @@
                 if (track.playbackAudioBuffer) { loadBtn.textContent = track.fileName || 'Loaded Sample'; }
                 const fileInput = track.element.querySelector('.file-input');
                 loadBtn.onclick = () => fileInput.click();
+
                 fileInput.onchange = async e => {
-                    const file = e.target.files[0];
-                    if (!file) return;
+                    const files = e.target.files;
+                    if (!files || files.length === 0) return;
+
+                    // --- Process the FIRST file on the CURRENT track ---
+                    const firstFile = files[0];
                     loadBtn.textContent = 'Processing...';
                     loadBtn.disabled = true;
+                    await loadSoundIntoTrack(track, firstFile, loadBtn);
 
-                    await initAudio();
-                    const rawBuffer = await audioContext.decodeAudioData(await file.arrayBuffer());
+                    // --- Process the REST of the files on NEW tracks ---
+                    if (files.length > 1) {
+                        const currentPattern = patterns.find(p => p.id === currentPatternId);
+                        if (!currentPattern) return;
 
-                    const processedAsset = await processAudioForSaving(rawBuffer);
-                    const pcmData = processedAsset.buffer.getChannelData(0);
-                    const deEmphasizedPcm = applyDeEmphasis(pcmData);
-                    const playbackBuffer = audioContext.createBuffer(1, deEmphasizedPcm.length, CONFIG.TARGET_SAMPLE_RATE);
-                    playbackBuffer.copyToChannel(deEmphasizedPcm, 0);
-                    
-                    track.rawAudioBuffer = rawBuffer;
-                    track.playbackAudioBuffer = playbackBuffer;
-                    track.audioAssetId = crypto.randomUUID();
-                    track.fileName = file.name;
-                    track.normalizationGainDb = processedAsset.normalizationGainDb;
-                    track.balanceFactor = processedAsset.balanceFactor;
-                    track.isProcessed = false;
-
-                    loadBtn.textContent = file.name;
-                    loadBtn.disabled = false;
+                        for (let i = 1; i < files.length; i++) {
+                            const additionalFile = files[i];
+                            addTrack(); // This adds the track and triggers a re-render
+                            
+                            // Get the new track object and its UI elements
+                            const newTrack = currentPattern.tracks[currentPattern.tracks.length - 1];
+                            const newTrackLoadBtn = newTrack.element.querySelector('.load-sound-btn');
+                            
+                            // Load the sound into this new track
+                            if (newTrackLoadBtn) {
+                                newTrackLoadBtn.textContent = 'Processing...';
+                                newTrackLoadBtn.disabled = true;
+                            }
+                            await loadSoundIntoTrack(newTrack, additionalFile, newTrackLoadBtn);
+                        }
+                    }
                 };
+                
                 const divisionSelect = track.element.querySelector('.division-select');
                 divisionSelect.value = track.division;
                 divisionSelect.onchange = e => {
@@ -820,6 +828,39 @@
                 };
                 track.element.querySelector('.remove-track-btn').onclick = () => removeTrack(track.id);
             }
+            
+            async function loadSoundIntoTrack(track, file, loadBtnElement) {
+                try {
+                    await initAudio();
+                    const rawBuffer = await audioContext.decodeAudioData(await file.arrayBuffer());
+
+                    const processedAsset = await processAudioForSaving(rawBuffer);
+                    const pcmData = processedAsset.buffer.getChannelData(0);
+                    const deEmphasizedPcm = applyDeEmphasis(pcmData);
+                    const playbackBuffer = audioContext.createBuffer(1, deEmphasizedPcm.length, CONFIG.TARGET_SAMPLE_RATE);
+                    playbackBuffer.copyToChannel(deEmphasizedPcm, 0);
+                    
+                    track.rawAudioBuffer = rawBuffer;
+                    track.playbackAudioBuffer = playbackBuffer;
+                    track.audioAssetId = crypto.randomUUID();
+                    track.fileName = file.name;
+                    track.normalizationGainDb = processedAsset.normalizationGainDb;
+                    track.balanceFactor = processedAsset.balanceFactor;
+                    track.isProcessed = false;
+
+                    if (loadBtnElement) {
+                        loadBtnElement.textContent = file.name;
+                        loadBtnElement.disabled = false;
+                    }
+                } catch (error) {
+                    if (loadBtnElement) {
+                        loadBtnElement.textContent = 'Load Sound';
+                        loadBtnElement.disabled = false;
+                    }
+                    throw error;
+                }
+            }
+
 
             function updateAllIndicatorsForTrack(track) {
                 if (!track.element) return;
@@ -1296,6 +1337,27 @@
             dom.saveProjectBtn.addEventListener('click', saveProject);
             dom.loadProjectBtn.addEventListener('click', () => dom.loadProjectInput.click());
             dom.loadProjectInput.addEventListener('change', (e) => loadProject(e.target.files[0]));
+
+            window.addEventListener('keydown', (event) => {
+                // Use the space bar to toggle play/stop, unless an input field is focused.
+                if (event.code === 'Space' && document.activeElement.tagName !== 'INPUT') {
+                    event.preventDefault(); // Prevent scrolling the page
+                    togglePlayback();
+                }
+            });
+
+            window.addEventListener('beforeunload', (event) => {
+                // Check if there is any work that could be lost.
+                // A simple check: more than one pattern, or any track has audio loaded.
+                const hasUnsavedWork = patterns.length > 1 || 
+                                       (patterns.length > 0 && patterns.some(p => p.tracks.some(t => t.rawAudioBuffer)));
+
+                if (hasUnsavedWork) {
+                    // Standard way to trigger the browser's native confirmation prompt.
+                    event.preventDefault();
+                    event.returnValue = ''; // Required for legacy browser support.
+                }
+            });
 
             addPattern();
         });
