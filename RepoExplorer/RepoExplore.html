@@ -8,103 +8,21 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>
-        body {
-            font-family: 'Inter', sans-serif;
-        }
-        .spinner {
-            border: 4px solid rgba(0, 0, 0, 0.1);
-            width: 36px;
-            height: 36px;
-            border-radius: 50%;
-            border-left-color: #2563eb;
-            animation: spin 1s ease infinite;
-        }
-        @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
-        }
-        .filter-btn {
-            padding: 6px 12px;
-            border-radius: 9999px;
-            font-size: 0.875rem;
-            font-weight: 500;
-            background-color: #e5e7eb;
-            color: #374151;
-            transition: all 0.2s ease-in-out;
-            border: 1px solid transparent;
-            cursor: pointer;
-        }
-        .filter-btn:hover {
-            background-color: #d1d5db;
-        }
-        .active-filter, .active-filter:hover {
-            background-color: #2563eb;
-            color: white;
-            font-weight: 600;
-            border-color: transparent;
-        }
-        .adv-filter-tag {
-            padding: 4px 10px;
-            border-radius: 6px;
-            font-size: 0.875rem;
-            font-weight: 500;
-            background-color: #f3f4f6;
-            color: #374151;
-            border: 1px solid #d1d5db;
-            transition: all 0.2s ease-in-out;
-            cursor: pointer;
-            text-align: center;
-            outline: 2px solid transparent;
-            outline-offset: 1px;
-        }
-        .adv-filter-tag:hover {
-            border-color: #9ca3af;
-            background-color: #e5e7eb;
-        }
-        .active-adv-filter, .active-adv-filter:hover {
-            background-color: #dbeafe;
-            color: #1e40af;
-            border-color: #3b82f6;
-            outline-color: #60a5fa;
-        }
-        .file-item {
-            outline: 2px solid transparent;
-            outline-offset: 1px;
-        }
-        .active-explorer-item, .active-explorer-item:hover {
-            background-color: #dcfce7 !important; /* bg-green-100 */
-            border-color: #22c55e !important; /* border-green-500 */
-            outline-color: #4ade80 !important; /* outline-green-400 */
-        }
-        .main-container-bg {
-            background-color: #ffffff;
-            background-image: radial-gradient(#f3f4f6 1px, transparent 1px);
-            background-size: 16px 16px;
-        }
-        /* Console Override Buttons */
-        .override-tag {
-            padding: 4px 10px;
-            border-radius: 6px;
-            font-size: 0.8rem;
-            font-weight: 500;
-            background-color: #374151; /* bg-gray-700 */
-            color: #d1d5db; /* text-gray-300 */
-            border: 1px solid #4b5563; /* border-gray-600 */
-            transition: all 0.2s ease-in-out;
-            cursor: pointer;
-            outline: 2px solid transparent;
-            outline-offset: 1px;
-        }
-        .override-tag:hover {
-             border-color: #6b7280; /* border-gray-500 */
-             background-color: #4b5563; /* bg-gray-600 */
-        }
-        .active-override, .active-override:hover {
-            background-color: #1d4ed8; /* bg-blue-700 */
-            color: #eff6ff; /* text-blue-100 */
-            border-color: #3b82f6; /* border-blue-500 */
-            outline-color: #60a5fa; /* outline-blue-400 */
-        }
+        body { font-family: 'Inter', sans-serif; }
+        .spinner { border: 4px solid rgba(0, 0, 0, 0.1); width: 36px; height: 36px; border-radius: 50%; border-left-color: #2563eb; animation: spin 1s ease infinite; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        .filter-btn { padding: 6px 12px; border-radius: 9999px; font-size: 0.875rem; font-weight: 500; background-color: #e5e7eb; color: #374151; transition: all 0.2s ease-in-out; border: 1px solid transparent; cursor: pointer; }
+        .filter-btn:hover { background-color: #d1d5db; }
+        .active-filter, .active-filter:hover { background-color: #2563eb; color: white; font-weight: 600; border-color: transparent; }
+        .adv-filter-tag { padding: 4px 10px; border-radius: 6px; font-size: 0.875rem; font-weight: 500; background-color: #f3f4f6; color: #374151; border: 1px solid #d1d5db; transition: all 0.2s ease-in-out; cursor: pointer; text-align: center; outline: 2px solid transparent; outline-offset: 1px; }
+        .adv-filter-tag:hover { border-color: #9ca3af; background-color: #e5e7eb; }
+        .active-adv-filter, .active-adv-filter:hover { background-color: #dbeafe; color: #1e40af; border-color: #3b82f6; outline-color: #60a5fa; }
+        .file-item { outline: 2px solid transparent; outline-offset: 1px; }
+        .active-explorer-item, .active-explorer-item:hover { background-color: #dcfce7 !important; border-color: #22c55e !important; outline-color: #4ade80 !important; }
+        .main-container-bg { background-color: #ffffff; background-image: radial-gradient(#f3f4f6 1px, transparent 1px); background-size: 16px 16px; }
+        .override-tag { padding: 4px 10px; border-radius: 6px; font-size: 0.8rem; font-weight: 500; background-color: #374151; color: #d1d5db; border: 1px solid #4b5563; transition: all 0.2s ease-in-out; cursor: pointer; outline: 2px solid transparent; outline-offset: 1px; }
+        .override-tag:hover { border-color: #6b7280; background-color: #4b5563; }
+        .active-override, .active-override:hover { background-color: #1d4ed8; color: #eff6ff; border-color: #3b82f6; outline-color: #60a5fa; }
     </style>
 </head>
 <body class="bg-gray-100 text-gray-800 min-h-screen p-4">
@@ -126,26 +44,19 @@
             </button>
         </form>
         
-        <div id="navigation" class="hidden items-center justify-between bg-gray-50 p-3 rounded-lg mb-4">
-            <button id="backButton" class="flex items-center gap-2 text-sm font-medium text-gray-600 hover:text-blue-600 transition-colors">
-                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16">
-                    <path fill-rule="evenodd" d="M15 8a.5.5 0 0 0-.5-.5H2.707l3.147-3.146a.5.5 0 1 0-.708-.708l-4 4a.5.5 0 0 0 0 .708l4 4a.5.5 0 0 0 .708-.708L2.707 8.5H14.5A.5.5 0 0 0 15 8z"/>
-                </svg>
+        <div id="navigation" class="hidden items-center justify-between bg-gray-50 p-3 rounded-lg mb-4 min-w-0">
+            <button id="backButton" class="flex items-center gap-2 text-sm font-medium text-gray-600 hover:text-blue-600 transition-colors flex-shrink-0">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16"><path fill-rule="evenodd" d="M15 8a.5.5 0 0 0-.5-.5H2.707l3.147-3.146a.5.5 0 1 0-.708-.708l-4 4a.5.5 0 0 0 0 .708l4 4a.5.5 0 0 0 .708-.708L2.707 8.5H14.5A.5.5 0 0 0 15 8z"/></svg>
                 Back
             </button>
-            <div id="breadcrumbs" class="text-xs text-gray-500 truncate"></div>
+            <div id="breadcrumbs" class="text-xs text-gray-500 truncate min-w-0 ml-4"></div>
         </div>
 
         <div class="md:flex justify-between items-start mb-4 gap-4">
-            <div id="filterControls" class="flex flex-wrap gap-2 mb-4 md:mb-0">
-                </div>
+            <div id="filterControls" class="flex flex-wrap gap-2 mb-4 md:mb-0"></div>
             <div class="flex items-center gap-3 justify-end flex-shrink-0">
-                 <button id="generatePipBtn" class="filter-btn bg-green-600 text-white hidden" title="Generate pip command for selected packages">
-                    Generate Command
-                </button>
-                <button id="advancedFilterBtn" class="filter-btn hidden" title="Filter by package name">
-                    Advanced
-                </button>
+                 <button id="generatePipBtn" class="filter-btn bg-green-600 text-white hidden" title="Generate pip command for selected packages">Generate Command</button>
+                <button id="advancedFilterBtn" class="filter-btn hidden" title="Filter by package name">Advanced</button>
                 <div id="viewControls" class="flex items-center gap-3 hidden">
                     <label for="showAllToggle" class="text-sm font-medium text-gray-700">Show all versions</label>
                     <div class="relative inline-block w-10 align-middle select-none">
@@ -156,18 +67,13 @@
             </div>
         </div>
         
-        <div id="advancedPackageFilterContainer" class="hidden w-full grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-2 mb-4 p-4 bg-gray-50/50 rounded-lg border">
-            </div>
+        <div id="advancedPackageFilterContainer" class="hidden w-full grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-2 mb-4 p-4 bg-gray-50/50 rounded-lg border"></div>
 
         <div id="results" class="mt-4">
             <div id="message" class="text-center text-gray-500 p-8 sm:p-12">
-                <svg class="mx-auto h-20 w-20 text-gray-300" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M13.19 8.688a4.5 4.5 0 0 1 1.242 7.244l-4.5 4.5a4.5 4.5 0 0 1-6.364-6.364l1.757-1.757m13.35-.622 1.757-1.757a4.5 4.5 0 0 0-6.364-6.364l-4.5 4.5a4.5 4.5 0 0 0 1.242 7.244" />
-                </svg>
+                <svg class="mx-auto h-20 w-20 text-gray-300" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M13.19 8.688a4.5 4.5 0 0 1 1.242 7.244l-4.5 4.5a4.5 4.5 0 0 1-6.364-6.364l1.757-1.757m13.35-.622 1.757-1.757a4.5 4.5 0 0 0-6.364-6.364l-4.5 4.5a4.5 4.5 0 0 0 1.242 7.244" /></svg>
                 <h3 class="mt-4 text-xl font-bold text-gray-800">Explore Any Repository</h3>
-                <p class="mt-2 text-md text-gray-500">
-                    Just paste a URL to begin. <br class="hidden sm:block"> I'll remember it for your next visit.
-                </p>
+                <p class="mt-2 text-md text-gray-500">Just paste a URL to begin. <br class="hidden sm:block"> I'll remember it for your next visit.</p>
             </div>
             <div id="loading" class="hidden text-center p-8">
                 <div class="spinner mx-auto"></div>
@@ -178,23 +84,15 @@
     </div>
 
     <div id="modal-backdrop" class="hidden fixed inset-0 bg-black bg-opacity-70 z-40"></div>
-    
     <div id="mockConsole" class="hidden fixed inset-0 flex items-center justify-center p-4 z-50">
         <div class="bg-gray-900 text-white rounded-lg shadow-2xl w-full max-w-4xl font-mono text-sm border-2 border-gray-700">
             <div class="bg-gray-800/50 px-4 py-2 flex items-center justify-between rounded-t-lg border-b border-gray-700">
-                <div class="flex items-center gap-2">
-                    <span class="w-3 h-3 bg-red-500 rounded-full"></span>
-                    <span class="w-3 h-3 bg-yellow-500 rounded-full"></span>
-                    <span class="w-3 h-3 bg-green-500 rounded-full"></span>
-                </div>
+                <div class="flex items-center gap-2"><span class="w-3 h-3 bg-red-500 rounded-full"></span><span class="w-3 h-3 bg-yellow-500 rounded-full"></span><span class="w-3 h-3 bg-green-500 rounded-full"></span></div>
                 <span class="text-gray-400 font-bold">Smart Install Command</span>
                 <button id="closeConsole" class="text-gray-400 hover:text-white text-2xl leading-none">&times;</button>
             </div>
             <div class="p-6">
-                <div class="bg-black p-4 rounded mb-4 text-base overflow-x-auto">
-                    <span class="text-green-400 mr-2">user@linux:~$</span><code id="commandText" class="text-white break-words"></code>
-                </div>
-                
+                <div class="bg-black p-4 rounded mb-4 text-base overflow-x-auto"><span class="text-green-400 mr-2">user@linux:~$</span><code id="commandText" class="text-white break-words"></code></div>
                 <div class="font-sans border-t border-gray-700 pt-4">
                     <h4 class="text-gray-400 font-bold mb-2 text-xs uppercase tracking-wider">Overrides</h4>
                     <div id="flagToggles" class="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
@@ -208,514 +106,143 @@
                         <button data-flag="--use-pep517" class="override-tag" title="Use PEP 517 for building source distributions.">--use-pep517</button>
                     </div>
                 </div>
-
-                <div class="mt-6 text-right">
-                    <button id="copyCommand" class="bg-blue-600 text-white text-sm font-sans font-semibold px-4 py-2 rounded-lg hover:bg-blue-700 transition-all duration-200 transform hover:scale-105">
-                        Copy Command
-                    </button>
-                </div>
+                <div class="mt-6 text-right"><button id="copyCommand" class="bg-blue-600 text-white text-sm font-sans font-semibold px-4 py-2 rounded-lg hover:bg-blue-700 transition-all duration-200 transform hover:scale-105">Copy Command</button></div>
             </div>
         </div>
     </div>
 
     <script>
         document.addEventListener('DOMContentLoaded', () => {
-            // --- DOM Element References ---
-            const form = document.getElementById('repoForm');
-            const urlInput = document.getElementById('repoUrl');
-            const messageDiv = document.getElementById('message');
-            const loadingDiv = document.getElementById('loading');
-            const fileListContainer = document.getElementById('fileList');
-            const navigationDiv = document.getElementById('navigation');
-            const backButton = document.getElementById('backButton');
-            const breadcrumbsDiv = document.getElementById('breadcrumbs');
-            const filterControlsContainer = document.getElementById('filterControls');
-            const viewControlsContainer = document.getElementById('viewControls');
-            const showAllToggle = document.getElementById('showAllToggle');
-            const advancedFilterBtn = document.getElementById('advancedFilterBtn');
-            const advancedPackageFilterContainer = document.getElementById('advancedPackageFilterContainer');
-            const generatePipBtn = document.getElementById('generatePipBtn');
-            const modalBackdrop = document.getElementById('modal-backdrop');
-            const mockConsole = document.getElementById('mockConsole');
-            const closeConsoleBtn = document.getElementById('closeConsole');
-            const commandTextSpan = document.getElementById('commandText');
-            const copyCommandBtn = document.getElementById('copyCommand');
-            const flagToggles = document.getElementById('flagToggles');
+            // --- PROXY MANAGER ---
+            // Manages CORS proxies, tracking performance to prioritize reliable ones.
+            const proxyManager = (() => {
+                const PROXY_KEY = 'repoExplorerProxies';
+                const baseProxies = [ 'https://api.allorigins.win/raw?url=', 'https://cors.eu.org/', 'https://corsproxy.io/?' ];
+                let proxies = [];
+                function load() {
+                    try { const stored = JSON.parse(localStorage.getItem(PROXY_KEY) || '[]'); const storedUrls = new Set(stored.map(p => p.url)); const newProxies = baseProxies.filter(url => !storedUrls.has(url)); proxies = [...stored, ...newProxies.map(url => ({ url, successes: 0, failures: 0, avgTime: 0 }))]; save(); } catch (e) { proxies = baseProxies.map(url => ({ url, successes: 0, failures: 0, avgTime: 0 })); }
+                }
+                function save() { localStorage.setItem(PROXY_KEY, JSON.stringify(proxies)); }
+                function getBest() { return [...proxies].sort((a, b) => { const scoreA = a.successes / (a.successes + a.failures + 1); const scoreB = b.successes / (b.successes + b.failures + 1); if (scoreB !== scoreA) return scoreB - scoreA; return a.avgTime - b.avgTime; }); }
+                function report(url, success, time) { const proxy = proxies.find(p => p.url === url); if (!proxy) return; if (success) { proxy.successes++; const total_time = proxy.avgTime * (proxy.successes - 1); proxy.avgTime = (total_time + time) / proxy.successes; } else { proxy.failures++; } save(); }
+                load();
+                return { getBest, report };
+            })();
 
-            // --- SVG Icons ---
-            const fileIconSVG = `<svg class="w-6 h-6 text-gray-500 flex-shrink-0" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" /></svg>`;
-            const externalLinkIconSVG = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="text-gray-400 flex-shrink-0" viewBox="0 0 16 16"><path fill-rule="evenodd" d="M8.636 3.5a.5.5 0 0 0-.5-.5H1.5A1.5 1.5 0 0 0 0 4.5v10A1.5 1.5 0 0 0 1.5 16h10a1.5 1.5 0 0 0 1.5-1.5V7.864a.5.5 0 0 0-1 0V14.5a.5.5 0 0 1-.5-.5h-10a.5.5 0 0 1-.5-.5v-10a.5.5 0 0 1 .5-.5h6.636a.5.5 0 0 0 .5-.5z"/><path fill-rule="evenodd" d="M16 .5a.5.5 0 0 0-.5-.5h-5a.5.5 0 0 0 0 1h3.793L6.146 9.146a.5.5 0 1 0 .708.708L15 1.707V5.5a.5.5 0 0 0 1 0v-5z"/></svg>`;
+            // --- STATE & DOM ---
+            const state = { historyStack: [], allItems: [], advancedFilters: new Set(), selectedPackages: new Map() };
+            const dom = { form: document.getElementById('repoForm'), urlInput: document.getElementById('repoUrl'), messageDiv: document.getElementById('message'), loadingDiv: document.getElementById('loading'), fileListContainer: document.getElementById('fileList'), navigationDiv: document.getElementById('navigation'), backButton: document.getElementById('backButton'), breadcrumbsDiv: document.getElementById('breadcrumbs'), filterControlsContainer: document.getElementById('filterControls'), viewControlsContainer: document.getElementById('viewControls'), showAllToggle: document.getElementById('showAllToggle'), advancedFilterBtn: document.getElementById('advancedFilterBtn'), advancedPackageFilterContainer: document.getElementById('advancedPackageFilterContainer'), generatePipBtn: document.getElementById('generatePipBtn'), modalBackdrop: document.getElementById('modal-backdrop'), mockConsole: document.getElementById('mockConsole'), closeConsoleBtn: document.getElementById('closeConsole'), commandTextSpan: document.getElementById('commandText'), copyCommandBtn: document.getElementById('copyCommand'), flagToggles: document.getElementById('flagToggles') };
+
+            // --- INITIALIZATION ---
+            function init() {
+                setupEventListeners();
+                loadLastRepoUrl();
+            }
+
+            // --- EVENT LISTENERS & HANDLERS ---
+            function setupEventListeners() {
+                dom.form.addEventListener('submit', handleRepoFormSubmit);
+                dom.backButton.addEventListener('click', handleBackButtonClick);
+                dom.showAllToggle.addEventListener('change', () => renderFileList());
+                dom.advancedFilterBtn.addEventListener('click', () => { dom.advancedFilterBtn.classList.toggle('active-filter'); dom.advancedPackageFilterContainer.classList.toggle('hidden'); });
+                dom.filterControlsContainer.addEventListener('click', handlePythonFilterClick);
+                dom.advancedPackageFilterContainer.addEventListener('click', handlePackageFilterClick);
+                dom.generatePipBtn.addEventListener('click', handleGenerateCommandClick);
+                dom.flagToggles.addEventListener('click', handleFlagToggleClick);
+                dom.fileListContainer.addEventListener('click', handleFileItemClick);
+                dom.closeConsoleBtn.addEventListener('click', () => closeModal(dom.mockConsole));
+                dom.modalBackdrop.addEventListener('click', () => closeModal(dom.mockConsole));
+                dom.copyCommandBtn.addEventListener('click', handleCopyCommand);
+            }
             
-            // --- State ---
-            let historyStack = [];
-            let allParsedItems = [];
-            let advancedFilters = new Set();
-            let selectedPackages = new Map(); // Use a Map to store { url: name }
-
-            // --- Initialization ---
-            function loadLastUrl() {
-                const lastUrl = localStorage.getItem('lastRepoUrl');
-                if (lastUrl) {
-                    urlInput.value = lastUrl;
-                    form.dispatchEvent(new Event('submit', { bubbles: true }));
-                }
-            }
-
-            // --- Event Listeners ---
-            form.addEventListener('submit', (e) => {
-                e.preventDefault();
-                const url = urlInput.value.trim();
-                if (url) {
-                    localStorage.setItem('lastRepoUrl', url);
-                    historyStack = [url];
-                    fetchAndDisplayRepo(url, true); // It's a new repo exploration
-                }
-            });
-
-            backButton.addEventListener('click', () => {
-                if (historyStack.length > 1) {
-                    historyStack.pop();
-                    const prevUrl = historyStack[historyStack.length - 1];
-                    fetchAndDisplayRepo(prevUrl);
-                }
-            });
+            function handleRepoFormSubmit(e) { e.preventDefault(); const url = dom.urlInput.value.trim(); if (!url.match(/^https?:\/\//)) { alert('Please enter a valid HTTP or HTTPS URL.'); return; } localStorage.setItem('lastRepoUrl', url); state.historyStack = [url]; fetchAndDisplayRepo(url, true); }
+            function handleBackButtonClick() { if (state.historyStack.length > 1) { state.historyStack.pop(); fetchAndDisplayRepo(state.historyStack[state.historyStack.length - 1]); } }
+            function handlePythonFilterClick(e) { const btn = e.target.closest('button'); if (!btn) return; const allBtn = dom.filterControlsContainer.querySelector('[data-version="All"]'); if (btn.dataset.version === 'All') { dom.filterControlsContainer.querySelectorAll('button').forEach(b => b.classList.remove('active-filter')); btn.classList.add('active-filter'); } else { allBtn.classList.remove('active-filter'); btn.classList.toggle('active-filter'); } if (!dom.filterControlsContainer.querySelector('.active-filter:not([data-version="All"])')) allBtn.classList.add('active-filter'); renderFileList(); }
+            function handlePackageFilterClick(e) { const btn = e.target.closest('button'); if (btn) { const name = btn.dataset.packageName; btn.classList.toggle('active-adv-filter'); state.advancedFilters.has(name) ? state.advancedFilters.delete(name) : state.advancedFilters.add(name); renderFileList(); } }
+            function handleGenerateCommandClick() { if (state.selectedPackages.size > 0) { updateCommandText(); openModal(dom.mockConsole); } }
+            function handleFlagToggleClick(e) { const btn = e.target.closest('button'); if (btn) { btn.classList.toggle('active-override'); updateCommandText(); } }
+            function handleFileItemClick(e) { const itemEl = e.target.closest('.file-item'); if (!itemEl || itemEl.tagName === 'A') return; const { url, type, name } = itemEl.dataset; if (type === 'directory') { state.historyStack.push(url); fetchAndDisplayRepo(url); } else if (type === 'package') { if (state.selectedPackages.has(url)) { state.selectedPackages.delete(url); } else { state.selectedPackages.set(url, name); } updatePipBtnVisibility(); itemEl.classList.toggle('active-explorer-item'); } }
+            function handleCopyCommand() { navigator.clipboard.writeText(dom.commandTextSpan.textContent).then(() => { dom.copyCommandBtn.textContent = 'Copied!'; setTimeout(() => { dom.copyCommandBtn.textContent = 'Copy Command'; }, 1500); }).catch(err => console.error('Clipboard copy failed:', err)); }
             
-            showAllToggle.addEventListener('change', () => renderFileList());
-            
-            advancedFilterBtn.addEventListener('click', (e) => {
-                e.target.classList.toggle('active-filter');
-                advancedPackageFilterContainer.classList.toggle('hidden');
-            });
-            
-            advancedPackageFilterContainer.addEventListener('click', (e) => {
-                const button = e.target.closest('button');
-                if (button) {
-                    const packageName = button.dataset.packageName;
-                    button.classList.toggle('active-adv-filter');
-                    if (advancedFilters.has(packageName)) {
-                        advancedFilters.delete(packageName);
-                    } else {
-                        advancedFilters.add(packageName);
-                    }
-                    renderFileList();
-                }
-            });
-
-            generatePipBtn.addEventListener('click', () => {
-                if (selectedPackages.size === 0) return;
-                updateCommandText();
-                openModal(mockConsole);
-            });
-            
-            flagToggles.addEventListener('click', (e) => {
-                const button = e.target.closest('button');
-                if(button) {
-                    button.classList.toggle('active-override');
-                    updateCommandText();
-                }
-            });
-
-            // --- Modal Logic ---
-            function openModal(modal) {
-                modalBackdrop.classList.remove('hidden');
-                modal.classList.remove('hidden');
-            }
-            function closeModal(modal) {
-                modalBackdrop.classList.add('hidden');
-                modal.classList.add('hidden');
-            }
-
-            closeConsoleBtn.addEventListener('click', () => closeModal(mockConsole));
-            modalBackdrop.addEventListener('click', () => closeModal(mockConsole));
-
-            copyCommandBtn.addEventListener('click', () => {
-                const commandToCopy = commandTextSpan.textContent;
-                const tempTextArea = document.createElement('textarea');
-                tempTextArea.value = commandToCopy;
-                tempTextArea.style.position = 'absolute';
-                tempTextArea.style.left = '-9999px';
-                document.body.appendChild(tempTextArea);
-                tempTextArea.select();
-                try {
-                    document.execCommand('copy');
-                    copyCommandBtn.textContent = 'Copied!';
-                    setTimeout(() => { copyCommandBtn.textContent = 'Copy Command'; }, 1500);
-                } catch (err) {
-                    console.error('Sandbox Copy Error:', err);
-                }
-                document.body.removeChild(tempTextArea);
-            });
-
-            // --- UI & State Management ---
-            function updateUIState(state, text = '') {
-                messageDiv.classList.add('hidden');
-                loadingDiv.classList.add('hidden');
-                
-                if (state !== 'content') {
-                    fileListContainer.innerHTML = '';
-                    filterControlsContainer.innerHTML = '';
-                    viewControlsContainer.classList.add('hidden');
-                    advancedFilterBtn.classList.add('hidden');
-                    advancedPackageFilterContainer.classList.add('hidden');
-                    advancedFilterBtn.classList.remove('active-filter');
-                    generatePipBtn.classList.add('hidden');
-                }
-
-                if (state === 'loading') {
-                    loadingDiv.classList.remove('hidden');
-                } else if (state === 'message') {
-                    messageDiv.innerHTML = `<p class="p-8 text-red-500">${text}</p>`;
-                    messageDiv.classList.remove('hidden');
-                    navigationDiv.classList.add('hidden');
-                } else if (state === 'content') {
-                    navigationDiv.classList.remove('hidden');
-                } else if (state === 'initial') {
-                    messageDiv.classList.remove('hidden');
-                }
-            }
-
-            function updatePipBtnVisibility() {
-                if (selectedPackages.size > 0) {
-                    generatePipBtn.classList.remove('hidden');
-                    generatePipBtn.textContent = `Generate Command (${selectedPackages.size})`;
-                } else {
-                    generatePipBtn.classList.add('hidden');
-                }
-            }
-
-            function updateCommandText() {
-                if (selectedPackages.size === 0) return;
-
-                const findLinksMode = flagToggles.querySelector('[data-flag="--find-links-mode"]').classList.contains('active-override');
-                let command;
-                let flags = '';
-                
-                flagToggles.querySelectorAll('button').forEach(button => {
-                    if (button.dataset.flag !== '--find-links-mode' && button.classList.contains('active-override')) {
-                        flags += ` ${button.dataset.flag}`;
-                    }
-                });
-
-                if (findLinksMode) {
-                    command = 'python -m pip install';
-                    const packageNames = [...new Set(selectedPackages.values())].map(name => `"${name}"`).join(' ');
-                    const repoUrl = historyStack[historyStack.length - 1];
-                    command += `${flags} ${packageNames} --find-links ${decodeURIComponent(repoUrl)}`;
-                } else {
-                    command = 'pip install';
-                    const urls = [...selectedPackages.keys()].map(url => decodeURIComponent(url)).join(' ');
-                    command += `${flags} ${urls}`;
-                }
-                
-                commandTextSpan.textContent = command;
-            }
-
-            // --- Core Logic: Fetching and Parsing ---
-            function shuffleArray(array) {
-                for (let i = array.length - 1; i > 0; i--) {
-                    const j = Math.floor(Math.random() * (i + 1));
-                    [array[i], array[j]] = [array[j], array[i]];
-                }
-            }
-
+            // --- CORE LOGIC & PARSING ---
             async function fetchAndDisplayRepo(url, isNewRepo = false) {
                 if (!url.endsWith('/')) url += '/';
                 updateUIState('loading');
                 updateNavigation(url);
-                
-                if (isNewRepo) {
-                    selectedPackages.clear();
+                if (isNewRepo) state.selectedPackages.clear();
+                const sortedProxies = proxyManager.getBest();
+                for (const proxy of sortedProxies) {
+                    const fullUrl = `${proxy.url}${proxy.url.includes('?') ? encodeURIComponent(url) : url}`;
+                    const startTime = performance.now();
+                    try { const response = await fetch(fullUrl); if (!response.ok) throw new Error(`${response.status}`); const html = await response.text(); proxyManager.report(proxy.url, true, performance.now() - startTime); parseAndRender(html, url); return; } catch (error) { proxyManager.report(proxy.url, false, performance.now() - startTime); }
                 }
-                
-                const proxies = [
-                    (u) => `https://api.allorigins.win/raw?url=${u}`,
-                    (u) => `https://cors.eu.org/${encodeURIComponent(u)}`,
-                    (u) => `https://corsproxy.io/?${u}`,
-                    (u) => `https://thingproxy.freeboard.io/fetch/${u}`,
-                    (u) => `https://api.codetabs.com/v1/proxy/?quest=${u}`
-                ];
-                
-                shuffleArray(proxies);
-                let lastError = null;
-                const errors = [];
-
-                for (const proxyBuilder of proxies) {
-                    const proxyUrl = proxyBuilder(encodeURIComponent(url));
-                    try {
-                        const response = await fetch(proxyUrl);
-                        if (!response.ok) throw new Error(`Request failed with status: ${response.status}`);
-                        const html = await response.text();
-                        parseAndRender(html, url);
-                        return;
-                    } catch (error) {
-                        errors.push({ proxy: proxyBuilder.toString().slice(0, 40), error });
-                        lastError = error;
-                    }
-                }
-                
-                if (lastError) {
-                       console.error("All proxies failed to fetch the URL.", { url, errors });
-                       updateUIState('message', `Failed to fetch repository. The server may be down or a CORS proxy service is unavailable. <br><small>Please check the URL and try again later.</small>`);
-                }
-            }
-            
-            function parseWheelFilename(filename) {
-                if (!filename.endsWith('.whl')) return { name: filename, isParsed: false };
-                const regex = /^(.*?)-([^-]+?)-((?:py|cp)\d+)-([^-]+)-(.*)\.whl$/;
-                const match = filename.match(regex);
-                if (match) {
-                    let [, name, version, pythonTag, , platform] = match;
-                    let pythonVersion = pythonTag; // Fallback
-                    if (pythonTag.startsWith('cp') || pythonTag.startsWith('py')) {
-                        const versionStr = pythonTag.substring(2);
-                        const major = versionStr[0];
-                        let minor, patch;
-                        
-                        if (versionStr.length > 2 && (versionStr.startsWith('31') || versionStr.startsWith('32'))) {
-                            minor = versionStr.substring(1, 3);
-                            patch = versionStr.substring(3);
-                        } else {
-                            minor = versionStr.substring(1, 2);
-                            patch = versionStr.substring(2);
-                        }
-
-                        let formattedVersion = `Python ${major}.${minor}`;
-                        if (patch) {
-                            formattedVersion += `.${patch}`;
-                        }
-                        pythonVersion = formattedVersion;
-                    }
-                    return { name, version, python: pythonVersion, platform: platform.replace(/_/g, ' '), isParsed: true };
-                }
-                return { name: filename, isParsed: false };
+                updateUIState('message', `Failed to fetch repository. All CORS proxies failed.`);
             }
 
             function parseAndRender(html, baseUrl) {
-                const parser = new DOMParser();
-                const doc = parser.parseFromString(html, 'text/html');
+                const doc = new DOMParser().parseFromString(html, 'text/html');
                 const links = Array.from(doc.querySelectorAll('a'));
-
-                if (links.length === 0) {
-                      updateUIState('message', 'No links found at this URL.');
-                      return;
-                }
-
-                const items = links.map(link => {
+                if (links.length === 0) { updateUIState('message', 'No readable files or directories found.'); return; }
+                const rawItems = links.map(link => {
                     const href = link.getAttribute('href');
                     if (!href || href.startsWith('?') || href.startsWith('#') || href === '../' || link.textContent.trim().toLowerCase().includes('parent directory')) return null;
-                    
-                    const absoluteUrl = new URL(href, baseUrl).href;
-                    if (absoluteUrl === baseUrl) return null;
-
-                    const isExternal = new URL(absoluteUrl).hostname !== new URL(baseUrl).hostname;
-                    const isDirectory = !isExternal && href.endsWith('/');
-                    const pathParts = new URL(absoluteUrl).pathname.split('/').filter(Boolean);
-                    const displayName = decodeURIComponent(pathParts.pop() || '');
-
-                    return { name: displayName, url: absoluteUrl, isDirectory, isExternal };
+                    const url = new URL(href, baseUrl).href;
+                    if (url === baseUrl) return null;
+                    const isExternal = new URL(url).hostname !== new URL(baseUrl).hostname; const isDirectory = !isExternal && href.endsWith('/'); const name = decodeURIComponent(new URL(url).pathname.split('/').filter(Boolean).pop() || '');
+                    return { name, url, isDirectory, isExternal, parsed: parseGenericFilename(name) };
                 }).filter(Boolean);
-                
-                allParsedItems = Array.from(new Map(items.map(item => [item.url, item])).values())
-                    .map(item => ({ ...item, parsed: parseWheelFilename(item.name) }));
-                
-                advancedFilters.clear();
+                if (rawItems.length === 0) { updateUIState('message', 'No readable files or directories found.'); return; }
+                state.allItems = groupMetadataFiles(rawItems);
+                state.advancedFilters.clear();
                 updatePipBtnVisibility();
                 updateUIState('content');
-                setupPythonFilters();
-                setupAdvancedFilters();
+                setupFilters();
                 renderFileList();
             }
             
-            // --- Rendering Logic ---
-            function setupPythonFilters() {
-                filterControlsContainer.innerHTML = '';
-                const pythonVersions = new Set(allParsedItems.map(item => item.parsed.python).filter(Boolean));
-                const versions = [...pythonVersions].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
-
-                if (versions.length > 0) {
-                     const allButton = document.createElement('button');
-                    allButton.textContent = 'All';
-                    allButton.className = 'filter-btn active-filter';
-                    allButton.dataset.version = 'All';
-                    filterControlsContainer.appendChild(allButton);
-
-                    versions.forEach(version => {
-                        const button = document.createElement('button');
-                        button.textContent = version;
-                        button.className = 'filter-btn';
-                        button.dataset.version = version;
-                        filterControlsContainer.appendChild(button);
-                    });
-                }
-                
-                filterControlsContainer.addEventListener('click', (e) => {
-                    const button = e.target.closest('button');
-                    if (!button) return;
-
-                    const isAllButton = button.dataset.version === 'All';
-                    const allBtn = filterControlsContainer.querySelector('[data-version="All"]');
-
-                    if (isAllButton) {
-                        filterControlsContainer.querySelectorAll('button').forEach(btn => btn.classList.remove('active-filter'));
-                        button.classList.add('active-filter');
-                    } else {
-                        allBtn.classList.remove('active-filter');
-                        button.classList.toggle('active-filter');
-                    }
-
-                    const anyActive = filterControlsContainer.querySelector('.active-filter:not([data-version="All"])');
-                    if (!anyActive) {
-                        allBtn.classList.add('active-filter');
-                    }
-                    
-                    renderFileList();
-                });
+            function parseGenericFilename(name) {
+                const parsers = {
+                    WHEEL: { re: /^(.*?)-([^-]+?)-((?:py|cp)\d+)-([^-]+)-(.*)\.whl$/, action: m => { let [, name, version, pythonTag] = m; let python = pythonTag; if (pythonTag.startsWith('cp') || pythonTag.startsWith('py')) { const v = pythonTag.substring(2); python = `Py ${v[0]}.${v.length > 2 && v.startsWith('31') ? v.substring(1,3) : v.substring(1,2)}`; } return { name, version, python }; } },
+                    DEB:   { re: /^(.*?)_([\d.\-~]+(?:-?\d+))_.*?\.deb$/, action: m => ({ name: m[1] || name, version: m[2] || 'N/A' }) },
+                    RPM:   { re: /^(.*?)-(\d+.*)-\d+\..*?\.rpm$/, action: m => ({ name: m[1] || name, version: m[2] || 'N/A' }) },
+                    ARCHIVE: { re: /^(.*?)-([\d.]+.*?)\.(?:tar\.gz|tgz|zip|tar\.bz2|tar\.xz)$/, action: m => ({ name: m[1] || name, version: m[2] || 'N/A' }) }
+                };
+                for (const type in parsers) { const match = name.match(parsers[type].re); if (match) return { isParsed: true, fileType: type, ...parsers[type].action(match) }; }
+                return { isParsed: false, fileType: 'FILE', name };
             }
 
-            function setupAdvancedFilters() {
-                advancedPackageFilterContainer.innerHTML = '';
-                const packageNames = new Set(
-                    allParsedItems
-                        .filter(item => item.parsed.isParsed)
-                        .map(item => item.parsed.name)
-                );
-
-                if (packageNames.size === 0) {
-                    advancedFilterBtn.classList.add('hidden');
-                    advancedPackageFilterContainer.classList.add('hidden');
-                    advancedFilterBtn.classList.remove('active-filter');
-                    return;
-                }
-                
-                advancedFilterBtn.classList.remove('hidden');
-
-                [...packageNames].sort().forEach(name => {
-                    const button = document.createElement('button');
-                    button.textContent = name;
-                    button.className = 'adv-filter-tag';
-                    button.dataset.packageName = name;
-                    if(advancedFilters.has(name)) { // Persist highlight
-                        button.classList.add('active-adv-filter');
-                    }
-                    advancedPackageFilterContainer.appendChild(button);
-                });
+            // --- UI & RENDERING ---
+            function updateUIState(viewState, text = '') { dom.messageDiv.classList.add('hidden'); dom.loadingDiv.classList.add('hidden'); if (viewState !== 'content') { dom.fileListContainer.innerHTML = ''; dom.filterControlsContainer.innerHTML = ''; dom.viewControlsContainer.classList.add('hidden'); dom.advancedFilterBtn.classList.add('hidden'); dom.advancedPackageFilterContainer.classList.add('hidden'); dom.advancedFilterBtn.classList.remove('active-filter'); dom.generatePipBtn.classList.add('hidden'); } if (viewState === 'loading') dom.loadingDiv.classList.remove('hidden'); else if (viewState === 'message') { dom.messageDiv.innerHTML = `<p class="p-8 text-red-500">${sanitizeHTML(text)}</p>`; dom.messageDiv.classList.remove('hidden'); dom.navigationDiv.classList.add('hidden'); } else if (viewState === 'content') dom.navigationDiv.classList.remove('hidden'); else if (viewState === 'initial') { dom.messageDiv.innerHTML = `<svg class="mx-auto h-20 w-20 text-gray-300" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M13.19 8.688a4.5 4.5 0 0 1 1.242 7.244l-4.5 4.5a4.5 4.5 0 0 1-6.364-6.364l1.757-1.757m13.35-.622 1.757-1.757a4.5 4.5 0 0 0-6.364-6.364l-4.5 4.5a4.5 4.5 0 0 0 1.242 7.244" /></svg><h3 class="mt-4 text-xl font-bold text-gray-800">Explore Any Repository</h3><p class="mt-2 text-md text-gray-500">Just paste a URL to begin. <br class="hidden sm:block"> I'll remember it for your next visit.</p>`; dom.messageDiv.classList.remove('hidden'); } }
+            function setupFilters() { const py = [...new Set(state.allItems.map(i=>i.parsed.python).filter(Boolean))].sort((a,b)=>a.localeCompare(b,void 0,{numeric:!0})); const pkgs = [...new Set(state.allItems.filter(i=>i.parsed.isParsed).map(i=>i.parsed.name))].sort(); dom.filterControlsContainer.innerHTML = py.length > 0 ? ['All', ...py].map(v => `<button class="filter-btn ${v==='All'?'active-filter':''}" data-version="${v}">${sanitizeHTML(v)}</button>`).join('') : ''; dom.advancedFilterBtn.classList.toggle('hidden', pkgs.length === 0); dom.advancedPackageFilterContainer.innerHTML = pkgs.length > 0 ? pkgs.map(n => `<button class="adv-filter-tag" data-package-name="${sanitizeHTML(n)}">${sanitizeHTML(n)}</button>`).join('') : ''; }
+            function renderFileList() { const pyVers = new Set([...dom.filterControlsContainer.querySelectorAll('.active-filter')].map(b=>b.dataset.version)); const advActive = state.advancedFilters.size > 0; const items = dom.showAllToggle.checked ? [...state.allItems] : getLatestVersions(state.allItems); const filtered = items.filter(i => (i.parsed.isParsed && (!advActive || state.advancedFilters.has(i.parsed.name)) && (pyVers.has('All') || pyVers.has(i.parsed.python))) || (!i.parsed.isParsed && !advActive)).sort((a, b) => (a.isDirectory !== b.isDirectory) ? (a.isDirectory ? -1 : 1) : (a.isExternal !== b.isExternal) ? (a.isExternal ? 1 : -1) : a.name.localeCompare(b.name, void 0, { numeric: !0 })); dom.fileListContainer.innerHTML = filtered.map(item => createFileItemHTML(item)).join(''); dom.viewControlsContainer.classList.toggle('hidden', !state.allItems.some(i => i.parsed.isParsed)); }
+            function createFileItemHTML(item) {
+                const { name, url, isDirectory, isExternal, parsed, metadataFiles } = item;
+                const icons = { FOLDER: '📁', WHEEL: '⚙️', DEB: '📦', RPM: '📦', ARCHIVE: '🗜️', FILE: '📄', EXTERNAL: '🔗' };
+                const s = sanitizeHTML; // Alias for brevity
+                const metaBadges = (metadataFiles || []).map(m => `<span class="font-semibold bg-gray-200 text-gray-800 px-2 py-1 rounded-full text-xs">${s(m.type)}</span>`).join('');
+                if (isExternal) return `<a href="${s(url)}" target="_blank" rel="noopener noreferrer" class="file-item flex items-center justify-between bg-white border rounded-lg p-3 transition-all duration-200 hover:shadow-md hover:border-indigo-500"><div class="flex items-center gap-3"><span>${icons.EXTERNAL}</span><span class="font-semibold text-gray-700 break-all">${s(name)}</span></div></a>`;
+                const isSelected = state.selectedPackages.has(url);
+                let type, content, classes;
+                if (isDirectory) { type='directory'; content=`<div class="flex items-center gap-3"><span>${icons.FOLDER}</span><span class="font-semibold text-gray-700 break-all">${s(name)}</span></div>`; classes='cursor-pointer'; }
+                else if (parsed.isParsed) { type='package'; content=`<div class="flex-grow min-w-0"><h3 class="font-bold text-md text-gray-900 truncate" title="${s(name)}"><span>${icons[parsed.fileType]}</span> ${s(parsed.name)}</h3><p class="text-xs text-gray-500 break-all ml-7">${s(parsed.version)}</p></div><div class="flex items-center gap-2 ml-4 flex-shrink-0">${metaBadges}${parsed.python ? `<span class="font-semibold bg-blue-100 text-blue-800 px-2 py-1 rounded-full text-xs">${s(parsed.python)}</span>` : ''}</div>`; classes=`cursor-pointer ${isSelected?'active-explorer-item':''}`; }
+                else { type='file'; content=`<div class="flex items-center gap-3"><span>${icons.FILE}</span><h3 class="font-semibold text-gray-700 truncate" title="${s(name)}">${s(name)}</h3></div><div class="flex items-center gap-2 ml-4 flex-shrink-0">${metaBadges}</div>`; classes='cursor-default'; }
+                return `<div class="file-item flex items-center justify-between bg-white border rounded-lg p-3 transition-all duration-200 hover:shadow-md ${classes}" data-url="${s(url)}" data-type="${type}" data-name="${s(parsed.name || '')}">${content}</div>`;
             }
+            function updateNavigation(url) { const canBack = state.historyStack.length > 1; dom.backButton.disabled = !canBack; dom.backButton.classList.toggle('opacity-50', !canBack); try { const u = new URL(url); dom.breadcrumbsDiv.innerHTML = `<span class="font-semibold text-gray-700">${sanitizeHTML(u.hostname)}</span> &rsaquo; ${sanitizeHTML(u.pathname.split('/').filter(p=>p).join(' &rsaquo; '))}`; } catch(e) { dom.breadcrumbsDiv.textContent = url; } }
+            function updatePipBtnVisibility() { const count = state.selectedPackages.size; dom.generatePipBtn.classList.toggle('hidden', count === 0); if (count > 0) dom.generatePipBtn.textContent = `Generate Command (${count})`; }
+            function updateCommandText() { if (state.selectedPackages.size === 0) return; const findLinks = dom.flagToggles.querySelector('[data-flag="--find-links-mode"]').classList.contains('active-override'); const flags = [...dom.flagToggles.querySelectorAll('button.active-override')].map(b => b.dataset.flag).filter(f => f !== '--find-links-mode').join(' '); let pkgs; if (findLinks) { const names = [...new Set(state.selectedPackages.values())].map(n => `"${n}"`).join(' '); const repo = state.historyStack[state.historyStack.length - 1]; pkgs = `${names} --find-links ${decodeURIComponent(repo)}`; } else { pkgs = [...state.selectedPackages.keys()].map(u => `"${decodeURIComponent(u)}"`).join(' '); } dom.commandTextSpan.textContent = `python -m pip install ${flags} ${pkgs}`.replace(/\s+/g, ' ').trim(); }
 
-            function renderFileList() {
-                fileListContainer.innerHTML = '';
-                
-                const activePythonButtons = filterControlsContainer.querySelectorAll('.active-filter');
-                const activePythonVersions = new Set(Array.from(activePythonButtons).map(btn => btn.dataset.version));
+            // --- HELPERS ---
+            function loadLastRepoUrl() { const url = localStorage.getItem('lastRepoUrl'); if (url) dom.urlInput.value = url; else updateUIState('initial'); }
+            function getLatestVersions(items) { const pkgs={}; const others=[]; items.forEach(i => { if (i.parsed.isParsed) { const n=i.parsed.name; if (!pkgs[n]) pkgs[n]=[]; pkgs[n].push(i); } else { others.push(i); } }); const latest=[]; for(const n in pkgs){ const newest=pkgs[n].reduce((a,b)=>a.parsed.version.localeCompare(b.parsed.version,void 0,{numeric:!0})>0?a:b); latest.push(...pkgs[n].filter(i=>i.parsed.version===newest.parsed.version)); } return [...others, ...latest]; }
+            function groupMetadataFiles(items) { const grouped = []; const consumed = new Set(); const metaExts = ['.asc', '.sig', '.sha256', '.md5']; items.forEach(item => { if (consumed.has(item.url) || metaExts.some(ext => item.name.endsWith(ext))) return; item.metadataFiles = []; for (const ext of metaExts) { const metaFile = items.find(other => other.name === item.name + ext); if (metaFile) { item.metadataFiles.push({ type: ext.substring(1).toUpperCase(), url: metaFile.url }); consumed.add(metaFile.url); } } grouped.push(item); consumed.add(item.url); }); return grouped; }
+            function sanitizeHTML(str) { return str.replace(/[&<>"']/g, (m) => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' })[m]); }
+            function openModal(modal) { dom.modalBackdrop.classList.remove('hidden'); modal.classList.remove('hidden'); }
+            function closeModal(modal) { dom.modalBackdrop.classList.add('hidden'); modal.classList.add('hidden'); }
+            function shuffleArray(a) { for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]];} }
 
-                const advancedFilterActive = advancedFilters.size > 0;
-                let itemsToDisplay;
-
-                if (!showAllToggle.checked) {
-                    const packagesByName = {};
-                    const otherItems = [];
-                    allParsedItems.forEach(item => {
-                        if (item.parsed.isParsed) {
-                            const name = item.parsed.name;
-                            if (!packagesByName[name]) packagesByName[name] = [];
-                            packagesByName[name].push(item);
-                        } else {
-                            otherItems.push(item);
-                        }
-                    });
-
-                    const newestItems = [];
-                    for (const name in packagesByName) {
-                        const newestVersion = packagesByName[name].reduce((latest, current) => 
-                            current.parsed.version.localeCompare(latest.parsed.version, undefined, { numeric: true }) > 0 ? current : latest, { parsed: { version: '0' } });
-                        newestItems.push(...packagesByName[name].filter(item => item.parsed.version === newestVersion.parsed.version));
-                    }
-                    itemsToDisplay = [...otherItems, ...newestItems];
-                } else {
-                    itemsToDisplay = [...allParsedItems];
-                }
-
-                const finalFilteredItems = itemsToDisplay.filter(item => {
-                    if (item.parsed.isParsed) {
-                        if (advancedFilterActive && !advancedFilters.has(item.parsed.name)) return false;
-                        if (!activePythonVersions.has('All') && !activePythonVersions.has(item.parsed.python)) return false;
-                        return true;
-                    }
-                    return !advancedFilterActive;
-                }).sort((a, b) => {
-                    if (a.isDirectory !== b.isDirectory) return a.isDirectory ? -1 : 1;
-                    if (a.isExternal !== b.isExternal) return a.isExternal ? 1 : -1;
-                    return a.name.localeCompare(b.name, undefined, { numeric: true });
-                });
-
-                finalFilteredItems.forEach(item => {
-                    let itemEl;
-                    if (item.isExternal) {
-                        itemEl = document.createElement('a');
-                        itemEl.href = item.url;
-                        itemEl.target = "_blank";
-                        itemEl.rel = "noopener noreferrer";
-                        itemEl.innerHTML = `<div class="flex items-center gap-3"><svg class="w-6 h-6 text-indigo-400 flex-shrink-0" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M13.19 8.688a4.5 4.5 0 0 1 1.242 7.244l-4.5 4.5a4.5 4.5 0 0 1-6.364-6.364l1.757-1.757m13.35-.622 1.757-1.757a4.5 4.5 0 0 0-6.364-6.364l-4.5 4.5a4.5 4.5 0 0 0 1.242 7.244" /></svg><span class="font-semibold text-gray-700 break-all">${item.name}</span></div>${externalLinkIconSVG}`;
-                    } else {
-                        itemEl = document.createElement('div');
-                        if (item.isDirectory) {
-                            itemEl.innerHTML = `<div class="flex items-center gap-3"><svg class="w-6 h-6 text-yellow-500 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20"><path d="M2 6a2 2 0 012-2h5l2 2h5a2 2 0 012 2v6a2 2 0 01-2 2H4a2 2 0 01-2-2V6z"></path></svg><span class="font-semibold text-gray-700 break-all">${item.name}</span></div><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="text-gray-400" viewBox="0 0 16 16"><path fill-rule="evenodd" d="M4.646 1.646a.5.5 0 0 1 .708 0l6 6a.5.5 0 0 1 0 .708l-6 6a.5.5 0 0 1-.708-.708L10.293 8 4.646 2.354a.5.5 0 0 1 0-.708z"/></svg>`;
-                            itemEl.addEventListener('click', () => { historyStack.push(item.url); fetchAndDisplayRepo(item.url); });
-                        } else {
-                            const { parsed } = item;
-                            if (parsed.isParsed) { // Wheel file
-                                itemEl.innerHTML = `<div class="flex-grow min-w-0"><h3 class="font-bold text-md text-gray-900 truncate" title="${item.name}">${parsed.name}</h3><p class="text-xs text-gray-500 break-all">${parsed.version}</p></div><div class="flex items-center gap-2 text-xs ml-4 flex-shrink-0"><span class="font-semibold bg-blue-100 text-blue-800 px-2 py-1 rounded-full">${parsed.python}</span><span class="font-semibold bg-gray-200 text-gray-800 px-2 py-1 rounded-full hidden sm:inline-block">${parsed.platform}</span></div>`;
-                                itemEl.addEventListener('click', () => { 
-                                    if(selectedPackages.has(item.url)) {
-                                        selectedPackages.delete(item.url);
-                                    } else {
-                                        selectedPackages.set(item.url, item.parsed.name);
-                                    }
-                                    updatePipBtnVisibility();
-                                    // Instead of a full re-render, just toggle the class on the clicked element
-                                    itemEl.classList.toggle('active-explorer-item');
-                                });
-                            } else { // Generic file
-                                itemEl.innerHTML = `<div class="flex items-center gap-3">${fileIconSVG}<h3 class="font-semibold text-gray-700 truncate" title="${item.name}">${item.name}</h3></div>`;
-                            }
-                        }
-                    }
-                    
-                    // --- FIX START ---
-                    // Build the base class list first
-                    let baseClasses = 'file-item flex items-center justify-between bg-white border rounded-lg p-3 transition-all duration-200';
-                    if (!item.parsed?.isParsed && !item.isDirectory && !item.isExternal) {
-                        baseClasses += ' cursor-default hover:border-gray-200 hover:shadow-none';
-                    } else {
-                        baseClasses += ' hover:border-blue-500 cursor-pointer hover:shadow-md';
-                    }
-                    itemEl.className = baseClasses;
-
-                    // NOW, add the active class if it's selected. This won't be overwritten.
-                    if (selectedPackages.has(item.url)) {
-                        itemEl.classList.add('active-explorer-item');
-                    }
-                    // --- FIX END ---
-                    
-                    fileListContainer.appendChild(itemEl);
-                });
-
-                viewControlsContainer.classList.toggle('hidden', !allParsedItems.some(item => item.parsed.isParsed));
-            }
-            
-            function updateNavigation(url) {
-                backButton.disabled = historyStack.length <= 1;
-                backButton.classList.toggle('opacity-50', backButton.disabled);
-                try {
-                     const urlObj = new URL(url);
-                     breadcrumbsDiv.innerHTML = `<span class="font-semibold text-gray-700">${urlObj.hostname}</span> &rsaquo; ${urlObj.pathname.split('/').filter(p=>p).join(' &rsaquo; ')}`;
-                } catch(e) { breadcrumbsDiv.textContent = url; }
-            }
-
-            // --- Start the App ---
-            if (!urlInput.value) {
-                updateUIState('initial');
-            }
-            loadLastUrl();
+            // --- APPLICATION START ---
+            init();
         });
     </script>
 </body>
