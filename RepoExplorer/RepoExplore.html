@@ -23,6 +23,7 @@
         .override-tag { padding: 4px 10px; border-radius: 6px; font-size: 0.8rem; font-weight: 500; background-color: #374151; color: #d1d5db; border: 1px solid #4b5563; transition: all 0.2s ease-in-out; cursor: pointer; outline: 2px solid transparent; outline-offset: 1px; }
         .override-tag:hover { border-color: #6b7280; background-color: #4b5563; }
         .active-override, .active-override:hover { background-color: #1d4ed8; color: #eff6ff; border-color: #3b82f6; outline-color: #60a5fa; }
+        .auto-active-override, .auto-active-override:hover { background-color: #1e3a8a; color: #dbeafe; border-color: #60a5fa; border-style: dashed; }
     </style>
 </head>
 <body class="bg-gray-100 text-gray-800 min-h-screen p-4">
@@ -92,18 +93,21 @@
                 <button id="closeConsole" class="text-gray-400 hover:text-white text-2xl leading-none">&times;</button>
             </div>
             <div class="p-6">
-                <div class="bg-black p-4 rounded mb-4 text-base overflow-x-auto"><span class="text-green-400 mr-2">user@linux:~$</span><code id="commandText" class="text-white break-words"></code></div>
+                <div class="bg-black p-4 rounded mb-4 text-base overflow-x-auto">
+                    <span class="text-green-400 mr-2">user@linux:~$</span><code id="commandText" class="text-white break-words"></code>
+                </div>
                 <div class="font-sans border-t border-gray-700 pt-4">
-                    <h4 class="text-gray-400 font-bold mb-2 text-xs uppercase tracking-wider">Overrides</h4>
-                    <div id="flagToggles" class="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
-                        <button data-flag="--find-links-mode" class="override-tag" title="Use package names with --find-links instead of direct URLs. Lets pip choose the best file.">Use --find-links</button>
+                    <h4 class="text-gray-400 font-bold mb-3 text-xs uppercase tracking-wider">Overrides</h4>
+                    <div id="flagToggles" class="grid grid-cols-2 md:grid-cols-3 gap-2 text-xs">
                         <button data-flag="-U" class="override-tag active-override" title="Upgrade packages to the newest available version.">-U, --upgrade</button>
-                        <button data-flag="--force-reinstall" class="override-tag" title="Reinstall all packages even if they are already up-to-date.">--force-reinstall</button>
                         <button data-flag="--no-deps" class="override-tag" title="Don't install package dependencies.">--no-deps</button>
-                        <button data-flag="--pre" class="override-tag" title="Include pre-release and development versions.">--pre</button>
-                        <button data-flag="--ignore-installed" class="override-tag" title="Ignore the installed packages, overwriting them.">--ignore-installed</button>
                         <button data-flag="--no-cache-dir" class="override-tag" title="Disable the cache, force fresh download.">--no-cache-dir</button>
+                        <button data-flag="--force-reinstall" class="override-tag" title="Reinstall all packages even if they are already up-to-date.">--force-reinstall</button>
+                        <button data-flag="--pre" class="override-tag" title="Include pre-release and development versions.">--pre</button>
                         <button data-flag="--use-pep517" class="override-tag" title="Use PEP 517 for building source distributions.">--use-pep517</button>
+                        <button data-flag="--ignore-installed" class="override-tag" title="Ignore the installed packages, overwriting them.">--ignore-installed</button>
+                        <button data-flag="--require-hashes" class="override-tag" title="Enforce package integrity by checking hashes. Requires you to provide the expected hashes.">--require-hashes</button>
+                        <button data-flag="--find-links-mode" class="override-tag" title="Use package names with --find-links instead of direct URLs. Lets pip choose the best file.">Use --find-links</button>
                     </div>
                 </div>
                 <div class="mt-6 text-right"><button id="copyCommand" class="bg-blue-600 text-white text-sm font-sans font-semibold px-4 py-2 rounded-lg hover:bg-blue-700 transition-all duration-200 transform hover:scale-105">Copy Command</button></div>
@@ -112,6 +116,11 @@
     </div>
 
     <script>
+        /**
+         * Repo Explorer
+         * A single-page application to intelligently browse and generate installation commands for files in a repository.
+         * Features: Smart proxy management, robust file parsing, security hardening, and a context-aware command console.
+         */
         document.addEventListener('DOMContentLoaded', () => {
             // --- PROXY MANAGER ---
             // Manages CORS proxies, tracking performance to prioritize reliable ones.
@@ -124,7 +133,7 @@
                 }
                 function save() { localStorage.setItem(PROXY_KEY, JSON.stringify(proxies)); }
                 function getBest() { return [...proxies].sort((a, b) => { const scoreA = a.successes / (a.successes + a.failures + 1); const scoreB = b.successes / (b.successes + b.failures + 1); if (scoreB !== scoreA) return scoreB - scoreA; return a.avgTime - b.avgTime; }); }
-                function report(url, success, time) { const proxy = proxies.find(p => p.url === url); if (!proxy) return; if (success) { proxy.successes++; const total_time = proxy.avgTime * (proxy.successes - 1); proxy.avgTime = (total_time + time) / proxy.successes; } else { proxy.failures++; } save(); }
+                function report(url, success, time) { const proxy = proxies.find(p => p.url === url); if (!proxy) return; if (success) { proxy.successes++; proxy.avgTime = (proxy.avgTime * (proxy.successes - 1) + time) / proxy.successes; } else { proxy.failures++; } save(); }
                 load();
                 return { getBest, report };
             })();
@@ -133,36 +142,21 @@
             const state = { historyStack: [], allItems: [], advancedFilters: new Set(), selectedPackages: new Map() };
             const dom = { form: document.getElementById('repoForm'), urlInput: document.getElementById('repoUrl'), messageDiv: document.getElementById('message'), loadingDiv: document.getElementById('loading'), fileListContainer: document.getElementById('fileList'), navigationDiv: document.getElementById('navigation'), backButton: document.getElementById('backButton'), breadcrumbsDiv: document.getElementById('breadcrumbs'), filterControlsContainer: document.getElementById('filterControls'), viewControlsContainer: document.getElementById('viewControls'), showAllToggle: document.getElementById('showAllToggle'), advancedFilterBtn: document.getElementById('advancedFilterBtn'), advancedPackageFilterContainer: document.getElementById('advancedPackageFilterContainer'), generatePipBtn: document.getElementById('generatePipBtn'), modalBackdrop: document.getElementById('modal-backdrop'), mockConsole: document.getElementById('mockConsole'), closeConsoleBtn: document.getElementById('closeConsole'), commandTextSpan: document.getElementById('commandText'), copyCommandBtn: document.getElementById('copyCommand'), flagToggles: document.getElementById('flagToggles') };
 
-            // --- INITIALIZATION ---
-            function init() {
-                setupEventListeners();
-                loadLastRepoUrl();
-            }
-
-            // --- EVENT LISTENERS & HANDLERS ---
+            // --- INITIALIZATION & EVENT LISTENERS ---
+            function init() { setupEventListeners(); loadLastRepoUrl(); }
             function setupEventListeners() {
-                dom.form.addEventListener('submit', handleRepoFormSubmit);
-                dom.backButton.addEventListener('click', handleBackButtonClick);
-                dom.showAllToggle.addEventListener('change', () => renderFileList());
-                dom.advancedFilterBtn.addEventListener('click', () => { dom.advancedFilterBtn.classList.toggle('active-filter'); dom.advancedPackageFilterContainer.classList.toggle('hidden'); });
-                dom.filterControlsContainer.addEventListener('click', handlePythonFilterClick);
-                dom.advancedPackageFilterContainer.addEventListener('click', handlePackageFilterClick);
-                dom.generatePipBtn.addEventListener('click', handleGenerateCommandClick);
-                dom.flagToggles.addEventListener('click', handleFlagToggleClick);
-                dom.fileListContainer.addEventListener('click', handleFileItemClick);
-                dom.closeConsoleBtn.addEventListener('click', () => closeModal(dom.mockConsole));
-                dom.modalBackdrop.addEventListener('click', () => closeModal(dom.mockConsole));
-                dom.copyCommandBtn.addEventListener('click', handleCopyCommand);
+                dom.form.addEventListener('submit', handleRepoFormSubmit); dom.backButton.addEventListener('click', handleBackButtonClick); dom.showAllToggle.addEventListener('change', () => renderFileList()); dom.advancedFilterBtn.addEventListener('click', () => { dom.advancedFilterBtn.classList.toggle('active-filter'); dom.advancedPackageFilterContainer.classList.toggle('hidden'); }); dom.filterControlsContainer.addEventListener('click', handlePythonFilterClick); dom.advancedPackageFilterContainer.addEventListener('click', handlePackageFilterClick); dom.generatePipBtn.addEventListener('click', handleGenerateCommandClick); dom.flagToggles.addEventListener('click', handleFlagToggleClick); dom.fileListContainer.addEventListener('click', handleFileItemClick); dom.closeConsoleBtn.addEventListener('click', () => closeModal(dom.mockConsole)); dom.modalBackdrop.addEventListener('click', () => closeModal(dom.mockConsole)); dom.copyCommandBtn.addEventListener('click', handleCopyCommand);
             }
             
+            // --- EVENT HANDLERS ---
             function handleRepoFormSubmit(e) { e.preventDefault(); const url = dom.urlInput.value.trim(); if (!url.match(/^https?:\/\//)) { alert('Please enter a valid HTTP or HTTPS URL.'); return; } localStorage.setItem('lastRepoUrl', url); state.historyStack = [url]; fetchAndDisplayRepo(url, true); }
             function handleBackButtonClick() { if (state.historyStack.length > 1) { state.historyStack.pop(); fetchAndDisplayRepo(state.historyStack[state.historyStack.length - 1]); } }
             function handlePythonFilterClick(e) { const btn = e.target.closest('button'); if (!btn) return; const allBtn = dom.filterControlsContainer.querySelector('[data-version="All"]'); if (btn.dataset.version === 'All') { dom.filterControlsContainer.querySelectorAll('button').forEach(b => b.classList.remove('active-filter')); btn.classList.add('active-filter'); } else { allBtn.classList.remove('active-filter'); btn.classList.toggle('active-filter'); } if (!dom.filterControlsContainer.querySelector('.active-filter:not([data-version="All"])')) allBtn.classList.add('active-filter'); renderFileList(); }
             function handlePackageFilterClick(e) { const btn = e.target.closest('button'); if (btn) { const name = btn.dataset.packageName; btn.classList.toggle('active-adv-filter'); state.advancedFilters.has(name) ? state.advancedFilters.delete(name) : state.advancedFilters.add(name); renderFileList(); } }
-            function handleGenerateCommandClick() { if (state.selectedPackages.size > 0) { updateCommandText(); openModal(dom.mockConsole); } }
-            function handleFlagToggleClick(e) { const btn = e.target.closest('button'); if (btn) { btn.classList.toggle('active-override'); updateCommandText(); } }
+            function handleGenerateCommandClick() { if (state.selectedPackages.size === 0) return; automateFlags(); updateCommandText(); openModal(dom.mockConsole); }
+            function handleFlagToggleClick(e) { const btn = e.target.closest('button'); if (btn) { btn.classList.remove('auto-active-override'); btn.classList.toggle('active-override'); updateCommandText(); } }
             function handleFileItemClick(e) { const itemEl = e.target.closest('.file-item'); if (!itemEl || itemEl.tagName === 'A') return; const { url, type, name } = itemEl.dataset; if (type === 'directory') { state.historyStack.push(url); fetchAndDisplayRepo(url); } else if (type === 'package') { if (state.selectedPackages.has(url)) { state.selectedPackages.delete(url); } else { state.selectedPackages.set(url, name); } updatePipBtnVisibility(); itemEl.classList.toggle('active-explorer-item'); } }
-            function handleCopyCommand() { navigator.clipboard.writeText(dom.commandTextSpan.textContent).then(() => { dom.copyCommandBtn.textContent = 'Copied!'; setTimeout(() => { dom.copyCommandBtn.textContent = 'Copy Command'; }, 1500); }).catch(err => console.error('Clipboard copy failed:', err)); }
+            function handleCopyCommand() { const commandToCopy = dom.commandTextSpan.textContent; navigator.clipboard.writeText(commandToCopy).then(() => { dom.copyCommandBtn.textContent = 'Copied!'; setTimeout(() => { dom.copyCommandBtn.textContent = 'Copy Command'; }, 1500); }).catch(err => console.error('Clipboard copy failed:', err)); }
             
             // --- CORE LOGIC & PARSING ---
             async function fetchAndDisplayRepo(url, isNewRepo = false) {
@@ -180,30 +174,18 @@
             }
 
             function parseAndRender(html, baseUrl) {
-                const doc = new DOMParser().parseFromString(html, 'text/html');
-                const links = Array.from(doc.querySelectorAll('a'));
-                if (links.length === 0) { updateUIState('message', 'No readable files or directories found.'); return; }
+                const doc = new DOMParser().parseFromString(html, 'text/html'); const links = Array.from(doc.querySelectorAll('a')); if (links.length === 0) { updateUIState('message', 'No readable files or directories found.'); return; }
                 const rawItems = links.map(link => {
-                    const href = link.getAttribute('href');
-                    if (!href || href.startsWith('?') || href.startsWith('#') || href === '../' || link.textContent.trim().toLowerCase().includes('parent directory')) return null;
-                    const url = new URL(href, baseUrl).href;
-                    if (url === baseUrl) return null;
-                    const isExternal = new URL(url).hostname !== new URL(baseUrl).hostname; const isDirectory = !isExternal && href.endsWith('/'); const name = decodeURIComponent(new URL(url).pathname.split('/').filter(Boolean).pop() || '');
-                    return { name, url, isDirectory, isExternal, parsed: parseGenericFilename(name) };
+                    const href = link.getAttribute('href'); if (!href || href.startsWith('?') || href.startsWith('#') || href === '../' || link.textContent.trim().toLowerCase().includes('parent directory')) return null; const url = new URL(href, baseUrl).href; if (url === baseUrl) return null; const isExternal = new URL(url).hostname !== new URL(baseUrl).hostname; const isDirectory = !isExternal && href.endsWith('/'); const name = decodeURIComponent(new URL(url).pathname.split('/').filter(Boolean).pop() || ''); return { name, url, isDirectory, isExternal, parsed: parseGenericFilename(name) };
                 }).filter(Boolean);
                 if (rawItems.length === 0) { updateUIState('message', 'No readable files or directories found.'); return; }
-                state.allItems = groupMetadataFiles(rawItems);
-                state.advancedFilters.clear();
-                updatePipBtnVisibility();
-                updateUIState('content');
-                setupFilters();
-                renderFileList();
+                state.allItems = groupMetadataFiles(rawItems); state.advancedFilters.clear(); updatePipBtnVisibility(); updateUIState('content'); setupFilters(); renderFileList();
             }
             
             function parseGenericFilename(name) {
                 const parsers = {
                     WHEEL: { re: /^(.*?)-([^-]+?)-((?:py|cp)\d+)-([^-]+)-(.*)\.whl$/, action: m => { let [, name, version, pythonTag] = m; let python = pythonTag; if (pythonTag.startsWith('cp') || pythonTag.startsWith('py')) { const v = pythonTag.substring(2); python = `Py ${v[0]}.${v.length > 2 && v.startsWith('31') ? v.substring(1,3) : v.substring(1,2)}`; } return { name, version, python }; } },
-                    DEB:   { re: /^(.*?)_([\d.\-~]+(?:-?\d+))_.*?\.deb$/, action: m => ({ name: m[1] || name, version: m[2] || 'N/A' }) },
+                    DEB:   { re: /^(.*?)_([\d.\-~]+(?:-?\d*))_.*?\.deb$/, action: m => ({ name: m[1] || name, version: m[2] || 'N/A' }) },
                     RPM:   { re: /^(.*?)-(\d+.*)-\d+\..*?\.rpm$/, action: m => ({ name: m[1] || name, version: m[2] || 'N/A' }) },
                     ARCHIVE: { re: /^(.*?)-([\d.]+.*?)\.(?:tar\.gz|tgz|zip|tar\.bz2|tar\.xz)$/, action: m => ({ name: m[1] || name, version: m[2] || 'N/A' }) }
                 };
@@ -216,13 +198,10 @@
             function setupFilters() { const py = [...new Set(state.allItems.map(i=>i.parsed.python).filter(Boolean))].sort((a,b)=>a.localeCompare(b,void 0,{numeric:!0})); const pkgs = [...new Set(state.allItems.filter(i=>i.parsed.isParsed).map(i=>i.parsed.name))].sort(); dom.filterControlsContainer.innerHTML = py.length > 0 ? ['All', ...py].map(v => `<button class="filter-btn ${v==='All'?'active-filter':''}" data-version="${v}">${sanitizeHTML(v)}</button>`).join('') : ''; dom.advancedFilterBtn.classList.toggle('hidden', pkgs.length === 0); dom.advancedPackageFilterContainer.innerHTML = pkgs.length > 0 ? pkgs.map(n => `<button class="adv-filter-tag" data-package-name="${sanitizeHTML(n)}">${sanitizeHTML(n)}</button>`).join('') : ''; }
             function renderFileList() { const pyVers = new Set([...dom.filterControlsContainer.querySelectorAll('.active-filter')].map(b=>b.dataset.version)); const advActive = state.advancedFilters.size > 0; const items = dom.showAllToggle.checked ? [...state.allItems] : getLatestVersions(state.allItems); const filtered = items.filter(i => (i.parsed.isParsed && (!advActive || state.advancedFilters.has(i.parsed.name)) && (pyVers.has('All') || pyVers.has(i.parsed.python))) || (!i.parsed.isParsed && !advActive)).sort((a, b) => (a.isDirectory !== b.isDirectory) ? (a.isDirectory ? -1 : 1) : (a.isExternal !== b.isExternal) ? (a.isExternal ? 1 : -1) : a.name.localeCompare(b.name, void 0, { numeric: !0 })); dom.fileListContainer.innerHTML = filtered.map(item => createFileItemHTML(item)).join(''); dom.viewControlsContainer.classList.toggle('hidden', !state.allItems.some(i => i.parsed.isParsed)); }
             function createFileItemHTML(item) {
-                const { name, url, isDirectory, isExternal, parsed, metadataFiles } = item;
-                const icons = { FOLDER: '📁', WHEEL: '⚙️', DEB: '📦', RPM: '📦', ARCHIVE: '🗜️', FILE: '📄', EXTERNAL: '🔗' };
-                const s = sanitizeHTML; // Alias for brevity
+                const { name, url, isDirectory, isExternal, parsed, metadataFiles } = item; const s = sanitizeHTML; const icons = { FOLDER: '📁', WHEEL: '⚙️', DEB: '📦', RPM: '📦', ARCHIVE: '🗜️', FILE: '📄', EXTERNAL: '🔗' };
                 const metaBadges = (metadataFiles || []).map(m => `<span class="font-semibold bg-gray-200 text-gray-800 px-2 py-1 rounded-full text-xs">${s(m.type)}</span>`).join('');
                 if (isExternal) return `<a href="${s(url)}" target="_blank" rel="noopener noreferrer" class="file-item flex items-center justify-between bg-white border rounded-lg p-3 transition-all duration-200 hover:shadow-md hover:border-indigo-500"><div class="flex items-center gap-3"><span>${icons.EXTERNAL}</span><span class="font-semibold text-gray-700 break-all">${s(name)}</span></div></a>`;
-                const isSelected = state.selectedPackages.has(url);
-                let type, content, classes;
+                const isSelected = state.selectedPackages.has(url); let type, content, classes;
                 if (isDirectory) { type='directory'; content=`<div class="flex items-center gap-3"><span>${icons.FOLDER}</span><span class="font-semibold text-gray-700 break-all">${s(name)}</span></div>`; classes='cursor-pointer'; }
                 else if (parsed.isParsed) { type='package'; content=`<div class="flex-grow min-w-0"><h3 class="font-bold text-md text-gray-900 truncate" title="${s(name)}"><span>${icons[parsed.fileType]}</span> ${s(parsed.name)}</h3><p class="text-xs text-gray-500 break-all ml-7">${s(parsed.version)}</p></div><div class="flex items-center gap-2 ml-4 flex-shrink-0">${metaBadges}${parsed.python ? `<span class="font-semibold bg-blue-100 text-blue-800 px-2 py-1 rounded-full text-xs">${s(parsed.python)}</span>` : ''}</div>`; classes=`cursor-pointer ${isSelected?'active-explorer-item':''}`; }
                 else { type='file'; content=`<div class="flex items-center gap-3"><span>${icons.FILE}</span><h3 class="font-semibold text-gray-700 truncate" title="${s(name)}">${s(name)}</h3></div><div class="flex items-center gap-2 ml-4 flex-shrink-0">${metaBadges}</div>`; classes='cursor-default'; }
@@ -230,17 +209,27 @@
             }
             function updateNavigation(url) { const canBack = state.historyStack.length > 1; dom.backButton.disabled = !canBack; dom.backButton.classList.toggle('opacity-50', !canBack); try { const u = new URL(url); dom.breadcrumbsDiv.innerHTML = `<span class="font-semibold text-gray-700">${sanitizeHTML(u.hostname)}</span> &rsaquo; ${sanitizeHTML(u.pathname.split('/').filter(p=>p).join(' &rsaquo; '))}`; } catch(e) { dom.breadcrumbsDiv.textContent = url; } }
             function updatePipBtnVisibility() { const count = state.selectedPackages.size; dom.generatePipBtn.classList.toggle('hidden', count === 0); if (count > 0) dom.generatePipBtn.textContent = `Generate Command (${count})`; }
-            function updateCommandText() { if (state.selectedPackages.size === 0) return; const findLinks = dom.flagToggles.querySelector('[data-flag="--find-links-mode"]').classList.contains('active-override'); const flags = [...dom.flagToggles.querySelectorAll('button.active-override')].map(b => b.dataset.flag).filter(f => f !== '--find-links-mode').join(' '); let pkgs; if (findLinks) { const names = [...new Set(state.selectedPackages.values())].map(n => `"${n}"`).join(' '); const repo = state.historyStack[state.historyStack.length - 1]; pkgs = `${names} --find-links ${decodeURIComponent(repo)}`; } else { pkgs = [...state.selectedPackages.keys()].map(u => `"${decodeURIComponent(u)}"`).join(' '); } dom.commandTextSpan.textContent = `python -m pip install ${flags} ${pkgs}`.replace(/\s+/g, ' ').trim(); }
+            function updateCommandText() { if (state.selectedPackages.size === 0) return; const findLinks = dom.flagToggles.querySelector('[data-flag="--find-links-mode"]').classList.contains('active-override'); const flags = [...dom.flagToggles.querySelectorAll('.active-override, .auto-active-override')].map(b => b.dataset.flag).filter(f => f !== '--find-links-mode').join(' '); let pkgs; if (findLinks) { const names = [...new Set(state.selectedPackages.values())].map(n => `"${n}"`).join(' '); const repo = state.historyStack[state.historyStack.length - 1]; pkgs = `${names} --find-links ${decodeURIComponent(repo)}`; } else { pkgs = [...state.selectedPackages.keys()].map(u => `"${decodeURIComponent(u)}"`).join(' '); } dom.commandTextSpan.textContent = `python -m pip install ${flags} ${pkgs}`.replace(/\s+/g, ' ').trim(); }
 
             // --- HELPERS ---
             function loadLastRepoUrl() { const url = localStorage.getItem('lastRepoUrl'); if (url) dom.urlInput.value = url; else updateUIState('initial'); }
             function getLatestVersions(items) { const pkgs={}; const others=[]; items.forEach(i => { if (i.parsed.isParsed) { const n=i.parsed.name; if (!pkgs[n]) pkgs[n]=[]; pkgs[n].push(i); } else { others.push(i); } }); const latest=[]; for(const n in pkgs){ const newest=pkgs[n].reduce((a,b)=>a.parsed.version.localeCompare(b.parsed.version,void 0,{numeric:!0})>0?a:b); latest.push(...pkgs[n].filter(i=>i.parsed.version===newest.parsed.version)); } return [...others, ...latest]; }
             function groupMetadataFiles(items) { const grouped = []; const consumed = new Set(); const metaExts = ['.asc', '.sig', '.sha256', '.md5']; items.forEach(item => { if (consumed.has(item.url) || metaExts.some(ext => item.name.endsWith(ext))) return; item.metadataFiles = []; for (const ext of metaExts) { const metaFile = items.find(other => other.name === item.name + ext); if (metaFile) { item.metadataFiles.push({ type: ext.substring(1).toUpperCase(), url: metaFile.url }); consumed.add(metaFile.url); } } grouped.push(item); consumed.add(item.url); }); return grouped; }
+            function automateFlags() {
+                dom.flagToggles.querySelectorAll('.auto-active-override').forEach(el => { el.classList.remove('auto-active-override'); el.title = el.dataset.originalTitle || ''; });
+                const selectedItems = [...state.selectedPackages.keys()].map(url => state.allItems.find(item => item.url === url)).filter(Boolean);
+                const hasPreRelease = selectedItems.some(item => item.parsed.version && /[a-zA-Z]/.test(item.parsed.version));
+                const preFlag = dom.flagToggles.querySelector('[data-flag="--pre"]');
+                if (hasPreRelease && !preFlag.classList.contains('active-override')) {
+                    preFlag.classList.add('auto-active-override');
+                    preFlag.dataset.originalTitle = preFlag.title;
+                    preFlag.title = 'Auto-enabled: A selected package is a pre-release version.';
+                }
+            }
             function sanitizeHTML(str) { return str.replace(/[&<>"']/g, (m) => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' })[m]); }
             function openModal(modal) { dom.modalBackdrop.classList.remove('hidden'); modal.classList.remove('hidden'); }
             function closeModal(modal) { dom.modalBackdrop.classList.add('hidden'); modal.classList.add('hidden'); }
-            function shuffleArray(a) { for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]];} }
-
+            
             // --- APPLICATION START ---
             init();
         });
