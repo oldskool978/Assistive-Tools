@@ -1357,9 +1357,7 @@
             };
             return { computeCoarse, computeFine };
         })();
-// --- PART 4: ANALYSIS ENGINE ---
-        // Calibrated Differentials, Entropy, and Structural Tensors
-
+        // --- PART 4: ANALYSIS ENGINE ---
         // Calibrated Differentials, Entropy, and Structural Tensors
         const AnalysisEngine = (() => {
             // Generic 1D Separable Convolution (Float64 Accumulation)
@@ -1444,7 +1442,6 @@
             // Di Zenzo Multi-Channel Structure Tensor
             const getStructureTensor = (oklab, width, height) => {
                 const len = oklab.l.length;
-                // Destructuring automatically pulls the new KAISER_KERNEL_13 alias
                 const { FARID_P, FARID_D, GAUSSIAN_1D, GAUSSIAN_HALF } = PrecisionCore.KERNELS;
                 
                 const Ixx = MemoryVanguard.request(1, len);
@@ -1654,117 +1651,87 @@
 
             return { getStructureTensor, getGMSD, getEntropy, getSSIM, getPerceptualDelta };
         })();
-        // --- PART 5: QUALITY METRICS & FORENSIC FILTERS ---
-        // Biomimetic Auditing & Latent Manifold Reconstruction
 
+        // --- PART 5: QUALITY METRICS (THE "JUDGE") ---
+        // Biomimetic Auditing: Quantifies "How bad is this error?"
         const QualityMetricEngine = (() => {
-            // 1. SENSITIVITY MASKING (Weber-Fechner Law Implementation)
-            // Determines how visible an error is at every pixel based on local context.
+            // 1. SENSITIVITY MASKING (Biomimetic JND)
             const computeSensitivityMap = (l_channel, structure, entropy, width, height) => {
                 const len = l_channel.length;
                 const sensitivity = new Float32Array(len);
-                
-                // CALIBRATION CONSTANTS (Tuned for JND = 1.0)
-                const BASE_THRESHOLD = 0.005; // Base visual threshold for flat gray
-                const K_LUM_SCOTOPIC = 12.0;  // High sensitivity in shadows
-                const K_LUM_PHOTOPIC = 4.0;   // Lower sensitivity in highlights
-                const K_TEXTURE_MASK = 15.0;  // Texture hides errors
-                const K_ENTROPY_MASK = 8.0;   // Chaos hides errors
+                const BASE_JND = 0.005; 
+                const K_LUM = 6.0;      
+                const K_TEX = 15.0;     
+                const K_ENT = 10.0;     
 
                 for(let i=0; i<len; i++) {
                     const L = l_channel[i];
-                    // Structure Magnitude (L1 + L2 eigenvalues)
                     const S = structure.l1[i] + structure.l2[i]; 
-                    const E = entropy[i]; 
+                    const E = entropy[i];
 
-                    // A. Luminance Masking (Visibility drops in extreme dark/light)
                     let lumMask = 1.0;
-                    if (L < 0.1) lumMask = 1.0 + ((0.1 - L) * K_LUM_SCOTOPIC);
-                    else if (L > 0.9) lumMask = 1.0 + ((L - 0.9) * K_LUM_PHOTOPIC);
-                    
-                    // B. Texture Masking (High frequency detail hides quantization noise)
-                    // We use sqrt(S) because perception of complexity is non-linear
-                    const textureMask = 1.0 + (Math.sqrt(S) * K_TEXTURE_MASK);
+                    if (L < 0.1) lumMask = 1.0 + ((0.1 - L) * K_LUM);
+                    else if (L > 0.9) lumMask = 1.0 + ((L - 0.9) * (K_LUM * 0.5));
 
-                    // C. Entropy Masking (Information density makes errors harder to track)
-                    const entropyMask = 1.0 + (E * K_ENTROPY_MASK);
+                    const texMask = 1.0 + (Math.sqrt(S) * K_TEX);
+                    const entMask = 1.0 + (E * K_ENT);
 
-                    // Result: The "Volume" knob for error at this pixel.
-                    // Higher Sensitivity Value = HARDER to see error (Higher Threshold)
-                    sensitivity[i] = (BASE_THRESHOLD * lumMask * textureMask * entropyMask);
+                    sensitivity[i] = (BASE_JND * lumMask * texMask * entMask);
                 }
                 return sensitivity;
             };
 
-            // 2. SIGNAL PHYSICS: Exact Noise Floor Calculation
+            // 2. SIGNAL PHYSICS
             const computeSignalMetrics = (buffer, width, height) => {
-                // Robust Sigma via 100-DPS Constant
                 const noiseFloor = PrecisionCore.estimateRobustSigma(buffer, width, height);
-                
-                // Sparse Sampling for Dynamic Range (faster than full sort)
-                const stride = 13; 
+                const stride = 17; 
                 const len = buffer.length;
                 let min = Infinity, max = -Infinity;
-                
                 for(let i=0; i<len; i+=stride) {
                     const v = buffer[i];
                     if(v < min) min = v;
                     if(v > max) max = v;
                 }
-                const signalRange = Math.max(1e-9, max - min);
-                
-                // dB SNR Calculation
-                const snr = (signalRange > 0 && noiseFloor > 0) ? 20 * Math.log10(signalRange / noiseFloor) : 0;
-                
-                // Effective Bit Depth (EBD)
-                // How many bits of "real" information exist above the noise floor?
-                const ebd = (signalRange > 0 && noiseFloor > 0) ? Math.log2(signalRange / noiseFloor) : 0;
-                
+                const range = Math.max(1e-9, max - min);
+                const snr = (range > 0 && noiseFloor > 0) ? 20 * Math.log10(range / noiseFloor) : 0;
+                const ebd = (range > 0 && noiseFloor > 0) ? Math.log2(range / noiseFloor) : 0;
                 return { min, max, noiseFloor, snr, ebd };
             };
 
-            // 3. FOVEAL POOLING: The NPS Calculator
+            // 3. FOVEAL POOLING (The NPS Score)
             // Uses Minkowski P4 Norm + Kaiser-Bessel Integration
             const computeNPS = (heuristicVector, sensitivityMap, width, height) => {
                 const len = heuristicVector.length;
                 const { GAUSSIAN_1D, GAUSSIAN_HALF } = PrecisionCore.KERNELS;
+                const kLen = GAUSSIAN_1D.length;
                 
-                // A. JND Ratio Map (How many times larger is the error than the threshold?)
-                // stored in temporary buffer 5
+                // A. Calculate Perceptual Ratio (Error / JND)
+                // Stored in temporary buffer 5
                 const ratioMap = MemoryVanguard.request(5, len);
                 
-                // High-Precision Accumulators (Float64 equivalent)
-                let sumMinkowski = 0.0; // For P4 Norm
+                let sumMinkowski = 0.0; 
                 let maxPeak = 0.0;
                 let violations = 0;
 
-                // 1. Calculate Local JND Ratios
+                // PASS 1: RAW RATIOS
+                // We calculate how much the error exceeds the masking threshold.
+                // We count 'violations' here (raw pixels), but we DO NOT track peak yet.
                 for(let i=0; i<len; i++) {
-                    const errorMagnitude = heuristicVector[i];
-                    const threshold = sensitivityMap[i];
-                    
-                    // Ratio > 1.0 means the error is Visibly Perceptible
-                    const ratio = errorMagnitude / (threshold + 1e-9);
+                    const ratio = heuristicVector[i] / (sensitivityMap[i] + 1e-9);
                     ratioMap[i] = ratio;
-                    
                     if (ratio > 1.0) violations++;
-                    if (ratio > maxPeak) maxPeak = ratio;
                 }
 
-                // 2. Foveal Integration (Spatial Convolution)
-                // We smooth the Ratio Map using the Kaiser-13 kernel.
-                // This simulates the fact that a single bad pixel is less annoying 
-                // than a cluster of bad pixels (The Foveal Spot).
-                
+                // B. Foveal Integration (Spatial Convolution)
+                // We smooth the Ratio Map using the 13-tap Kaiser window.
                 const fovealMap = MemoryVanguard.request(6, len);
                 const temp = MemoryVanguard.request(0, len);
-                const kLen = GAUSSIAN_1D.length;
 
-                // Horizontal Pass (Kaiser-13)
+                // PASS 2: Horizontal Convolve
                 for(let y=0; y<height; y++) {
                     const row = Math.imul(y, width);
                     for(let x=0; x<width; x++) {
-                        let sum = 0.0;
+                        let sum = 0.0; // Float64 Accumulation
                         for(let k=0; k<kLen; k++) {
                             let px = x - GAUSSIAN_HALF + k;
                             if (px < 0) px = 0; else if (px >= width) px = width-1;
@@ -1773,7 +1740,8 @@
                         temp[row + x] = sum;
                     }
                 }
-                // Vertical Pass (Kaiser-13) + Pooling
+
+                // PASS 3: Vertical Convolve + MINKOWSKI POOLING
                 for(let y=0; y<height; y++) {
                     const row = Math.imul(y, width);
                     for(let x=0; x<width; x++) {
@@ -1783,22 +1751,22 @@
                             if (py < 0) py = 0; else if (py >= height) py = height-1;
                             sum += temp[Math.imul(py, width) + x] * GAUSSIAN_1D[k];
                         }
-                        fovealMap[row + x] = sum; // Store for visualization
+                        fovealMap[row + x] = sum;
 
-                        // Minkowski P4 Accumulation
-                        // We raise the foveal score to the 4th power.
-                        // This heavily penalizes high peaks (artifacts) over low noise.
-                        const val = sum;
-                        sumMinkowski += (val * val * val * val);
+                        // CRITICAL: Capture Peak HERE (The "Foveal Peak")
+                        // This represents the worst *visible area*, not just a bad pixel.
+                        if (sum > maxPeak) maxPeak = sum;
+                        
+                        // Minkowski P4 Norm: Penalize outliers heavily
+                        // (sum^4) simulates the brain's rejection of unnatural artifacts
+                        sumMinkowski += (sum * sum * sum * sum);
                     }
                 }
 
-                // 3. Final Score Normalization
-                // Root-mean-quad (L4) to bring it back to linear scale
+                // Final Metric (Root-Mean-Quad to return to linear scale)
                 const nps = Math.pow(sumMinkowski / len, 0.25);
-                
-                // 4. Robust Peak (P99) calculation
-                // We sample the foveal map to find the "worst case" area
+
+                // Robust P99 Peak (Statistical Upper Bound)
                 const sampleSize = Math.min(len, 4096);
                 const samples = new Float32Array(sampleSize);
                 const step = Math.floor(len / sampleSize);
@@ -1806,7 +1774,7 @@
                 samples.sort();
                 const p99 = samples[Math.floor(sampleSize * 0.99)];
 
-                // 5. Histogram Generation (for UI)
+                // Histogram Generation
                 const hist = new Uint32Array(300);
                 for(let i=0; i<sampleSize; i++) {
                     let idx = (samples[i] * 50) | 0;
@@ -1815,76 +1783,48 @@
                 }
 
                 return { 
-                    nps: nps,               // The Global Score (Lower is better)
-                    peak: maxPeak,          // The single worst pixel
-                    p99: p99,               // The worst region (statistically robust)
-                    mean: nps,              // In L4 norm, mean is the score
-                    violation_rate: violations / len, // % of image visibly degraded
+                    nps: nps,         // Global Score (Lower is Better)
+                    peak: maxPeak,    // Worst Foveal Spot
+                    p99: p99,         // Robust Worst Spot
+                    mean: nps,        // P4 Mean
+                    violation_rate: violations / len, // % of pixels exceeding JND
                     histogram: hist 
                 };
             };
 
-            // 4. DIAGNOSTICS: Forensic Flags
+            // 4. DIAGNOSTICS (Forensic Flags)
             const diagnose = (tensor, width, height) => {
                 const diagnostics = [];
-                
-                // Grid Detection (Float64 Accumulation)
                 const fold8 = new Float64Array(8);
                 const grad = tensor.grad.raw;
                 for(let y=0; y<height; y++) {
-                    if ((y & 7) === 0 || (y & 7) === 7) { // Check 8px boundaries
+                    if ((y & 7) === 0 || (y & 7) === 7) { 
                         const row = Math.imul(y, width);
                         for(let x=0; x<width; x++) fold8[x%8] += grad[row+x];
                     }
                 }
                 let maxF = 0, minF = Infinity;
                 for(let k=0; k<8; k++) { if(fold8[k]>maxF) maxF=fold8[k]; if(fold8[k]<minF) minF=fold8[k]; }
-                
-                // Periodicity Score: How much stronger is the 8px grid than the background?
                 const periodicity = maxF / (minF + 1e-6);
                 
-                if (periodicity > 1.5) {
-                    diagnostics.push({ 
-                        id: 'grid', name: 'Grid Artifacts', val: periodicity.toFixed(2), warning: true, 
-                        desc: 'Strong 8x8 JPEG/Compression blocking detected.' 
-                    });
-                }
+                if (periodicity > 1.5) diagnostics.push({ id: 'grid', name: 'Grid Artifacts', val: periodicity.toFixed(2), warning: true });
                 
-                // Spectral Drift (Color vs Luma)
                 const avgSSIM = tensor.ssim?.raw?.stats?.max || 0.001; 
                 const avgDelta = tensor.perceptual?.raw?.stats?.max || 0.001;
+                if (avgDelta > 0.05 && avgSSIM < 0.02) diagnostics.push({ id: 'chroma', name: 'Spectral Drift', val: (avgDelta/avgSSIM).toFixed(1), warning: true });
                 
-                // If color error is high but structure error is low -> Chroma Subsampling issue
-                if (avgDelta > 0.05 && avgSSIM < 0.02) {
-                    diagnostics.push({ 
-                        id: 'chroma', name: 'Spectral Drift', val: (avgDelta/avgSSIM).toFixed(1), warning: true, 
-                        desc: 'Color accuracy degrading faster than structure (4:2:0 artifact?).' 
-                    });
-                }
-                
-                // Bit Depth / Noise Analysis
                 if (tensor.source_metrics) {
                     const { snr, ebd } = tensor.source_metrics;
-                    if (ebd < 7.5) {
-                        diagnostics.push({ 
-                            id: 'bitdepth', name: 'Quantization', val: `${ebd.toFixed(2)} bit`, warning: true, 
-                            desc: 'Effective bit depth is low. Banding likely.' 
-                        });
-                    }
-                    if (snr < 25.0) {
-                        diagnostics.push({ 
-                            id: 'noise', name: 'High Noise', val: `${snr.toFixed(1)} dB`, warning: false, 
-                            desc: 'Signal contains significant noise.' 
-                        });
-                    }
+                    if (ebd < 7.5) diagnostics.push({ id: 'bitdepth', name: 'Quantization', val: `${ebd.toFixed(2)} bit`, warning: true });
+                    if (snr < 25.0) diagnostics.push({ id: 'noise', name: 'High Noise', val: `${snr.toFixed(1)} dB`, warning: false });
                 }
-                
                 return diagnostics;
             };
 
             return { computeSensitivityMap, computeNPS, diagnose, computeSignalMetrics };
         })();
 
+        // --- PART 6: FORENSIC FILTERS (THE "RECONSTRUCTOR") ---
         const ForensicFilter = (() => {
             const analyzeSignalPhysics = (buffer, width) => {
                 const stride = 13; 
@@ -1895,35 +1835,32 @@
                 samples.sort();
                 
                 let physStep = PrecisionCore.detectQuantizationStep(samples);
-                const systemMin = PrecisionCore.SYSTEM.QUANTIZATION_STEP * 0.1;
+                const systemMin = PrecisionCore.SYSTEM.QUANTIZATION_STEP * 0.5;
                 if (physStep < systemMin) physStep = systemMin;
 
                 const p50 = samples[(sampleSize * 0.5) | 0];
                 const p99 = samples[(sampleSize * 0.99) | 0];
-                const floorIdx = (p50 > p99 * 0.1) ? (sampleSize * 0.05) | 0 : (sampleSize * 0.20) | 0;
+                const floorIdx = (p50 > p99 * 0.1) ? (sampleSize * 0.05) | 0 : (sampleSize * 0.25) | 0;
                 const statFloor = Math.max(1e-9, samples[floorIdx]);
 
                 return { physStep, statFloor };
             };
 
             const tasks = {
-                // 1. H-Dome Transformation (Geodesic Reconstruction)
                 geodesic: (mask, width, height, stats) => {
                     const len = mask.length;
                     const marker = new Float32Array(len);
-                    // Subtract Noise Floor (Opening)
-                    for(let i=0; i<len; i++) marker[i] = Math.max(0, mask[i] - stats.statFloor);
+                    const floor = Math.max(stats.statFloor, stats.physStep);
                     
-                    // Morphological Reconstruction (Geodesic Dilation)
-                    // Pass 1: Raster Order
+                    for(let i=0; i<len; i++) marker[i] = Math.max(0, mask[i] - floor);
+                    
                     for(let i=0; i<len; i++) {
                         let m = marker[i];
                         if (i >= width) { const t = marker[i-width]; if (t > m) m = t; }
                         if (i % width > 0) { const l = marker[i-1]; if (l > m) m = l; }
-                        const c = mask[i]; // Mask constraint
+                        const c = mask[i]; 
                         marker[i] = (m < c) ? m : c;
                     }
-                    // Pass 2: Anti-Raster Order
                     for(let i=len-1; i>=0; i--) {
                         let m = marker[i];
                         if (i < len - width) { const b = marker[i+width]; if (b > m) m = b; }
@@ -1934,16 +1871,13 @@
                     return marker;
                 },
 
-                // 2. Exact Non-Local Means (NLM)
-                // Uses exact patch distance with exponential decay weights.
                 nlm_exact: (input, width, height, stats) => {
                     const len = input.length;
                     const output = new Float32Array(len);
-                    const searchRad = 2; // 5x5 search window
-                    const patchRad = 1;  // 3x3 patch comparison
-                    
+                    const searchRad = 2; 
+                    const patchRad = 1;  
                     const h = Math.max(stats.physStep, stats.statFloor);
-                    const h2 = h * h; // Decay parameter squared
+                    const h2 = h * h; 
                     
                     const endY = height - 1 - patchRad;
                     const endX = width - 1 - patchRad;
@@ -1978,15 +1912,13 @@
                     return output;
                 },
 
-                // 3. Anisotropic Diffusion (Tukey Biweight)
                 anisotropic_tukey: (input, width, height, stats) => {
                     const len = input.length;
                     let u = MemoryVanguard.request(6, len);
                     u.set(input); 
                     let u_next = MemoryVanguard.request(7, len); 
-                    
-                    const lambda = 0.25; // Rate
-                    const K = stats.statFloor * 2.0; // Edge threshold
+                    const lambda = 0.25; 
+                    const K = Math.max(stats.statFloor, stats.physStep) * 2.0; 
                     const K2 = K * K;
                     const iterCount = 5; 
                     const endY = height - 1, endX = width - 1;
@@ -1997,7 +1929,6 @@
                             for (let x = 1; x < endX; x++) {
                                 const idx = row + x;
                                 const val = u[idx];
-                                
                                 const dn = u[idx-width] - val;
                                 const ds = u[idx+width] - val;
                                 const de = u[idx+1] - val;
@@ -2040,23 +1971,17 @@
             return { tasks, generateManifold };
         })();
 
-        // --- PART 6: OPTIMIZATION ENGINE & VISUALIZATION ---
-        // Statistical Solving using GGD (Generalized Gaussian Distribution) logic
+        // --- PART 7: OPTIMIZATION ENGINE (THE "SOLVER") ---
         const OptimizationEngine = (() => {
             const solve = (tensor, activeLayer) => { 
                 const buffer = tensor[activeLayer]?.raw;
                 if (!buffer) return null;
-                
                 const len = buffer.length;
-                const width = tensor.meta.w;
-                const height = tensor.meta.h;
 
-                // 1. ROBUST NOISE PHYSICS (MAD)
-                const sigma = PrecisionCore.estimateRobustSigma(buffer, width, height);
+                const sigma = PrecisionCore.estimateRobustSigma(buffer, tensor.meta.w, tensor.meta.h);
                 const noiseFloor = Math.max(1e-12, sigma);
 
-                // 2. MOMENT CALCULATION (Float64 Accumulation)
-                const stride = 13; // Prime stride
+                const stride = 13; 
                 const sampleSize = Math.floor(len / stride);
                 const sorted = new Float64Array(sampleSize);
                 let m2 = 0.0, m4 = 0.0;
@@ -2074,8 +1999,6 @@
                 }
                 sorted.sort();
 
-                // 3. KURTOSIS & BETA CORRECTION
-                // Uses the 100-DPS KURTOSIS_LUT for GGD Shape Estimation
                 let betaCorrection = 1.0;
                 if (validSamples > 100) {
                     const variance = m2 / validSamples;
@@ -2088,29 +2011,23 @@
                     betaCorrection = KURTOSIS_LUT[kIdx];
                 }
 
-                // 4. SOLVE PROBABILISTIC GATE
                 let optimalGate = noiseFloor * 3.0 * betaCorrection;
-
-                // 5. BIT DEPTH COMPLIANCE
                 const bitDepthBase = (tensor.source_metrics && tensor.source_metrics.ebd > 8.5) ? (1.0/65535.0) : (1.0/255.0);
                 optimalGate = Math.max(optimalGate, bitDepthBase * 0.5);
 
-                // 6. SOLVE GAIN
                 const p999 = sorted[Math.floor(sampleSize * 0.999)];
                 const signalCeiling = Math.max(p999, optimalGate * 4.0); 
                 let optimalGain = 0.95 / (signalCeiling + 1e-9);
                 optimalGain = Math.min(100000.0, Math.max(1.0, optimalGain));
 
-                // 7. SOLVE GAMMA
                 const p50 = sorted[Math.floor(sampleSize * 0.5)];
                 const p95 = sorted[Math.floor(sampleSize * 0.95)];
                 let optimalGamma = 1.0;
-                
                 if (p95 > 1e-9) {
                     const skew = p50 / p95; 
-                    if (skew < 0.1) optimalGamma = 0.6;       // Very sparse errors
-                    else if (skew < 0.25) optimalGamma = 0.8; // Sparse errors
-                    else if (skew > 0.6) optimalGamma = 1.2;  // Dense errors
+                    if (skew < 0.1) optimalGamma = 0.6;
+                    else if (skew < 0.25) optimalGamma = 0.8; 
+                    else if (skew > 0.6) optimalGamma = 1.2;
                 }
 
                 const uiThreshold = Math.min(255, optimalGate * 255.0);
@@ -2129,7 +2046,7 @@
         // --- VISUALIZATION HELPERS ---
         const Colormaps = (() => {
             // --- SECTION: HIGH-PRECISION COLORMAPS ---
-            // TURBO (768 elements, Precision: 100-DPS Source)
+            // 1. TURBO: Exact 6th-Order Polynomial (Horner's Method)
             const TURBO = new Float64Array([
                 0.1357213800000000025747227, 0.09140260999999999524945338, 0.1066732999999999986773247,
                 0.153172831027257603490855, 0.1000808944198116769092117, 0.1553245205498830612844861,
@@ -2389,7 +2306,7 @@
                 0.5658592099999996127834834, 0.050388860000000146310839, 0.0
             ]);
 
-            
+            // 2. INFERNO: High-Precision Cosine Interpolation
             // INFERNO (768 elements, Precision: 100-DPS Source)
             const INFERNO = new Float64Array([
                 0.001461999999999999974922837, 0.0004659999999999999971238285, 0.01386599999999999985322852,
@@ -2650,17 +2567,14 @@
                 0.99275, 0.995027, 0.999856
             ]);
 
-
-
             return { TURBO, INFERNO };
         })();
 
-        // --- PART 7: UI COMPONENTS & CONTROLLER LOGIC ---
+        // --- UI COMPONENTS ---
 
-        // --- UI SUB-COMPONENTS ---
         const Legend = ({ activeLayer }) => {
             const canvasRef = useRef(null);
-            const isTurbo = (activeLayer === 'entropy' || activeLayer === 'ssim' || activeLayer === 'heuristic' || activeLayer === 'perceptual' || activeLayer === 'coherence');
+            const isTurbo = (activeLayer !== 'luminance'); // Luminance uses Grayscale implicitly or Inferno for heat
             const lut = isTurbo ? Colormaps.TURBO : Colormaps.INFERNO;
             
             useEffect(() => {
@@ -2678,7 +2592,7 @@
                     const idxB = Math.min(lutLen - 1, idxA + 1);
                     const t = rawIdx - idxA;
                     
-                    // Linear Interpolation for Screen Display (LUT itself is high-precision)
+                    // Linear Interpolation for Screen Display (The LUT itself is high-precision)
                     const rA = lut[idxA*3], gA = lut[idxA*3+1], bA = lut[idxA*3+2];
                     const rB = lut[idxB*3], gB = lut[idxB*3+1], bB = lut[idxB*3+2];
                     
@@ -2693,11 +2607,25 @@
                 }
                 ctx.putImageData(imgData, 0, 0);
             }, [activeLayer, lut]);
-            return <div className="bg-slate-900/50 p-2 rounded border border-slate-700 mt-4"><div className="flex justify-between text-[9px] text-slate-500 font-mono uppercase mb-1"><span>Min Error</span><span>Max Error</span></div><canvas ref={canvasRef} width={256} height={12} className="w-full rounded-sm opacity-90" /><div className="text-[9px] text-center text-slate-600 font-mono mt-1">{isTurbo ? 'TURBO SCALE (Normalized JND)' : 'INFERNO SCALE (Log-Magnitude)'}</div></div>;
+            
+            return (
+                <div className="bg-slate-900/50 p-2 rounded border border-slate-700 mt-4">
+                    <div className="flex justify-between text-[9px] text-slate-500 font-mono uppercase mb-1">
+                        <span>Min Error</span><span>Max Error</span>
+                    </div>
+                    <canvas ref={canvasRef} width={256} height={12} className="w-full rounded-sm opacity-90" />
+                    <div className="text-[9px] text-center text-slate-600 font-mono mt-1">
+                        {isTurbo ? 'TURBO SCALE (Normalized JND)' : 'INFERNO SCALE (Log-Magnitude)'}
+                    </div>
+                </div>
+            );
         };
 
         const ChannelRow = ({ label, active, onClick, icon: Icon, special }) => (
-            <button onClick={onClick} className={`w-full flex items-center gap-3 p-3 rounded-lg border transition-all ${active ? (special ? 'bg-indigo-950/50 border-indigo-500/50 text-indigo-400 shadow-[0_0_15px_rgba(99,102,241,0.2)]' : 'bg-cyan-950/30 border-cyan-500/50 text-cyan-400 shadow-[0_0_15px_rgba(6,182,212,0.1)]') : 'bg-slate-900/50 border-slate-800 text-slate-500 hover:border-slate-600 hover:text-slate-300'}`}><Icon className={`w-4 h-4 ${special && active ? 'animate-pulse' : ''}`} /><span className="text-xs font-bold uppercase tracking-wider">{label}</span></button>
+            <button onClick={onClick} className={`w-full flex items-center gap-3 p-3 rounded-lg border transition-all ${active ? (special ? 'bg-indigo-950/50 border-indigo-500/50 text-indigo-400 shadow-[0_0_15px_rgba(99,102,241,0.2)]' : 'bg-cyan-950/30 border-cyan-500/50 text-cyan-400 shadow-[0_0_15px_rgba(6,182,212,0.1)]') : 'bg-slate-900/50 border-slate-800 text-slate-500 hover:border-slate-600 hover:text-slate-300'}`}>
+                <Icon className={`w-4 h-4 ${special && active ? 'animate-pulse' : ''}`} />
+                <span className="text-xs font-bold uppercase tracking-wider">{label}</span>
+            </button>
         );
 
         const DualSlider = ({ label, value, displayValue, onChange, minCoarse, maxCoarse, stepCoarse, minFine, maxFine, stepFine }) => {
@@ -2782,7 +2710,6 @@
             );
         };
 
-        // --- MAIN APPLICATION COMPONENT ---
         const ImageDiff = () => {
             const [img1, setImg1] = useState(null);
             const [img2, setImg2] = useState(null);
@@ -2799,8 +2726,8 @@
             
             const [repairSettings, setRepairSettings] = useState({ chroma: false, ringing: false, geodesic: false });
             const [transform, setTransform] = useState({ k: 1, x: 0, y: 0 });
-            
             const [offset, setOffset] = useState({ x: 0, y: 0 });
+            
             const [activeTab, setActiveTab] = useState('analysis');
             const [isAutoAligning, setIsAutoAligning] = useState(false);
             const [alignStatus, setAlignStatus] = useState("");
@@ -2816,13 +2743,12 @@
             const [flickerState, setFlickerState] = useState(0); 
             const [showAudit, setShowAudit] = useState(false);
 
-            // High-Precision State for Sliders
+            // State for Sliders
             const [gainState, setGainState] = useState({ coarse: 45, fine: 0 }); 
             const [gateState, setGateState] = useState({ coarse: 0.5, fine: 0 });
             const [gammaState, setGammaState] = useState({ coarse: 0.8, fine: 0 });
             const [softState, setSoftState] = useState({ coarse: 10, fine: 0 });
 
-            // Memoized Physics Calculation
             const physics = useMemo(() => {
                 const logBase = -4 + (gainState.coarse / 100.0) * 10; 
                 const totalLog = logBase + gainState.fine;
@@ -2847,7 +2773,6 @@
             
             useEffect(() => { const t = setTimeout(() => setDebouncedOffset(offset), 300); return () => clearTimeout(t); }, [offset]);
             
-            // Generate Display LUT on Physics Change
             useEffect(() => {
                 const size = 4096; 
                 const lut = new Uint8Array(size * 3);
@@ -2861,10 +2786,8 @@
                     const idxA = Math.floor(rawIdx);
                     const idxB = Math.min(mapLen - 1, idxA + 1);
                     const t = rawIdx - idxA;
-                    
                     const rA = colormap[idxA*3], gA = colormap[idxA*3+1], bA = colormap[idxA*3+2];
                     const rB = colormap[idxB*3], gB = colormap[idxB*3+1], bB = colormap[idxB*3+2];
-                    
                     lut[i*3] = Math.min(255, (rA + (rB - rA) * t) * 255) | 0;
                     lut[i*3+1] = Math.min(255, (gA + (gB - gA) * t) * 255) | 0;
                     lut[i*3+2] = Math.min(255, (bA + (bB - bA) * t) * 255) | 0;
@@ -2872,78 +2795,53 @@
                 setDisplayLUT(lut);
             }, [physics.gamma, activeLayer]);
 
-            // --- OPTIMIZED TENSOR ORCHESTRATION ---
             const buildTensor = useCallback(async () => {
                 if(!img1 || !img2 || activeTab !== 'analysis') return;
                 if(isAutoAligning) return;
-                
-                setIsProcessing(true); 
-                setStatus("OKLab Manifold: Projecting Signal...");
+                setIsProcessing(true); setStatus("OKLab Manifold: Projecting Signal...");
                 
                 const w = img1.width, h = img1.height, size = w * h;
-                
-                // 1. Extract Raw Pixel Data (Browser Native)
                 const getRawBytes = (bmp, ox=0, oy=0) => {
                     const c = document.createElement('canvas'); c.width=w; c.height=h;
                     const ctx = c.getContext('2d'); 
-                    ctx.imageSmoothingEnabled = true; 
-                    ctx.imageSmoothingQuality = 'high'; 
+                    ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high'; 
                     ctx.drawImage(bmp, ox, oy);
                     return ctx.getImageData(0,0,w,h);
                 };
-                
-                await new Promise(r => setTimeout(r, 10)); // Yield to UI
+                await new Promise(r => setTimeout(r, 10));
                 
                 const d1_data = getRawBytes(img1);
-                // Apply sub-pixel offset during extraction
                 const d2_data = getRawBytes(img2, debouncedOffset.x, debouncedOffset.y); 
                 
                 setStatus("Projection: sRGB -> Linear -> LMS -> OKLab...");
-                
-                // 2. Ingest to Float32 Manifold (Uses 100-DPS Constants + 8x8 Dither)
                 const t1 = IngestEngine.process(d1_data, w, h);
                 const t2 = IngestEngine.process(d2_data, w, h);
-                
                 setSourceType(t1.type);
                 const isHDR = t1.type.includes('16-bit');
                 
-                await new Promise(r => setTimeout(r, 20)); // Yield
+                await new Promise(r => setTimeout(r, 20));
                 
                 const ok1 = t1.oklab, ok2 = t2.oklab, L = t1.range.L;
                 const T = { 
-                    grad: {raw: new Float32Array(size)}, 
-                    coherence: {raw: new Float32Array(size)}, 
-                    entropy: {raw: new Float32Array(size)}, 
-                    ssim: {raw: new Float32Array(size)}, 
-                    perceptual: {raw: new Float32Array(size)}, 
-                    heuristic: {raw: new Float32Array(size)}, 
-                    luminance: {raw: ok1.l}, 
-                    meta: { w, h, L }, 
-                    forensics: {}, 
-                    latent: {} 
+                    grad: {raw: new Float32Array(size)}, coherence: {raw: new Float32Array(size)}, 
+                    entropy: {raw: new Float32Array(size)}, ssim: {raw: new Float32Array(size)}, 
+                    perceptual: {raw: new Float32Array(size)}, heuristic: {raw: new Float32Array(size)}, 
+                    luminance: {raw: ok1.l}, meta: { w, h, L }, forensics: {}, latent: {} 
                 };
                 
                 setStatus(`Geometric Kernel: Kaiser-Bessel (13-tap)...`);
-                
-                // 3. Structural Analysis (Uses Kaiser-13 Kernel)
                 const st1 = AnalysisEngine.getStructureTensor(ok1, w, h); 
                 const st2 = AnalysisEngine.getStructureTensor(ok2, w, h);
                 T.source_structure = st1; 
                 
                 const gmsdMap = AnalysisEngine.getGMSD(st1, st2, w, h);
-                
-                // 4. Entropy Analysis
                 const ent1 = AnalysisEngine.getEntropy(ok1.l, w, h, isHDR);
                 const ent2 = AnalysisEngine.getEntropy(ok2.l, w, h, isHDR);
-                
                 const ssimMap = AnalysisEngine.getSSIM(ok1, ok2, w, h);
                 const deltaE = AnalysisEngine.getPerceptualDelta(ok1, ok2, w, h);
                 
-                // 5. SUPERIOR HEURISTIC FUSION
                 const INV_MAX_ENTROPY = 1.0 / 4.643856; 
-                const W_PERCEP = 1.0;   // Color Truth
-                const W_STRUCT = 2.5;   // Edge Truth
-                const W_ENTROPY = 1.5;  // Texture Truth
+                const W_PERCEP = 1.0, W_STRUCT = 2.5, W_ENTROPY = 1.5;
                 
                 const CHUNK = 50000;
                 for(let start=0; start<size; start+=CHUNK) {
@@ -2956,42 +2854,22 @@
                         const s = Math.max(0, 1.0 - ssimMap[i]);
                         const gms = Math.max(0, 1.0 - gmsdMap[i]); 
                         const p = deltaE[i];
-                        
                         const localCoh = Math.max(st1.coherence[i], st2.coherence[i]);
                         const edgeFactor = 0.5 + (0.5 * localCoh);
                         const flatFactor = 1.5 - (0.5 * localCoh);
-                        
-                        T.grad.raw[i] = g; 
-                        T.coherence.raw[i] = c; 
-                        T.entropy.raw[i] = e;
-                        T.ssim.raw[i] = s; 
-                        T.perceptual.raw[i] = p;
-                        
-                        T.heuristic.raw[i] = Math.sqrt(
-                            (p * W_PERCEP * flatFactor)**2 + 
-                            (gms * W_STRUCT * edgeFactor)**2 + 
-                            (s * W_STRUCT * edgeFactor)**2 + 
-                            (e * W_ENTROPY * flatFactor)**2 + 
-                            (c * 0.5)**2
-                        );
+                        T.grad.raw[i] = g; T.coherence.raw[i] = c; T.entropy.raw[i] = e;
+                        T.ssim.raw[i] = s; T.perceptual.raw[i] = p;
+                        T.heuristic.raw[i] = Math.sqrt((p*W_PERCEP*flatFactor)**2 + (gms*W_STRUCT*edgeFactor)**2 + (s*W_STRUCT*edgeFactor)**2 + (e*W_ENTROPY*flatFactor)**2 + (c*0.5)**2);
                     }
                     setProgress(30 + (start/size)*40); 
                     await new Promise(r => setTimeout(r, 0));
                 }
 
-                const attachStats = (arr) => { 
-                    let min=Infinity, max=-Infinity; 
-                    for(let v of arr) { if(v<min)min=v; if(v>max)max=v; } 
-                    if(max===-Infinity) max=1.0; 
-                    arr.stats={min,max}; 
-                };
-                ['perceptual', 'grad', 'coherence', 'entropy', 'ssim', 'heuristic'].forEach(key => { 
-                    if(T[key].raw) attachStats(T[key].raw); 
-                });
+                const attachStats = (arr) => { let min=Infinity, max=-Infinity; for(let v of arr) { if(v<min)min=v; if(v>max)max=v; } if(max===-Infinity) max=1.0; arr.stats={min,max}; };
+                ['perceptual', 'grad', 'coherence', 'entropy', 'ssim', 'heuristic'].forEach(key => { if(T[key].raw) attachStats(T[key].raw); });
 
                 setStatus("Audit: Biomimetic Foveal Integration (Kaiser-13)...");
                 await new Promise(r => setTimeout(r, 10));
-                
                 const sensitivity = QualityMetricEngine.computeSensitivityMap(ok1.l, st1, ent1, w, h);
                 T.source_metrics = QualityMetricEngine.computeSignalMetrics(ok1.l, w, h);
                 T.scores = QualityMetricEngine.computeNPS(T.heuristic.raw, sensitivity, w, h);
@@ -3002,41 +2880,26 @@
                 let currentStep = 0;
                 for (const layerKey of LAYERS) {
                     if (T[layerKey].raw) {
-                        T.latent[layerKey] = await ForensicFilter.generateManifold(
-                            T[layerKey].raw, w, h, 
-                            (p) => setProgress(70 + (currentStep + p*8)/(LAYERS.length*8)*30)
-                        );
+                        T.latent[layerKey] = await ForensicFilter.generateManifold(T[layerKey].raw, w, h, (p) => setProgress(70 + (currentStep + p*8)/(LAYERS.length*8)*30));
                         currentStep += 8;
                     }
                 }
                 
-                setTensor(T); 
-                setIsProcessing(false); 
-                setStatus("Ready"); 
-                setProgress(0);
+                setTensor(T); setIsProcessing(false); setStatus("Ready"); setProgress(0);
             }, [img1, img2, debouncedOffset, activeTab]);
 
-            // --- UPDATED AUTO-TUNE CALLBACK ---
             const runAutoTune = useCallback(async () => {
                 if (!tensor) return;
                 setStatus("Perceptive Solving (GGD)..."); 
                 await new Promise(r => setTimeout(r, 10));
-                
                 const solution = OptimizationEngine.solve(tensor, activeLayer);
-                
                 if (solution) {
                     const logG = Math.log10(solution.gain);
                     const cG = Math.max(0, Math.min(100, ((logG + 4) / 10) * 100));
-                    
-                    setGainState({ coarse: cG, fine: 0 }); 
-                    setGateState({ coarse: solution.threshold, fine: 0 }); 
-                    setGammaState({ coarse: solution.gamma, fine: 0 }); 
-                    setSoftState({ coarse: solution.softness, fine: 0 });
-                    
+                    setGainState({ coarse: cG, fine: 0 }); setGateState({ coarse: solution.threshold, fine: 0 }); 
+                    setGammaState({ coarse: solution.gamma, fine: 0 }); setSoftState({ coarse: solution.softness, fine: 0 });
                     setStatus(`Solved: G:${solution.gain.toFixed(1)}x T:${solution.threshold.toFixed(1)}`);
-                } else {
-                    setStatus("Solver Failed: No Signal");
-                }
+                } else { setStatus("Solver Failed: No Signal"); }
             }, [tensor, activeLayer]); 
 
             const runAutoAlign = useCallback(async () => {
@@ -3086,7 +2949,10 @@
                     if(val > statsMax) statsMax = val;
                     const pixelVal = val * 255.0 * physics.gain; 
                     const x = i % w; const y = (i / w) | 0;
-                    const dither = BAYER_LATTICE[((y&7)<<3) + (x&7)] * 0.0625 - 0.5; // Optimized 8x8 Dither
+                    // UPDATED: 8x8 Dither Application
+                    // The lattice is -0.5 to 0.5. We add it directly to the scaled value (approx 0-4096 range for LUT)
+                    // to dither across the LUT steps.
+                    const dither = BAYER_LATTICE[((y&7)<<3) + (x&7)]; 
                     let normIdx = (pixelVal * LUT_SCALE) + dither; 
                     if (normIdx < 0) normIdx = 0; else if (normIdx > 4095) normIdx = 4095;
                     const lutIdx = (normIdx | 0) * 3;
@@ -3332,7 +3198,6 @@
             );
         }
         const root = createRoot(document.getElementById('root')); root.render(<ImageDiff />);
-
     </script>
 </body>
 </html>
