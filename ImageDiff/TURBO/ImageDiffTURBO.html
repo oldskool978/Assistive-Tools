@@ -223,7 +223,7 @@
             return { getStructureTensor, getEntropy, getSSIM, getPerceptualDelta };
         })();
 
-        // --- 5. FORENSIC FILTER ---
+        // --- 5. FORENSIC FILTER (ADAPTIVE TOPOLOGY) ---
         const ForensicFilter = (() => {
             const tasks = {
                 geodesic: (mask, width, height, stats, tuning) => {
@@ -316,10 +316,18 @@
         // --- 6. OPTIMIZATION ENGINE ---
         const OptimizationEngine = (() => {
             const solve = (tensor, layerKey, activeMask, viewMode) => {
-                let buf; 
-                if(viewMode === 'clean' && tensor.latent[layerKey]) { buf = tensor.latent[layerKey][activeMask]; } 
-                else { const raw = tensor[layerKey].raw; if (!raw) return null; if (layerKey === 'ssim') { buf = new Float32Array(raw.length); for(let i=0; i<raw.length; i++) buf[i] = Math.max(0, 1.0 - raw[i]); } else { buf = raw; } }
-                if(!buf) return null;
+                // FORCE RAW FOR AUTO-TUNE BASELINE
+                const raw = tensor[layerKey].raw; 
+                if (!raw) return null; 
+                
+                let buf;
+                if (layerKey === 'ssim') { 
+                    buf = new Float32Array(raw.length); 
+                    for(let i=0; i<raw.length; i++) buf[i] = Math.max(0, 1.0 - raw[i]); 
+                } else { 
+                    buf = raw; 
+                }
+                
                 const len = buf.length; const stride = Math.floor(len / 10000) || 1;
                 let n = 0, m1 = 0, m2 = 0, m4 = 0;
                 for(let i=0; i<len; i+=stride) { m1 += buf[i]; n++; } const mu = m1 / n;
@@ -338,15 +346,37 @@
             return { solve };
         })();
 
-        // --- 7. REGISTRATION ENGINE (PYRAMIDAL) ---
+        // --- 7. REGISTRATION ENGINE (HYBRID CONSENSUS + GRADIENT) ---
         const RegistrationEngine = (() => {
-            const computeLoGMap = (input, w, h) => {
-                const out = new Float32Array(input.length);
-                for(let y=1; y<h-1; y++) { const r = Math.imul(y, w); for(let x=1; x<w-1; x++) { const i = r+x; out[i] = Math.abs(input[i]*4 - input[i-1] - input[i+1] - input[i-w] - input[i+w]); } }
+            const { FARID_D, FARID_P, LANCZOS_LUT } = PrecisionCore;
+            
+            const convolve1D = (inp, w, h, k) => {
+                const out = new Float32Array(inp.length);
+                const kLen = k.length, half = kLen>>1;
+                for(let y=0; y<h; y++) {
+                    const r = y*w;
+                    for(let x=0; x<w; x++) {
+                        let sum=0; for(let i=0; i<kLen; i++) {
+                            const ox = x-half+i;
+                            if(ox>=0 && ox<w) sum += inp[r+ox] * k[i];
+                        }
+                        out[r+x] = sum;
+                    }
+                }
                 return out;
             };
+
+            const getGradientMap = (luma, w, h) => {
+                if (!FARID_D) return luma;
+                const gx = convolve1D(luma, w, h, FARID_D);
+                const gy = convolve1D(luma, w, h, FARID_P);
+                const mag = new Float32Array(luma.length);
+                for(let i=0; i<mag.length; i++) mag[i] = Math.sqrt(gx[i]*gx[i] + gy[i]*gy[i]);
+                return mag;
+            };
+
             const sampleLanczos = (buffer, width, height, x, y) => {
-                const { LANCZOS_LUT } = PrecisionCore; if(!LANCZOS_LUT) return 0;
+                if(!LANCZOS_LUT) return 0;
                 const ix = Math.floor(x), iy = Math.floor(y); const fx = x - ix, fy = y - iy; const LUT_SCALE = 2000.0 / 3.0;
                 let val = 0.0, wSum = 0.0;
                 for (let j=-2; j<=3; j++) {
@@ -363,71 +393,66 @@
                 return wSum !== 0 ? val / wSum : 0;
             };
 
-            // Pyramidal ZNCC with voting
             const computeCoarse = async (buff1, buff2, width, height, cb) => {
-                // Level 0: Downscale 4x for robust search area (Scout)
-                const scale = 0.25;
-                const sw = (width * scale) | 0, sh = (height * scale) | 0;
-                const sb1 = new Float32Array(sw*sh), sb2 = new Float32Array(sw*sh);
-                
-                for(let y=0; y<sh; y++) {
-                    const sy = (y / scale) | 0;
-                    for(let x=0; x<sw; x++) {
-                        const sx = (x / scale) | 0;
-                        sb1[y*sw+x] = buff1[sy*width+sx];
-                        sb2[y*sw+x] = buff2[sy*width+sx];
+                // 1. Pre-process: GRADIENT MAPS (Illumination Invariant)
+                const map1 = getGradientMap(buff1, width, height);
+                const map2 = getGradientMap(buff2, width, height);
+
+                const anchors = []; for(let y=1; y<=3; y++) for(let x=1; x<=3; x++) anchors.push({x: (width*x)/4|0, y: (height*y)/4|0});
+                const pSz = 64, hSz = 32, search = 40, step = 2; 
+                const votes = [];
+
+                const getPatchStats = (buf, cx, cy, out) => {
+                    let sum = 0;
+                    for(let y=0; y<pSz; y++) { const r = Math.imul(cy-hSz+y, width); for(let x=0; x<pSz; x++) { const v = buf[r + cx-hSz+x]; out.push(v); sum += v; } }
+                    const mean = sum/(pSz*pSz); let sqSum = 0; for(let i=0; i<out.length; i++) { out[i] -= mean; sqSum += out[i]*out[i]; }
+                    return Math.sqrt(sqSum);
+                };
+
+                for(let i=0; i<anchors.length; i++) {
+                    const anc = anchors[i]; const p1=[]; const s1 = getPatchStats(map1, anc.x, anc.y, p1); 
+                    if(s1 < 1e-5) continue;
+                    let localBest = -1, lDx = 0, lDy = 0;
+
+                    for(let dy=-search; dy<=search; dy+=step) for(let dx=-search; dx<=search; dx+=step) {
+                        const p2=[]; const s2 = getPatchStats(map2, anc.x-dx, anc.y-dy, p2); if(s2 < 1e-5) continue;
+                        let dot = 0; for(let k=0; k<p1.length; k+=2) dot += p1[k]*p2[k]; // Sparse dot
+                        const score = dot / (s1 * s2);
+                        if(score > localBest) { localBest = score; lDx = dx; lDy = dy; }
                     }
+                    
+                    if (localBest > 0.4) votes.push({dx:lDx, dy:lDy, score: localBest});
+                    if(cb) cb(i/anchors.length * 0.5); await new Promise(r => setTimeout(r,0));
                 }
 
-                // Search +/- 40px in small scale => +/- 160px in real scale
-                const searchRange = 40; 
-                let bestScore = -1, bdx = 0, bdy = 0;
+                // Weighted Democracy
+                const bins = {}; let maxScore=0, consensus={dx:0, dy:0};
+                votes.forEach(v => {
+                    const k = `${Math.round(v.dx/2)*2},${Math.round(v.dy/2)*2}`;
+                    bins[k] = (bins[k]||0) + v.score;
+                    if(bins[k]>maxScore) { maxScore=bins[k]; consensus=v; }
+                });
                 
-                // Simple global correlation on small image
-                const stride = 2; // Skip every other pixel for speed
-                const len = sb1.length;
-                
-                for(let dy=-searchRange; dy<=searchRange; dy+=stride) {
-                    for(let dx=-searchRange; dx<=searchRange; dx+=stride) {
-                        let dot=0, s1=0, s2=0;
-                        // Sparse sampling
-                        for(let i=0; i<len; i+=8) {
-                            const x = i % sw, y = (i / sw) | 0;
-                            const tx = x + dx, ty = y + dy;
-                            if(tx>=0 && tx<sw && ty>=0 && ty<sh) {
-                                const v1 = sb1[i], v2 = sb2[ty*sw+tx];
-                                dot += v1*v2; s1 += v1*v1; s2 += v2*v2;
-                            }
-                        }
-                        const score = dot / (Math.sqrt(s1)*Math.sqrt(s2) + 1e-9);
-                        if(score > bestScore) { bestScore = score; bdx = dx; bdy = dy; }
-                    }
-                    if(cb && dy%10===0) cb((dy+searchRange)/(searchRange*2));
-                    await new Promise(r=>setTimeout(r,0));
-                }
-                
-                // Return SCALED offset - Corrected Direction
-                return { dx: bdx/scale, dy: bdy/scale };
+                // IDEMPOTENT RETURN: The vector is (dx, dy).
+                // If we found match at `x - dx`, it means Image 2 is shifted by `+dx`.
+                // To align, we need Offset = `+dx`.
+                return maxScore > 0 ? consensus : null;
             };
 
             const computeFine = async (buff1, buff2, width, height, coarse, cb) => {
                 const crop = 256, cx = width >> 1, cy = height >> 1; const ox = coarse.dx, oy = coarse.dy;
                 const roi1 = new Float32Array(crop*crop);
                 for(let y=0; y<crop; y++) { const r=Math.imul(cy-(crop>>1)+y, width), r2=Math.imul(y, crop); for(let x=0; x<crop; x++) roi1[r2+x]=buff1[r+cx-(crop>>1)+x]; }
-                const map1 = computeLoGMap(roi1, crop, crop);
+                const map1 = getGradientMap(roi1, crop, crop); // Use Gradients for Fine Lock too
                 
-                // Optimization: Pre-fetch large ROI from target B to avoid random access in inner loop
-                const searchMargin = 12; const largeCrop = crop + searchMargin*2;
+                const searchMargin = 10; const largeCrop = crop + searchMargin*2;
                 const roi2Large = new Float32Array(largeCrop*largeCrop);
-                
                 for(let y=0; y<largeCrop; y++) { 
                     const r = Math.imul(Math.max(0, Math.min(height-1, (cy-(largeCrop>>1)+y+oy))), width);
                     const r2 = Math.imul(y, largeCrop); 
-                    for(let x=0; x<largeCrop; x++) {
-                        roi2Large[r2+x] = buff2[r + Math.max(0, Math.min(width-1, (cx-(largeCrop>>1)+x+ox)))];
-                    }
+                    for(let x=0; x<largeCrop; x++) roi2Large[r2+x]=buff2[r + Math.max(0, Math.min(width-1, (cx-(largeCrop>>1)+x+ox)))]; 
                 }
-                const map2Large = computeLoGMap(roi2Large, largeCrop, largeCrop);
+                const map2Large = getGradientMap(roi2Large, largeCrop, largeCrop);
 
                 const getError = (dx, dy) => {
                     let err = 0.0;
@@ -447,8 +472,8 @@
                 let curX = 0, curY = 0, step = 4.0;
                 let minErr = getError(0,0);
                 
-                // Hill Climbing
-                for(let iter=0; iter<20; iter++) {
+                // Gradient Descent / Hill Climbing
+                for(let iter=0; iter<30; iter++) {
                     let bestE = minErr, bestX = curX, bestY = curY;
                     [[0,-1],[0,1],[-1,0],[1,0]].forEach(d => { 
                         const nx = curX + d[0]*step, ny = curY + d[1]*step;
@@ -459,11 +484,11 @@
                     if(bestE < minErr) { minErr = bestE; curX = bestX; curY = bestY; } 
                     else { step *= 0.5; }
                     
-                    if(step < 0.1) break; 
-                    if(cb) cb(0.5 + (iter/20)*0.5);
+                    if(step < 0.005) break; 
+                    if(cb) cb(0.5 + (iter/30)*0.5);
                     await new Promise(r => setTimeout(r,0));
                 }
-                // Result is accumulated offset
+                // Add the refined delta to the coarse offset
                 return { x: ox + curX, y: oy + curY };
             };
             return { computeCoarse, computeFine };
@@ -662,10 +687,10 @@
                 return l; };
                 
                 const b1 = getRawL(img1); const b2 = getRawL(img2);
-                setAlignStatus("Pyramid Search..."); await new Promise(r => setTimeout(r,10));
+                setAlignStatus("ZNCC Voting..."); await new Promise(r => setTimeout(r,10));
                 const coarse = await RegistrationEngine.computeCoarse(b1, b2, img1.width, img1.height, (p)=>setProgress(p*40));
                 if(coarse) { 
-                    setAlignStatus("LoG Refine..."); await new Promise(r => setTimeout(r,10));
+                    setAlignStatus("LoG Descent..."); await new Promise(r => setTimeout(r,10));
                     const fine = await RegistrationEngine.computeFine(b1, b2, img1.width, img1.height, coarse, (p)=>setProgress(40 + p*60)); 
                     setOffset({x: parseFloat(fine.x.toFixed(2)), y: parseFloat(fine.y.toFixed(2))}); setAlignStatus("Locked"); 
                 } else { setAlignStatus("Failed"); }
