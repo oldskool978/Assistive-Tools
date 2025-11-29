@@ -23,6 +23,8 @@
         .range-fine::-webkit-slider-runnable-track { background: #1e293b; height: 2px; }
         .range-fine::-webkit-slider-thumb { background-color: #94a3b8; height: 12px; width: 2px; margin-top: -5px; }
         .cursor-crosshair { cursor: crosshair; }
+        /* Scrubber Active State */
+        .scrubbing { cursor: none; background-color: rgba(56, 189, 248, 0.1); border-color: rgba(56, 189, 248, 0.5); }
     </style>
 </head>
 <body>
@@ -30,7 +32,7 @@
     <script type="text/babel" data-type="module">
         import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
         import { createRoot } from 'react-dom/client';
-        import { Activity, Layers, Eye, EyeOff, Target, ShieldCheck, Loader, ScanLine, Microscope, Waves, Binary, BrainCircuit, Upload, MoveHorizontal, Zap, Sun, Compass, FileText, X, ClipboardCheck, Move, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, RotateCcw, Image as ImageIcon } from 'lucide-react';
+        import { Activity, Layers, Eye, EyeOff, Target, ShieldCheck, Loader, ScanLine, Microscope, Waves, Binary, BrainCircuit, Upload, MoveHorizontal, Zap, Sun, Compass, FileText, X, ClipboardCheck, Move, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, RotateCcw, Image as ImageIcon, MousePointer2 } from 'lucide-react';
 
         // --- 1. PRECISION CORE ---
         const PrecisionCore = (() => {
@@ -358,6 +360,15 @@
                     case 'coherence':
                         sigmaMult = 3.5;
                         break;
+                    case 'heuristic':
+                        gammaTarget = 1.2; // Compress composite dynamic range
+                        sigmaMult = 2.5;
+                        break;
+                    case 'perceptual':
+                        gammaTarget = 1.0;
+                        sigmaMult = 2.8;
+                        gainBoost = 1.5;
+                        break;
                 }
 
                 const trueNoiseFloor = estSigma * sigmaCorrection;
@@ -647,7 +658,7 @@
             const [offset, setOffset] = useState({x:0, y:0});
             const [debouncedOffset, setDebouncedOffset] = useState({x:0,y:0});
             const dragRef = useRef({active:false, x:0, y:0});
-            const touchRef = useRef({active: false, x:0, y:0, dist:0}); // RESTORED: Touch Engine State
+            const touchRef = useRef({active: false, x:0, y:0, dist:0}); 
             const [gainState, setGainState] = useState({coarse:45, fine:0});
             const [gateState, setGateState] = useState({coarse:0.5, fine:0});
             const [gammaState, setGammaState] = useState({coarse:1.0, fine:0});
@@ -672,11 +683,9 @@
             useEffect(() => { const t = setTimeout(() => setDebouncedOffset(offset), 300); return () => clearTimeout(t); }, [offset]);
             useEffect(() => { let t; if(flicker) t = setInterval(() => setFlickerState(s => s===0?1:0), 120); else setFlickerState(0); return () => clearInterval(t); }, [flicker]);
 
-            // ADDED: Unified HUD Update Logic
             const updateHUD = (clientX, clientY) => {
                 if(!img1 || !viewRef.current || !hudRef.current) return;
                 const rect = viewRef.current.getBoundingClientRect();
-                // FIXED: Coordinate Math (Anchor to Viewport, not Transformed Container)
                 const x = (clientX - rect.left - transform.x) / transform.k;
                 const y = (clientY - rect.top - transform.y) / transform.k;
                 
@@ -695,7 +704,50 @@
                 }
             };
 
-            // RESTORED: Touch Control Handlers
+            const Scrubber = ({ value, onChange, axis }) => {
+                const scrubRef = useRef({ active: false, startY: 0, startVal: 0, startX: 0 });
+                
+                const handleWheel = (e) => {
+                    e.preventDefault(); e.stopPropagation();
+                    const delta = -Math.sign(e.deltaY);
+                    let step = 0.1;
+                    if (e.shiftKey) step = 1.0;
+                    if (e.altKey) step = 0.01;
+                    onChange(parseFloat((value + delta * step).toFixed(2)));
+                };
+
+                const handlePointerDown = (e) => {
+                    e.preventDefault(); e.stopPropagation();
+                    e.target.setPointerCapture(e.pointerId);
+                    scrubRef.current = { active: true, startY: e.clientY, startVal: value, startX: e.clientX };
+                    e.target.classList.add('scrubbing');
+                };
+
+                const handlePointerMove = (e) => {
+                    if (!scrubRef.current.active) return;
+                    e.preventDefault();
+                    const deltaY = scrubRef.current.startY - e.clientY; 
+                    const deltaX = Math.abs(e.clientX - scrubRef.current.startX); 
+                    const damping = 1.0 + (deltaX * 0.05);
+                    const sensitivity = 0.1 / damping; 
+                    const diff = deltaY * sensitivity;
+                    onChange(parseFloat((scrubRef.current.startVal + diff).toFixed(2)));
+                };
+
+                const handlePointerUp = (e) => {
+                    scrubRef.current.active = false;
+                    e.target.classList.remove('scrubbing');
+                };
+
+                return (
+                    <div className="w-20 h-12 bg-slate-950 border border-slate-800 rounded flex flex-col items-center justify-center cursor-ns-resize hover:border-cyan-500/50 transition-colors select-none touch-none relative overflow-hidden"
+                         onWheel={handleWheel} onPointerDown={handlePointerDown} onPointerMove={handlePointerMove} onPointerUp={handlePointerUp} onPointerLeave={handlePointerUp}>
+                        <span className="font-mono text-xs text-cyan-400 pointer-events-none relative z-10">{axis}: {value.toFixed(2)}</span>
+                        <div className="text-[7px] text-slate-600 pointer-events-none relative z-10 uppercase tracking-tight mt-0.5">Slide Y / Pull X</div>
+                    </div>
+                );
+            };
+
             const handleTouchStart = (e) => {
                 if(e.touches.length === 1) { touchRef.current = { x: e.touches[0].clientX, y: e.touches[0].clientY, dist: 0, active: true }; dragRef.current.active = true; } 
                 else if (e.touches.length === 2) { const t1 = e.touches[0], t2 = e.touches[1]; const dist = Math.hypot(t1.clientX - t2.clientX, t1.clientY - t2.clientY); touchRef.current = { ...touchRef.current, dist, active: true }; dragRef.current.active = false; }
@@ -703,14 +755,12 @@
             
             const handleTouchMove = (e) => {
                 if (!touchRef.current.active) return;
-                // Single Touch: Pan + HUD
                 if (e.touches.length === 1 && dragRef.current.active) {
                     const dx = e.touches[0].clientX - touchRef.current.x; const dy = e.touches[0].clientY - touchRef.current.y;
                     setTransform(p => ({ ...p, x: p.x + dx, y: p.y + dy })); 
                     touchRef.current.x = e.touches[0].clientX; touchRef.current.y = e.touches[0].clientY;
                     updateHUD(e.touches[0].clientX, e.touches[0].clientY);
                 } 
-                // Multi Touch: Pinch Zoom
                 else if (e.touches.length === 2) {
                     const t1 = e.touches[0], t2 = e.touches[1]; 
                     const dist = Math.hypot(t1.clientX - t2.clientX, t1.clientY - t2.clientY); 
@@ -858,7 +908,7 @@
                                 <div className="flex justify-between items-center mb-2"><span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest flex items-center gap-2"><Layers className="w-3 h-3"/> Sources</span></div>
                                 <label className="block p-2 border border-slate-700 border-dashed rounded hover:border-cyan-500/50 cursor-pointer transition-colors bg-slate-900/50"><div className="flex justify-between text-xs font-bold"><span>REF (A)</span><span className="text-cyan-400 font-mono">{formatName(meta.ref)}</span></div><input type="file" className="hidden" accept="image/*" onChange={handleUpload(true)}/></label><label className="block p-2 border border-slate-700 border-dashed rounded hover:border-cyan-500/50 cursor-pointer transition-colors bg-slate-900/50"><div className="flex justify-between text-xs font-bold"><span>TGT (B)</span><span className="text-cyan-400 font-mono">{formatName(meta.tgt)}</span></div><input type="file" className="hidden" accept="image/*" onChange={handleUpload(false)}/></label>
                             </div>
-                            {activeTab === 'registration' && (<div className="space-y-4 animate-in fade-in"><div className="p-3 bg-slate-800/50 rounded border border-slate-700 font-mono text-xs"><div className="grid grid-cols-3 gap-1 text-center"><button onClick={()=>setOffset(p=>({...p,x:p.x-1}))} className="bg-slate-700 hover:bg-slate-600 rounded py-2">←</button><div className="grid gap-1"><button onClick={()=>setOffset(p=>({...p,y:p.y-1}))} className="bg-slate-700 hover:bg-slate-600 rounded py-1">↑</button><button onClick={()=>setOffset(p=>({...p,y:p.y+1}))} className="bg-slate-700 hover:bg-slate-600 rounded py-1">↓</button></div><button onClick={()=>setOffset(p=>({...p,x:p.x+1}))} className="bg-slate-700 hover:bg-slate-600 rounded py-2">→</button></div></div><div className="flex flex-col gap-2 p-3 bg-slate-800/50 border border-slate-700 rounded items-center justify-center"><div className="text-[9px] text-slate-500 font-bold uppercase mb-1">Scroll Tuner (Shift/Alt)</div><div className="flex gap-2"><div className="w-20 h-12 bg-slate-950 border border-slate-800 rounded flex items-center justify-center cursor-ns-resize hover:border-cyan-500/50 transition-colors" onWheel={(e)=>handleWheelControl('x',e)}><span className="font-mono text-xs text-cyan-400">X: {offset.x.toFixed(1)}</span></div><div className="w-20 h-12 bg-slate-950 border border-slate-800 rounded flex items-center justify-center cursor-ns-resize hover:border-cyan-500/50 transition-colors" onWheel={(e)=>handleWheelControl('y',e)}><span className="font-mono text-xs text-cyan-400">Y: {offset.y.toFixed(1)}</span></div></div></div><button onClick={runAutoAlign} disabled={isAligning} className="w-full py-3 bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs rounded flex items-center justify-center gap-2 transition-all shadow-lg shadow-indigo-900/20">{isAligning?<Loader className="w-3 h-3 animate-spin"/>:<Target className="w-3 h-3"/>} {alignStatus||"Autolock"}</button><div className="flex gap-2"><button onClick={()=>setRegMode('difference')} className={`flex-1 py-2 text-[10px] font-bold border rounded transition-all ${regMode==='difference'?'bg-slate-700 text-white':'bg-slate-900 text-slate-500'}`}>DIFF</button><button onClick={()=>setRegMode('mix')} className={`flex-1 py-2 text-[10px] font-bold border rounded transition-all ${regMode==='mix'?'bg-slate-700 text-white':'bg-slate-900 text-slate-500'}`}>MIX</button></div></div>)}
+                            {activeTab === 'registration' && (<div className="space-y-4 animate-in fade-in"><div className="p-3 bg-slate-800/50 rounded border border-slate-700 font-mono text-xs"><div className="grid grid-cols-3 gap-1 text-center"><button onClick={()=>setOffset(p=>({...p,x:p.x-1}))} className="bg-slate-700 hover:bg-slate-600 rounded py-2">←</button><div className="grid gap-1"><button onClick={()=>setOffset(p=>({...p,y:p.y-1}))} className="bg-slate-700 hover:bg-slate-600 rounded py-1">↑</button><button onClick={()=>setOffset(p=>({...p,y:p.y+1}))} className="bg-slate-700 hover:bg-slate-600 rounded py-1">↓</button></div><button onClick={()=>setOffset(p=>({...p,x:p.x+1}))} className="bg-slate-700 hover:bg-slate-600 rounded py-2">→</button></div></div><div className="flex flex-col gap-2 p-3 bg-slate-800/50 border border-slate-700 rounded items-center justify-center"><div className="text-[9px] text-slate-500 font-bold uppercase mb-1">Kinetic Tuner</div><div className="flex gap-2"><Scrubber axis="X" value={offset.x} onChange={(v)=>setOffset(p=>({...p, x:v}))} /><Scrubber axis="Y" value={offset.y} onChange={(v)=>setOffset(p=>({...p, y:v}))} /></div></div><button onClick={runAutoAlign} disabled={isAligning} className="w-full py-3 bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs rounded flex items-center justify-center gap-2 transition-all shadow-lg shadow-indigo-900/20">{isAligning?<Loader className="w-3 h-3 animate-spin"/>:<Target className="w-3 h-3"/>} {alignStatus||"Autolock"}</button><div className="flex gap-2"><button onClick={()=>setRegMode('difference')} className={`flex-1 py-2 text-[10px] font-bold border rounded transition-all ${regMode==='difference'?'bg-slate-700 text-white':'bg-slate-900 text-slate-500'}`}>DIFF</button><button onClick={()=>setRegMode('mix')} className={`flex-1 py-2 text-[10px] font-bold border rounded transition-all ${regMode==='mix'?'bg-slate-700 text-white':'bg-slate-900 text-slate-500'}`}>MIX</button></div></div>)}
                             {activeTab === 'analysis' && tensor && (<div className="space-y-4 animate-in fade-in"><div className="space-y-1"><ChannelRow label="Composite" active={activeLayer==='heuristic'} onClick={()=>setActiveLayer('heuristic')} icon={BrainCircuit} special={true}/><ChannelRow label="Structure" active={activeLayer==='grad'} onClick={()=>setActiveLayer('grad')} icon={ScanLine}/><ChannelRow label="Delta-E" active={activeLayer==='perceptual'} onClick={()=>setActiveLayer('perceptual')} icon={Sun}/><ChannelRow label="SSIM" active={activeLayer==='ssim'} onClick={()=>setActiveLayer('ssim')} icon={Binary}/><ChannelRow label="Entropy" active={activeLayer==='entropy'} onClick={()=>setActiveLayer('entropy')} icon={Waves}/><ChannelRow label="Geometric" active={activeLayer==='coherence'} onClick={()=>setActiveLayer('coherence')} icon={Compass}/></div><div className="p-3 bg-slate-800/50 rounded border border-slate-700 space-y-3"><div className="flex justify-between items-center"><span className="text-[10px] font-bold text-slate-500 uppercase flex items-center gap-1"><Eye className="w-3 h-3"/> Heatmap</span><div className="flex bg-slate-950 rounded p-0.5 border border-slate-800"><button onClick={()=>setShowMap(true)} className={`px-2 py-0.5 text-[10px] rounded font-bold ${showMap?'bg-slate-700 text-white':'text-slate-500'}`}>ON</button><button onClick={()=>setShowMap(false)} className={`px-2 py-0.5 text-[10px] rounded font-bold ${!showMap?'bg-slate-700 text-white':'text-slate-500'}`}>OFF</button></div></div><div className="space-y-1"><div className="flex justify-between text-[10px] font-bold text-slate-500 uppercase"><span>Opacity</span><span className="text-cyan-400">{Math.round(opacity*100)}%</span></div><input type="range" min="0" max="1" step="0.01" value={opacity} onChange={e=>setOpacity(parseFloat(e.target.value))} className="w-full h-1 bg-slate-700 rounded appearance-none accent-cyan-500"/></div><div className="space-y-1"><div className="flex justify-between text-[10px] font-bold text-slate-500 uppercase"><span>Mix</span><span className="text-cyan-400">{Math.round(mix*100)}%</span></div><input type="range" min="0" max="1" step="0.01" value={mix} onChange={e=>setMix(parseFloat(e.target.value))} className="w-full h-1 bg-slate-700 rounded appearance-none accent-cyan-500"/></div><button onClick={()=>setFlicker(!flicker)} className={`w-full py-1.5 text-[10px] font-bold rounded border transition-all flex items-center justify-center gap-2 ${flicker ? 'bg-amber-900/30 border-amber-500 text-amber-400' : 'bg-slate-900 border-slate-700 text-slate-500 hover:border-slate-600'}`}><Zap className={`w-3 h-3 ${flicker?'fill-current':''}`}/> {flicker ? 'FLICKER ACTIVE' : 'ENABLE FLICKER'}</button></div><div className="p-3 bg-slate-800/50 rounded border border-slate-700"><div className="flex justify-between mb-2 items-center"><span className="text-[10px] font-bold text-slate-500 uppercase flex items-center gap-1"><ShieldCheck className="w-3 h-3"/> Forensics</span><div className="flex bg-slate-950 rounded p-0.5 border border-slate-800"><button onClick={()=>setViewMode('raw')} className={`px-2 py-0.5 text-[10px] rounded font-bold ${viewMode==='raw'?'bg-slate-700 text-white':'text-slate-500'}`}>RAW</button><button onClick={()=>setViewMode('clean')} className={`px-2 py-0.5 text-[10px] rounded font-bold ${viewMode==='clean'?'bg-emerald-600 text-white shadow-lg':'text-slate-500'}`}>FILTER</button></div></div><div className="grid grid-cols-3 gap-1"><button onClick={()=>setRepairSettings(p=>({...p, chroma:!p.chroma}))} className={`py-1.5 text-[9px] font-bold rounded border transition-all ${repairSettings.chroma?'bg-cyan-900/40 border-cyan-500 text-cyan-400':'bg-slate-900 border-slate-800 text-slate-500 hover:border-slate-600'}`}>Tukey</button><button onClick={()=>setRepairSettings(p=>({...p, ringing:!p.ringing}))} className={`py-1.5 text-[9px] font-bold rounded border transition-all ${repairSettings.ringing?'bg-cyan-900/40 border-cyan-500 text-cyan-400':'bg-slate-900 border-slate-800 text-slate-500 hover:border-slate-600'}`}>NLM</button><button onClick={()=>setRepairSettings(p=>({...p, geodesic:!p.geodesic}))} className={`py-1.5 text-[9px] font-bold rounded border transition-all ${repairSettings.geodesic?'bg-rose-900/40 border-rose-500 text-rose-400':'bg-slate-900 border-slate-800 text-slate-500 hover:border-slate-600'}`}>Geo</button></div></div><button onClick={runAutoTune} className="w-full py-2 bg-indigo-900/30 border border-indigo-500/30 text-indigo-300 text-[10px] font-bold rounded flex items-center justify-center gap-2 hover:bg-indigo-900/50 transition-all"><Target className="w-3 h-3"/> GGD Auto-Tune</button><div className="space-y-2"><DualSlider label="Gain" displayValue={`${physics.gain.toFixed(0)}x`} value={gainState} onChange={setGainState} minCoarse={1} maxCoarse={100} stepCoarse={1} minFine={-1.0} maxFine={1.0} stepFine={0.001}/><DualSlider label="Gate" displayValue={physics.threshold.toFixed(2)} value={gateState} onChange={setGateState} minCoarse={0} maxCoarse={255} stepCoarse={0.1} minFine={-10} maxFine={10} stepFine={0.01}/><DualSlider label="Gamma" displayValue={physics.gamma.toFixed(2)} value={gammaState} onChange={setGammaState} minCoarse={0.1} maxCoarse={3} stepCoarse={0.1} minFine={-0.2} maxFine={0.2} stepFine={0.001}/><DualSlider label="Soft" displayValue={physics.softness.toFixed(0)} value={softState} onChange={setSoftState} minCoarse={0} maxCoarse={100} stepCoarse={1} minFine={-5} maxFine={5} stepFine={0.1}/></div><button onClick={()=>setShowAudit(true)} className="w-full py-3 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded uppercase tracking-wider flex items-center justify-center gap-2 shadow-lg shadow-emerald-900/20 transition-all"><ClipboardCheck className="w-4 h-4"/> View Audit</button>{stats && (<div className="pt-4 border-t border-slate-800 space-y-3"><Legend physics={physics} type={activeLayer}/><Histogram data={stats.hist} cutoff={physics.threshold/255.0}/></div>)}</div>)}
                         </div>
                     </div>
