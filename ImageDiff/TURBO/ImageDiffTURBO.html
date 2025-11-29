@@ -127,6 +127,7 @@
         const IngestEngine = (() => {
             const process = (imageData, width, height) => {
                 const { data } = imageData; const len = width * height; 
+                // HIGH PRECISION UPGRADE: Use Float64 for Oklab pipeline
                 const ok_l = new Float64Array(len), ok_a = new Float64Array(len), ok_b = new Float64Array(len);
                 const { M1, M2, LINEAR_LUT_HQ, BAYER_LATTICE } = PrecisionCore;
                 if (!M1 || !M2) return { oklab: {l:ok_l, a:ok_a, b:ok_b}, meta: {w:width, h:height, bitDepth:8} };
@@ -163,6 +164,7 @@
             const convolveSeparable = (input, width, height, kH, kV) => {
                 if (!kH || !kV) return new Float64Array(input.length);
                 const len = width * height; const temp = MemoryVanguard.request(0, len); 
+                // HIGH PRECISION UPGRADE: Output is Float64
                 const out = new Float64Array(len);
                 const kSzH = kH.length, kHalfH = (kSzH - 1) >> 1; const kSzV = kV.length, kHalfV = (kSzV - 1) >> 1;
                 for(let y=0; y<height; y++) { const row = Math.imul(y, width); for(let x=0; x<width; x++) { let sum = 0.0; for(let k=0; k<kSzH; k++) { let px = x - kHalfH + k; if (px < 0) px = -px; else if (px >= width) px = width - 1 - (px - width); sum += input[row + px] * kH[k]; } temp[row + x] = sum; } }
@@ -179,6 +181,7 @@
                 });
                 const Sxx = convolveSeparable(Ixx, w, h, KAISER_13, KAISER_13); const Syy = convolveSeparable(Iyy, w, h, KAISER_13, KAISER_13); const Sxy = convolveSeparable(Ixy, w, h, KAISER_13, KAISER_13);
                 
+                // HIGH PRECISION UPGRADE: Float64 for Eigenvalues
                 const l1 = new Float64Array(len), l2 = new Float64Array(len), coh = new Float64Array(len);
                 for(let i=0; i<len; i++) {
                     const tr = Sxx[i] + Syy[i]; const det = Sxx[i]*Syy[i] - Sxy[i]*Sxy[i]; const term = Math.sqrt(Math.max(0, (tr * 0.5)**2 - det));
@@ -208,6 +211,7 @@
                 const { KAISER_13, PHYSICS } = PrecisionCore;
                 const C1 = PHYSICS ? PHYSICS[1] : 0.0001, C2 = PHYSICS ? PHYSICS[2] : 0.0009;
                 const len = w*h;
+                // HIGH PRECISION UPGRADE: Float64
                 const ssim = new Float64Array(len);
                 ['l', 'a', 'b'].forEach(key => {
                     const buf1 = ok1[key]; const buf2 = ok2[key];
@@ -244,6 +248,7 @@
         const ForensicFilter = (() => {
             const tasks = {
                 geodesic: (mask, width, height, stats, tuning) => {
+                    // HIGH PRECISION UPGRADE: Float64 for erosion stability
                     const len = mask.length; const marker = new Float64Array(len);
                     const floor = stats ? Math.max(1e-6, stats.statFloor * tuning.geoScale) : 0.005;
                     for(let i=0; i<len; i++) marker[i] = Math.max(0, mask[i] - floor);
@@ -262,7 +267,7 @@
                     return marker;
                 },
                 nlm: (input, width, height, stats, tuning) => {
-                    const len = input.length; const output = new Float64Array(input);
+                    const len = input.length; const output = new Float64Array(input); // EDGE PRESERVATION
                     const sigma = stats ? stats.robustSigma : 0.01; 
                     const h2 = (sigma * sigma) * tuning.nlmDecay;
                     for(let y=3; y<height-3; y++) {
@@ -285,7 +290,7 @@
                     const len = input.length; const u = new Float64Array(input); const u_next = new Float64Array(len);
                     const sigma = stats ? stats.robustSigma : 0.01; 
                     const K = sigma * tuning.tukeyK; const K2 = K * K;
-                    u_next.set(u);
+                    u_next.set(u); // EDGE PRESERVATION
                     for(let iter=0; iter<3; iter++) {
                         for(let y=1; y<height-1; y++) {
                             const row = Math.imul(y, width);
@@ -304,6 +309,7 @@
             const generateManifold = async (base, w, h, layerKey, cb) => {
                 const manifolds = new Array(8);
                 const isSSIM = layerKey === 'ssim';
+                // HIGH PRECISION UPGRADE: Float64
                 const working = new Float64Array(base.length);
                 if (isSSIM) { for(let i=0; i<base.length; i++) working[i] = Math.max(0, 1.0 - base[i]); } 
                 else { working.set(base); }
@@ -329,7 +335,7 @@
             return { generateManifold };
         })();
 
-        // --- 6. OPTIMIZATION ENGINE (CASCADE) ---
+        // --- 6. OPTIMIZATION ENGINE (CASCADE + QUALITY BIAS) ---
         const OptimizationEngine = (() => {
             const solve = (tensor, layerKey, activeMask, viewMode) => {
                 const raw = tensor[layerKey].raw; if (!raw) return null; 
@@ -363,9 +369,12 @@
 
                 const trueNoiseFloor = estSigma * sigmaCorrection;
                 sampleValues.sort(); const p99 = sampleValues[Math.floor(n * 0.99)];
-                const safeTarget = Math.max(p99, trueNoiseFloor * 2.0, qStep); 
+                
+                // --- QUALITY BIAS: Prevent "Gain Explosion" on empty channels ---
+                const safeTarget = Math.max(p99, trueNoiseFloor * 3.0, qStep); // Must be at least 3x noise floor
                 const gain = Math.min(100000, Math.max(1, (0.85 / safeTarget) * gainBoost));
-                const gate = (trueNoiseFloor * gain * sigmaMult);
+                
+                const gate = (trueNoiseFloor * gain * sigmaMult); // Cascade Logic
                 const threshold = Math.min(255, gate * 255);
 
                 return { gain, threshold, gamma: gammaTarget, softness: threshold * 0.5 };
@@ -377,6 +386,7 @@
         const RegistrationEngine = (() => {
             const { FARID_D, FARID_P, LANCZOS_LUT } = PrecisionCore;
             const convolve1D = (inp, w, h, k) => {
+                // HIGH PRECISION UPGRADE
                 const out = new Float64Array(inp.length);
                 const kLen = k.length, half = kLen>>1;
                 for(let y=0; y<h; y++) {
@@ -473,10 +483,13 @@
                 }
                 return { nps: Math.pow(sum / len, 0.25), peak, mean: Math.pow(sum / len, 0.25), visible_pct: (violations/len)*100 };
             };
-            const computeSignalMetrics = (buf, w, h) => {
+            const computeSignalMetrics = (buf, w, h, bitDepth) => {
                 const sig = PrecisionCore.estimateRobustSigma(buf, w, h);
-                const snr = (sig > 0) ? Math.min(140, 20 * Math.log10(1.0 / sig)) : 0;
-                return { snr, ebd: Math.max(0, (snr - 1.76) / 6.02), noise: sig };
+                const qStep = 1.0 / (Math.pow(2, bitDepth) - 1);
+                const minNoise = qStep * 0.5; // Physics Floor: 0.5 LSB
+                const effectiveNoise = Math.max(sig, minNoise);
+                const snr = (effectiveNoise > 0) ? Math.min(140, 20 * Math.log10(1.0 / effectiveNoise)) : 0;
+                return { snr, ebd: Math.max(0, (snr - 1.76) / 6.02), noise: effectiveNoise };
             };
             return { computeNPS_Quant, computeSignalMetrics };
         })();
@@ -662,6 +675,28 @@ Visible:     ${visible_pct.toFixed(2)}%
             useEffect(() => { const t = setTimeout(() => setDebouncedOffset(offset), 300); return () => clearTimeout(t); }, [offset]);
             useEffect(() => { let t; if(flicker) t = setInterval(() => setFlickerState(s => s===0?1:0), 120); else setFlickerState(0); return () => clearInterval(t); }, [flicker]);
 
+            const physics = useMemo(() => {
+                const logBase = -4 + (gainState.coarse/100.0)*10;
+                const gain = Math.pow(10, logBase + gainState.fine);
+                const bitDepth = tensor?.meta?.bitDepth || 8;
+                const qStep = 1.0 / (Math.pow(2, bitDepth) - 1);
+                
+                // Dynamic Step Sizing based on Bit Depth
+                const threshold = Math.max(0, gateState.coarse + gateState.fine);
+                const signalGate = threshold * qStep;
+                
+                const gamma = Math.max(0.1, Math.min(3.0, gammaState.coarse + gammaState.fine));
+                const softness = Math.max(0, Math.min(100, softState.coarse + softState.fine));
+                return { gain, signalGate, gamma, softness, threshold };
+            }, [gainState, gateState, gammaState, softState, tensor]);
+
+            // Safe display value calculation (physics is defined above)
+            const gateDisplayVal = useMemo(() => {
+                const raw = physics.threshold; // 0-255
+                if(tensor?.meta?.bitDepth === 16) return Math.round(raw * 257); // Scale 255 -> 65535
+                return raw.toFixed(2);
+            }, [physics.threshold, tensor]);
+
             // KEYBOARD LISTENER FOR 'P'
             useEffect(() => {
                 const handler = (e) => { if(e.key.toLowerCase() === 'p') { probeModeRef.current = !probeModeRef.current; updateHUD(lastMouseRef.current.x, lastMouseRef.current.y); } };
@@ -685,9 +720,8 @@ Visible:     ${visible_pct.toFixed(2)}%
                         const isPrecise = probeModeRef.current;
                         const fmt = (val) => {
                             if (val === 0) return isPrecise ? "0.000000000000000000" : "0.00000 "; 
-                            if (isPrecise) return val.toFixed(18); // Full length, always
-                            const fixed = val.toFixed(5);
-                            return fixed + " "; // Add space to match monospace width
+                            if (isPrecise) return val.toFixed(18); // Full length, no truncation
+                            return val.toFixed(5) + " "; // Standard fixed length
                         };
                         hudRef.current.innerHTML = `<div class="space-y-1"><div class="flex justify-between text-[10px] font-bold text-slate-400 border-b border-slate-700 pb-1"><span>XY [${ix}, ${iy}]</span><span class="text-slate-500">${tensor.meta.bitDepth}-BIT ${isPrecise?'[RAW]':'[STD]'}</span></div><div class="grid grid-cols-2 gap-x-4 gap-y-0.5 text-[9px] font-mono leading-tight"><span class="text-indigo-400">COMP</span><span class="text-slate-200 text-right">${fmt(v('heuristic'))}</span><span class="text-emerald-400">SSIM</span><span class="text-slate-200 text-right">${fmt(v('ssim'))}</span><span class="text-cyan-400">GRAD</span><span class="text-slate-200 text-right">${fmt(v('grad'))}</span><span class="text-amber-400">ENTR</span><span class="text-slate-200 text-right">${fmt(v('entropy'))}</span><span class="text-rose-400">COHER</span><span class="text-slate-200 text-right">${fmt(v('coherence'))}</span><span class="text-blue-400">DELTA</span><span class="text-slate-200 text-right">${fmt(v('perceptual'))}</span></div></div>`;
                     }
@@ -758,17 +792,6 @@ Visible:     ${visible_pct.toFixed(2)}%
             const handleCanvasUp = () => { dragRef.current.active = false; };
             const handleDoubleClick = (e) => { probeModeRef.current = !probeModeRef.current; updateHUD(e.clientX, e.clientY); };
 
-            const physics = useMemo(() => {
-                const logBase = -4 + (gainState.coarse/100.0)*10;
-                const gain = Math.pow(10, logBase + gainState.fine);
-                const bitDepth = tensor?.meta?.bitDepth || 8;
-                const qStep = 1.0 / (Math.pow(2, bitDepth) - 1);
-                const threshold = Math.max(0, gateState.coarse + gateState.fine);
-                const signalGate = threshold * qStep;
-                const gamma = Math.max(0.1, Math.min(3.0, gammaState.coarse + gammaState.fine));
-                const softness = Math.max(0, Math.min(100, softState.coarse + softState.fine));
-                return { gain, signalGate, gamma, softness, threshold };
-            }, [gainState, gateState, gammaState, softState, tensor]);
 
             const buildTensor = useCallback(async () => {
                 if(!img1 || !img2 || activeTab !== 'analysis' || !isReady) return;
@@ -799,7 +822,8 @@ Visible:     ${visible_pct.toFixed(2)}%
                     }
                     const keys = ['heuristic', 'perceptual', 'grad', 'ssim', 'entropy', 'coherence']; let d = 0;
                     for(const key of keys) { layers.latent[key] = await ForensicFilter.generateManifold(layers[key].raw, w, h, key, (p) => setProgress(70 + (d/6 + p/6)*30)); d++; }
-                    const sm = QualityMetricEngine.computeSignalMetrics(t1.oklab.l, w, h); const scores = QualityMetricEngine.computeNPS_Quant(layers.heuristic.raw, t1.oklab.l, layers.entropy.raw, layers.coherence.raw, w, h);
+                    const sm = QualityMetricEngine.computeSignalMetrics(t1.oklab.l, w, h, t1.meta.bitDepth); // Pass bitDepth
+                    const scores = QualityMetricEngine.computeNPS_Quant(layers.heuristic.raw, t1.oklab.l, layers.entropy.raw, layers.coherence.raw, w, h);
                     setTensor({ ...layers, meta: { w, h, bitDepth: t1.meta.bitDepth }, source_metrics: sm, scores: scores }); setStatus("Ready"); setProgress(100);
                 } catch(e) { console.error(e); setStatus("Error"); } finally { setIsProcessing(false); }
             }, [img1, img2, debouncedOffset, activeTab, isReady]);
@@ -902,7 +926,7 @@ Visible:     ${visible_pct.toFixed(2)}%
                                 <div className="space-y-1"><ChannelRow label="Composite" active={activeLayer==='heuristic'} onClick={()=>setActiveLayer('heuristic')} icon={BrainCircuit} special={true}/><ChannelRow label="Structure" active={activeLayer==='grad'} onClick={()=>setActiveLayer('grad')} icon={ScanLine}/><ChannelRow label="Delta-E" active={activeLayer==='perceptual'} onClick={()=>setActiveLayer('perceptual')} icon={Sun}/><ChannelRow label="SSIM" active={activeLayer==='ssim'} onClick={()=>setActiveLayer('ssim')} icon={Binary}/><ChannelRow label="Entropy" active={activeLayer==='entropy'} onClick={()=>setActiveLayer('entropy')} icon={Waves}/><ChannelRow label="Geometric" active={activeLayer==='coherence'} onClick={()=>setActiveLayer('coherence')} icon={Compass}/></div>
                                 <button onClick={runAutoTune} className="w-full py-2 bg-indigo-900/30 border border-indigo-500/30 text-indigo-300 text-[10px] font-bold rounded flex items-center justify-center gap-2 hover:bg-indigo-900/50 transition-all"><Target className="w-3 h-3"/> GGD Auto-Tune</button>
                                 <div className="p-3 bg-slate-800/50 rounded border border-slate-700"><div className="flex justify-between mb-2 items-center"><span className="text-[10px] font-bold text-slate-500 uppercase flex items-center gap-1"><ShieldCheck className="w-3 h-3"/> Forensics</span><div className="flex bg-slate-950 rounded p-0.5 border border-slate-800"><button onClick={()=>setViewMode('raw')} className={`px-2 py-0.5 text-[10px] rounded font-bold ${viewMode==='raw'?'bg-slate-700 text-white':'text-slate-500'}`}>RAW</button><button onClick={()=>setViewMode('clean')} className={`px-2 py-0.5 text-[10px] rounded font-bold ${viewMode==='clean'?'bg-emerald-600 text-white shadow-lg':'text-slate-500'}`}>FILTER</button></div></div><div className="grid grid-cols-3 gap-1"><button onClick={()=>setRepairSettings(p=>({...p, chroma:!p.chroma}))} className={`py-1.5 text-[9px] font-bold rounded border transition-all ${repairSettings.chroma?'bg-cyan-900/40 border-cyan-500 text-cyan-400':'bg-slate-900 border-slate-800 text-slate-500 hover:border-slate-600'}`}>Tukey</button><button onClick={()=>setRepairSettings(p=>({...p, ringing:!p.ringing}))} className={`py-1.5 text-[9px] font-bold rounded border transition-all ${repairSettings.ringing?'bg-cyan-900/40 border-cyan-500 text-cyan-400':'bg-slate-900 border-slate-800 text-slate-500 hover:border-slate-600'}`}>NLM</button><button onClick={()=>setRepairSettings(p=>({...p, geodesic:!p.geodesic}))} className={`py-1.5 text-[9px] font-bold rounded border transition-all ${repairSettings.geodesic?'bg-rose-900/40 border-rose-500 text-rose-400':'bg-slate-900 border-slate-800 text-slate-500 hover:border-slate-600'}`}>Geo</button></div></div>
-                                <div className="space-y-2"><DualSlider label="Gain" displayValue={`${physics.gain.toFixed(0)}x`} value={gainState} onChange={setGainState} minCoarse={1} maxCoarse={100} stepCoarse={1} minFine={-1.0} maxFine={1.0} stepFine={0.001}/><DualSlider label="Gamma" displayValue={physics.gamma.toFixed(2)} value={gammaState} onChange={setGammaState} minCoarse={0.1} maxCoarse={3} stepCoarse={0.1} minFine={-0.2} maxFine={0.2} stepFine={0.001}/><DualSlider label="Gate" displayValue={physics.threshold.toFixed(2)} value={gateState} onChange={setGateState} minCoarse={0} maxCoarse={255} stepCoarse={0.1} minFine={-10} maxFine={10} stepFine={0.01}/><DualSlider label="Soft" displayValue={physics.softness.toFixed(0)} value={softState} onChange={setSoftState} minCoarse={0} maxCoarse={100} stepCoarse={1} minFine={-5} maxFine={5} stepFine={0.1}/></div>
+                                <div className="space-y-2"><DualSlider label="Gain" displayValue={`${physics.gain.toFixed(0)}x`} value={gainState} onChange={setGainState} minCoarse={1} maxCoarse={100} stepCoarse={1} minFine={-1.0} maxFine={1.0} stepFine={0.001}/><DualSlider label="Gamma" displayValue={physics.gamma.toFixed(2)} value={gammaState} onChange={setGammaState} minCoarse={0.1} maxCoarse={3} stepCoarse={0.1} minFine={-0.2} maxFine={0.2} stepFine={0.001}/><DualSlider label="Gate" displayValue={gateDisplayVal} value={gateState} onChange={setGateState} minCoarse={0} maxCoarse={255} stepCoarse={tensor?.meta?.bitDepth===16 ? 0.001 : 0.1} minFine={-10} maxFine={10} stepFine={0.01}/><DualSlider label="Soft" displayValue={physics.softness.toFixed(0)} value={softState} onChange={setSoftState} minCoarse={0} maxCoarse={100} stepCoarse={1} minFine={-5} maxFine={5} stepFine={0.1}/></div>
                                 {stats && (<div className="pt-4 border-t border-slate-800 space-y-3"><Histogram data={stats.hist} cutoff={physics.threshold/255.0}/><Legend physics={physics} type={activeLayer}/></div>)}
                                 <button onClick={()=>setShowAudit(true)} className="w-full py-3 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded uppercase tracking-wider flex items-center justify-center gap-2 shadow-lg shadow-emerald-900/20 transition-all"><ClipboardCheck className="w-4 h-4"/> View Audit</button></div>)}
                         </div>
