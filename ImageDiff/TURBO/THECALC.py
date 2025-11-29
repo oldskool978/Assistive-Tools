@@ -155,13 +155,11 @@ def ensure_math():
         C=[[0.13572138,4.61539260,-42.66032258,132.13108234,-152.94239396,59.28637943],[0.09140261,2.19418839,4.84296658,-14.18503333,4.27729857,2.82956604],[0.10667330,12.64194608,-60.58204836,110.36276771,-89.90360919,27.34824973]]
         t_d=[]
         for i in range(4096):
-            x = mp.mpf(i) / 4095
-            rgb = []
+            x=mp.mpf(i)/4095; rgb=[]
             for k in C:
-                r = mp.mpf(k[-1])
-                for c in reversed(k[:-1]):
-                    r = r * x + c
-                rgb.append(max(0, min(1, r)))
+                r=mp.mpf(k[-1])
+                for c in reversed(k[:-1]): r=r*x+c
+                rgb.append(max(0,min(1,r)))
             t_d.extend(rgb)
         register_injection("TURBO", t_d)
 
