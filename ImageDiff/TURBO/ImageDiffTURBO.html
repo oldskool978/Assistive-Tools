@@ -126,7 +126,8 @@
         const IngestEngine = (() => {
             const process = (imageData, width, height) => {
                 const { data } = imageData; const len = width * height; 
-                const ok_l = new Float32Array(len), ok_a = new Float32Array(len), ok_b = new Float32Array(len);
+                // HIGH PRECISION UPGRADE: Use Float64 for Oklab pipeline
+                const ok_l = new Float64Array(len), ok_a = new Float64Array(len), ok_b = new Float64Array(len);
                 const { M1, M2, LINEAR_LUT_HQ, BAYER_LATTICE } = PrecisionCore;
                 if (!M1 || !M2) return { oklab: {l:ok_l, a:ok_a, b:ok_b}, meta: {w:width, h:height, bitDepth:8} };
 
@@ -161,7 +162,9 @@
         const AnalysisEngine = (() => {
             const convolveSeparable = (input, width, height, kH, kV) => {
                 if (!kH || !kV) return new Float64Array(input.length);
-                const len = width * height; const temp = MemoryVanguard.request(0, len); const out = new Float64Array(len);
+                const len = width * height; const temp = MemoryVanguard.request(0, len); 
+                // HIGH PRECISION UPGRADE: Output is Float64
+                const out = new Float64Array(len);
                 const kSzH = kH.length, kHalfH = (kSzH - 1) >> 1; const kSzV = kV.length, kHalfV = (kSzV - 1) >> 1;
                 for(let y=0; y<height; y++) { const row = Math.imul(y, width); for(let x=0; x<width; x++) { let sum = 0.0; for(let k=0; k<kSzH; k++) { let px = x - kHalfH + k; if (px < 0) px = -px; else if (px >= width) px = width - 1 - (px - width); sum += input[row + px] * kH[k]; } temp[row + x] = sum; } }
                 for(let y=0; y<height; y++) { const row = Math.imul(y, width); for(let x=0; x<width; x++) { let sum = 0.0; for(let k=0; k<kSzV; k++) { let py = y - kHalfV + k; if (py < 0) py = -py; else if (py >= height) py = height - 1 - (py - height); sum += temp[Math.imul(py, width) + x] * kV[k]; } out[row + x] = sum; } }
@@ -176,7 +179,9 @@
                     for(let i=0; i<len; i++) { Ixx[i] += Ix[i] * Ix[i]; Iyy[i] += Iy[i] * Iy[i]; Ixy[i] += Ix[i] * Iy[i]; }
                 });
                 const Sxx = convolveSeparable(Ixx, w, h, KAISER_13, KAISER_13); const Syy = convolveSeparable(Iyy, w, h, KAISER_13, KAISER_13); const Sxy = convolveSeparable(Ixy, w, h, KAISER_13, KAISER_13);
-                const l1 = new Float32Array(len), l2 = new Float32Array(len), coh = new Float32Array(len);
+                
+                // HIGH PRECISION UPGRADE: Float64 for Eigenvalues
+                const l1 = new Float64Array(len), l2 = new Float64Array(len), coh = new Float64Array(len);
                 for(let i=0; i<len; i++) {
                     const tr = Sxx[i] + Syy[i]; const det = Sxx[i]*Syy[i] - Sxy[i]*Sxy[i]; const term = Math.sqrt(Math.max(0, (tr * 0.5)**2 - det));
                     l1[i] = Math.sqrt(Math.max(0, tr * 0.5 + term)); l2[i] = Math.sqrt(Math.max(0, tr * 0.5 - term));
@@ -186,7 +191,7 @@
             };
 
             const getEntropy = (buf, w, h) => {
-                const map = new Float32Array(w*h); const LUT = PrecisionCore.ENTROPY_LUT; if(!LUT) return map;
+                const map = new Float64Array(w*h); const LUT = PrecisionCore.ENTROPY_LUT; if(!LUT) return map;
                 let min = Infinity, max = -Infinity; for(let i=0; i<buf.length; i+=10) { if(buf[i]<min) min=buf[i]; if(buf[i]>max) max=buf[i]; }
                 const scale = 25.0 / (max - min || 1.0);
                 for(let y=2; y<h-2; y++) {
@@ -205,7 +210,8 @@
                 const { KAISER_13, PHYSICS } = PrecisionCore;
                 const C1 = PHYSICS ? PHYSICS[1] : 0.0001, C2 = PHYSICS ? PHYSICS[2] : 0.0009;
                 const len = w*h;
-                const ssim = new Float32Array(len);
+                // HIGH PRECISION UPGRADE: Float64
+                const ssim = new Float64Array(len);
                 ['l', 'a', 'b'].forEach(key => {
                     const buf1 = ok1[key]; const buf2 = ok2[key];
                     const mu1 = convolveSeparable(buf1, w, h, KAISER_13, KAISER_13);
@@ -230,7 +236,7 @@
             };
 
             const getPerceptualDelta = (o1, o2, w, h) => {
-                const len = w*h; const d = new Float32Array(len);
+                const len = w*h; const d = new Float64Array(len);
                 for(let i=0; i<len; i++) d[i] = Math.sqrt((o1.l[i]-o2.l[i])**2 + (o1.a[i]-o2.a[i])**2 + (o1.b[i]-o2.b[i])**2);
                 return d;
             };
@@ -241,7 +247,8 @@
         const ForensicFilter = (() => {
             const tasks = {
                 geodesic: (mask, width, height, stats, tuning) => {
-                    const len = mask.length; const marker = new Float32Array(len);
+                    // HIGH PRECISION UPGRADE: Float64 for erosion stability
+                    const len = mask.length; const marker = new Float64Array(len);
                     const floor = stats ? Math.max(1e-6, stats.statFloor * tuning.geoScale) : 0.005;
                     for(let i=0; i<len; i++) marker[i] = Math.max(0, mask[i] - floor);
                     for(let k=0; k<3; k++) {
@@ -259,7 +266,7 @@
                     return marker;
                 },
                 nlm: (input, width, height, stats, tuning) => {
-                    const len = input.length; const output = new Float32Array(len);
+                    const len = input.length; const output = new Float64Array(len);
                     const sigma = stats ? stats.robustSigma : 0.01; 
                     const h2 = (sigma * sigma) * tuning.nlmDecay;
                     for(let y=3; y<height-3; y++) {
@@ -279,7 +286,7 @@
                     return output;
                 },
                 tukey: (input, width, height, stats, tuning) => {
-                    const len = input.length; const u = new Float32Array(input); const u_next = new Float32Array(len);
+                    const len = input.length; const u = new Float64Array(input); const u_next = new Float64Array(len);
                     const sigma = stats ? stats.robustSigma : 0.01; 
                     const K = sigma * tuning.tukeyK; const K2 = K * K;
                     for(let iter=0; iter<3; iter++) {
@@ -300,7 +307,8 @@
             const generateManifold = async (base, w, h, layerKey, cb) => {
                 const manifolds = new Array(8);
                 const isSSIM = layerKey === 'ssim';
-                const working = new Float32Array(base.length);
+                // HIGH PRECISION UPGRADE: Float64
+                const working = new Float64Array(base.length);
                 if (isSSIM) { for(let i=0; i<base.length; i++) working[i] = Math.max(0, 1.0 - base[i]); } 
                 else { working.set(base); }
                 const robustSigma = PrecisionCore.estimateRobustSigma(working, w, h);
@@ -313,7 +321,7 @@
                 else if (layerKey === 'entropy') { tuning.geoScale = 3.0; tuning.nlmDecay = 1.0; } 
                 else if (layerKey === 'coherence') { tuning.tukeyK = 6.0; tuning.nlmDecay = 3.0; } 
                 for(let m=0; m<8; m++) {
-                    let curr = new Float32Array(working);
+                    let curr = new Float64Array(working);
                     if(m & 1) curr = tasks.tukey(curr, w, h, stats, tuning);
                     if(m & 2) curr = tasks.nlm(curr, w, h, stats, tuning);
                     if(m & 4) curr = tasks.geodesic(curr, w, h, stats, tuning);
@@ -331,7 +339,7 @@
                 const raw = tensor[layerKey].raw; if (!raw) return null; 
                 let buf;
                 if (layerKey === 'ssim') { 
-                    buf = new Float32Array(raw.length); 
+                    buf = new Float64Array(raw.length); 
                     for(let i=0; i<raw.length; i++) buf[i] = Math.max(0, 1.0 - raw[i]); 
                 } else { buf = raw; }
                 const len = buf.length; const stride = Math.floor(len / 10000) || 1;
@@ -373,7 +381,8 @@
         const RegistrationEngine = (() => {
             const { FARID_D, FARID_P, LANCZOS_LUT } = PrecisionCore;
             const convolve1D = (inp, w, h, k) => {
-                const out = new Float32Array(inp.length);
+                // HIGH PRECISION UPGRADE
+                const out = new Float64Array(inp.length);
                 const kLen = k.length, half = kLen>>1;
                 for(let y=0; y<h; y++) {
                     const r = y*w;
@@ -387,7 +396,7 @@
             const getGradientMap = (luma, w, h) => {
                 if (!FARID_D) return luma;
                 const gx = convolve1D(luma, w, h, FARID_D); const gy = convolve1D(luma, w, h, FARID_P);
-                const mag = new Float32Array(luma.length);
+                const mag = new Float64Array(luma.length);
                 for(let i=0; i<mag.length; i++) mag[i] = Math.sqrt(gx[i]*gx[i] + gy[i]*gy[i]);
                 return mag;
             };
@@ -417,11 +426,11 @@
             };
             const computeFine = async (buff1, buff2, width, height, coarse, cb) => {
                 const crop = 256, cx = width >> 1, cy = height >> 1; const ox = coarse.dx, oy = coarse.dy;
-                const roi1 = new Float32Array(crop*crop);
+                const roi1 = new Float64Array(crop*crop);
                 for(let y=0; y<crop; y++) { const r=Math.imul(cy-(crop>>1)+y, width), r2=Math.imul(y, crop); for(let x=0; x<crop; x++) roi1[r2+x]=buff1[r+cx-(crop>>1)+x]; }
                 const map1 = getGradientMap(roi1, crop, crop); 
                 const searchMargin = 10; const largeCrop = crop + searchMargin*2;
-                const roi2Large = new Float32Array(largeCrop*largeCrop);
+                const roi2Large = new Float64Array(largeCrop*largeCrop);
                 for(let y=0; y<largeCrop; y++) { 
                     const r = Math.imul(Math.max(0, Math.min(height-1, (cy-(largeCrop>>1)+y-oy))), width); const r2 = Math.imul(y, largeCrop); 
                     for(let x=0; x<largeCrop; x++) roi2Large[r2+x]=buff2[r + Math.max(0, Math.min(width-1, (cx-(largeCrop>>1)+x-ox)))]; 
@@ -720,7 +729,13 @@
                 setStatus("Manifold Projection..."); setIsProcessing(true); setProgress(0); await new Promise(r=>setTimeout(r,10));
                 try {
                     const w = img1.width, h = img1.height; const size = w * h;
-                    const getBytes = (img, ox, oy) => { const c = document.createElement('canvas'); c.width=w; c.height=h; const ctx = c.getContext('2d'); ctx.drawImage(img, ox, oy); return ctx.getImageData(0,0,w,h); };
+                    const getBytes = (img, ox, oy) => { 
+                        const c = document.createElement('canvas'); c.width=w; c.height=h; const ctx = c.getContext('2d'); 
+                        // FORCE HIGH QUALITY RESAMPLING FOR SUB-PIXEL OFFSET
+                        ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high';
+                        ctx.drawImage(img, ox, oy); 
+                        return ctx.getImageData(0,0,w,h); 
+                    };
                     const t1 = IngestEngine.process(getBytes(img1,0,0), w, h); setProgress(20);
                     const t2 = IngestEngine.process(getBytes(img2, debouncedOffset.x, debouncedOffset.y), w, h); setProgress(40);
                     const st1 = AnalysisEngine.getStructureTensor(t1.oklab, w, h);
@@ -728,7 +743,8 @@
                     const ssim = AnalysisEngine.getSSIM(t1.oklab, t2.oklab, w, h);
                     const deltaE = AnalysisEngine.getPerceptualDelta(t1.oklab, t2.oklab, w, h);
                     const ent1 = AnalysisEngine.getEntropy(t1.oklab.l, w, h); const ent2 = AnalysisEngine.getEntropy(t2.oklab.l, w, h); setProgress(60);
-                    const layers = { perceptual: {raw: deltaE}, ssim: {raw: ssim}, grad: {raw: new Float32Array(size)}, coherence: {raw: new Float32Array(size)}, entropy: {raw: new Float32Array(size)}, heuristic: {raw: new Float32Array(size)}, latent: {} };
+                    // HIGH PRECISION UPGRADE: Float64
+                    const layers = { perceptual: {raw: deltaE}, ssim: {raw: ssim}, grad: {raw: new Float64Array(size)}, coherence: {raw: new Float64Array(size)}, entropy: {raw: new Float64Array(size)}, heuristic: {raw: new Float64Array(size)}, latent: {} };
                     const INV_LOG_25 = 1.0 / 4.64;
                     for(let i=0; i<size; i++) {
                         const gDiff = Math.abs(st1.l1[i] - st2.l1[i]); const cDiff = Math.abs(st1.coherence[i] - st2.coherence[i]); const eDiff = Math.abs(ent1[i] - ent2[i]);
