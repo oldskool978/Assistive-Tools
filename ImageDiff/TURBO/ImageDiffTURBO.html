@@ -37,6 +37,9 @@
             // <INJECT_PHYSICS>
             const PHYSICS = null;
             // </INJECT_PHYSICS>
+            // <INJECT_LUMA_COEFFS>
+            const LUMA_COEFFS = null;
+            // </INJECT_LUMA_COEFFS>
             // <INJECT_KAISER_13>
             const KAISER_13 = null;
             // </INJECT_KAISER_13>
@@ -99,10 +102,10 @@
                 return Math.max(1e-13, median * scale);
             };
 
-            const isReady = () => (PHYSICS && KAISER_13 && KURTOSIS_LUT && SIGMA_LUT && BAYER_LATTICE);
+            const isReady = () => (PHYSICS && KAISER_13 && KURTOSIS_LUT && SIGMA_LUT && BAYER_LATTICE && LUMA_COEFFS);
 
             return {
-                M1, M2, KURTOSIS_LUT, SIGMA_LUT, ENTROPY_LUT, LINEAR_LUT_HQ, LANCZOS_LUT, TURBO, INFERNO, BAYER_LATTICE,
+                M1, M2, KURTOSIS_LUT, SIGMA_LUT, ENTROPY_LUT, LINEAR_LUT_HQ, LANCZOS_LUT, TURBO, INFERNO, BAYER_LATTICE, LUMA_COEFFS,
                 KAISER_13, FARID_P, FARID_D, PHYSICS,
                 estimateRobustSigma, isReady
             };
@@ -285,30 +288,18 @@
             const generateManifold = async (base, w, h, layerKey, cb) => {
                 const manifolds = new Array(8);
                 const isSSIM = layerKey === 'ssim';
-                
-                // 1. Error Space Normalization
                 const working = new Float32Array(base.length);
                 if (isSSIM) { for(let i=0; i<base.length; i++) working[i] = Math.max(0, 1.0 - base[i]); } 
                 else { working.set(base); }
-
                 const robustSigma = PrecisionCore.estimateRobustSigma(working, w, h);
-                
-                // 2. Adaptive Stats Force-Logic
-                // Entropy & Coherence are smooth/windowed, so Laplacian-based Sigma estimation fails (returns 0).
-                // We must enforce a floor based on the quantization of the metric itself.
                 let floorOverride = 1.0/65535.0;
-                if (layerKey === 'entropy') floorOverride = 0.01; // 1% variation is noise
-                if (layerKey === 'coherence') floorOverride = 0.005;
-                
+                if (layerKey === 'entropy') floorOverride = 0.01; if (layerKey === 'coherence') floorOverride = 0.005;
                 const stats = { robustSigma: Math.max(robustSigma, floorOverride), statFloor: Math.max(robustSigma, floorOverride) };
-                
-                // 3. Topological Tuning
                 const tuning = { geoScale: 1.5, nlmDecay: 1.5, tukeyK: 3.0 };
                 if (layerKey === 'ssim') { tuning.nlmDecay = 0.8; tuning.tukeyK = 2.0; } 
                 else if (layerKey === 'grad') { tuning.tukeyK = 4.0; tuning.geoScale = 2.0; } 
-                else if (layerKey === 'entropy') { tuning.geoScale = 3.0; tuning.nlmDecay = 1.0; } // Aggressive decapitation
+                else if (layerKey === 'entropy') { tuning.geoScale = 3.0; tuning.nlmDecay = 1.0; } 
                 else if (layerKey === 'coherence') { tuning.tukeyK = 6.0; tuning.nlmDecay = 3.0; } 
-
                 for(let m=0; m<8; m++) {
                     let curr = new Float32Array(working);
                     if(m & 1) curr = tasks.tukey(curr, w, h, stats, tuning);
@@ -326,15 +317,9 @@
         const OptimizationEngine = (() => {
             const solve = (tensor, layerKey, activeMask, viewMode) => {
                 let buf; 
-                if(viewMode === 'clean' && tensor.latent[layerKey]) {
-                    buf = tensor.latent[layerKey][activeMask];
-                } else {
-                    const raw = tensor[layerKey].raw; if (!raw) return null;
-                    if (layerKey === 'ssim') { buf = new Float32Array(raw.length); for(let i=0; i<raw.length; i++) buf[i] = Math.max(0, 1.0 - raw[i]); } 
-                    else { buf = raw; }
-                }
+                if(viewMode === 'clean' && tensor.latent[layerKey]) { buf = tensor.latent[layerKey][activeMask]; } 
+                else { const raw = tensor[layerKey].raw; if (!raw) return null; if (layerKey === 'ssim') { buf = new Float32Array(raw.length); for(let i=0; i<raw.length; i++) buf[i] = Math.max(0, 1.0 - raw[i]); } else { buf = raw; } }
                 if(!buf) return null;
-
                 const len = buf.length; const stride = Math.floor(len / 10000) || 1;
                 let n = 0, m1 = 0, m2 = 0, m4 = 0;
                 for(let i=0; i<len; i+=stride) { m1 += buf[i]; n++; } const mu = m1 / n;
@@ -342,14 +327,9 @@
                 for(let i=0; i<len; i+=stride) { const d = buf[i] - mu; m2 += d*d; m4 += d*d*d*d; sampleValues[sIdx++] = buf[i]; }
                 const variance = m2 / n; const kurtosis = (variance < 1e-20) ? 3.0 : (m4 / n) / (variance * variance);
                 const { KURTOSIS_LUT, SIGMA_LUT } = PrecisionCore; let sigmaCorrection = 1.0;
-                if (KURTOSIS_LUT && SIGMA_LUT) {
-                    const kClamped = Math.max(1.8, Math.min(10.0, kurtosis));
-                    sigmaCorrection = SIGMA_LUT[Math.floor(((kClamped - 1.8) / 8.2) * 255)];
-                }
-                // If layer is Entropy/Coherence, use the override floor for calculation stability
+                if (KURTOSIS_LUT && SIGMA_LUT) { const kClamped = Math.max(1.8, Math.min(10.0, kurtosis)); sigmaCorrection = SIGMA_LUT[Math.floor(((kClamped - 1.8) / 8.2) * 255)]; }
                 let estSigma = PrecisionCore.estimateRobustSigma(buf, tensor.meta.w, tensor.meta.h);
                 if (layerKey === 'entropy') estSigma = Math.max(estSigma, 0.01);
-                
                 const trueNoiseFloor = estSigma * sigmaCorrection;
                 const gate = Math.max(0.5/255.0, trueNoiseFloor * 3.0);
                 sampleValues.sort(); const p99 = sampleValues[Math.floor(n * 0.99)];
@@ -358,20 +338,13 @@
             return { solve };
         })();
 
-        // --- 7. REGISTRATION ENGINE ---
+        // --- 7. REGISTRATION ENGINE (RESTORED CONSENSUS LOGIC) ---
         const RegistrationEngine = (() => {
             const computeLoGMap = (input, w, h) => {
                 const out = new Float32Array(input.length);
-                for(let y=1; y<h-1; y++) {
-                    const r = Math.imul(y, w);
-                    for(let x=1; x<w-1; x++) {
-                        const i = r+x;
-                        out[i] = Math.abs(input[i]*4 - input[i-1] - input[i+1] - input[i-w] - input[i+w]);
-                    }
-                }
+                for(let y=1; y<h-1; y++) { const r = Math.imul(y, w); for(let x=1; x<w-1; x++) { const i = r+x; out[i] = Math.abs(input[i]*4 - input[i-1] - input[i+1] - input[i-w] - input[i+w]); } }
                 return out;
             };
-
             const sampleLanczos = (buffer, width, height, x, y) => {
                 const { LANCZOS_LUT } = PrecisionCore; if(!LANCZOS_LUT) return 0;
                 const ix = Math.floor(x), iy = Math.floor(y); const fx = x - ix, fy = y - iy; const LUT_SCALE = 2000.0 / 3.0;
@@ -391,45 +364,64 @@
             };
             const computeCoarse = async (buff1, buff2, width, height, cb) => {
                 const anchors = []; for(let y=1; y<=3; y++) for(let x=1; x<=3; x++) anchors.push({x: (width*x)/4|0, y: (height*y)/4|0});
-                const pSz = 48, hSz = 24, search = 40, step = 2; let bestScore = -1, bestDx = 0, bestDy = 0;
-                const getPatchStats = (buf, cx, cy) => {
-                    let sum = 0, sqSum = 0;
-                    for(let y=0; y<pSz; y++) { const r = Math.imul(cy-hSz+y, width); for(let x=0; x<pSz; x++) { const v = buf[r + cx-hSz+x]; sum += v; sqSum += v*v; } }
-                    const n = pSz*pSz, mean = sum/n; return { mean, std: Math.sqrt(sqSum/n - mean*mean) };
+                const pSz = 48, hSz = 24, search = 40, step = 2; 
+                const votes = [];
+                const getPatchStats = (buf, cx, cy, out) => {
+                    let sum = 0;
+                    for(let y=0; y<pSz; y++) { const r = Math.imul(cy-hSz+y, width); for(let x=0; x<pSz; x++) { const v = buf[r + cx-hSz+x]; out.push(v); sum += v; } }
+                    const mean = sum/(pSz*pSz); let sqSum = 0; for(let i=0; i<out.length; i++) { out[i] -= mean; sqSum += out[i]*out[i]; }
+                    return Math.sqrt(sqSum);
                 };
                 for(let i=0; i<anchors.length; i++) {
-                    const anc = anchors[i], s1 = getPatchStats(buff1, anc.x, anc.y); if(s1.std < 1e-5) continue;
+                    const anc = anchors[i]; const p1=[]; const s1 = getPatchStats(buff1, anc.x, anc.y, p1); if(s1 < 1e-5) continue;
+                    let localBest = -1, lDx = 0, lDy = 0;
                     for(let dy=-search; dy<=search; dy+=step) for(let dx=-search; dx<=search; dx+=step) {
-                        const s2 = getPatchStats(buff2, anc.x-dx, anc.y-dy); if(s2.std < 1e-5) continue;
-                        let cov = 0;
-                        for(let py=0; py<pSz; py++) { const r1 = Math.imul(anc.y-hSz+py, width), r2 = Math.imul(anc.y-dy-hSz+py, width); for(let px=0; px<pSz; px++) { cov += (buff1[r1 + anc.x-hSz+px] - s1.mean) * (buff2[r2 + anc.x-dx-hSz+px] - s2.mean); } }
-                        const score = cov / (pSz*pSz * s1.std * s2.std); if(score > bestScore) { bestScore = score; bestDx = dx; bestDy = dy; }
+                        const p2=[]; const s2 = getPatchStats(buff2, anc.x-dx, anc.y-dy, p2); if(s2 < 1e-5) continue;
+                        let dot = 0; for(let k=0; k<p1.length; k++) dot += p1[k]*p2[k];
+                        const score = dot / (s1 * s2);
+                        if(score > localBest) { localBest = score; lDx = dx; lDy = dy; }
                     }
+                    if (localBest > 0.5) votes.push({dx:lDx, dy:lDy});
                     if(cb) cb(i/anchors.length * 0.5); await new Promise(r => setTimeout(r,0));
                 }
-                return { dx: bestDx, dy: bestDy };
+                const bins = {}; let maxVotes=0, consensus={dx:0, dy:0};
+                votes.forEach(v => { const k = `${Math.round(v.dx/2)*2},${Math.round(v.dy/2)*2}`; bins[k] = (bins[k]||0)+1; if(bins[k]>maxVotes) { maxVotes=bins[k]; consensus=v; } });
+                return maxVotes > 0 ? consensus : null;
             };
             const computeFine = async (buff1, buff2, width, height, coarse, cb) => {
                 const crop = 256, cx = width >> 1, cy = height >> 1; const ox = coarse.dx, oy = coarse.dy;
                 const roi1 = new Float32Array(crop*crop);
                 for(let y=0; y<crop; y++) { const r=Math.imul(cy-(crop>>1)+y, width), r2=Math.imul(y, crop); for(let x=0; x<crop; x++) roi1[r2+x]=buff1[r+cx-(crop>>1)+x]; }
-                
-                // Compute LoG Map for Reference ROI
                 const map1 = computeLoGMap(roi1, crop, crop);
+                
+                // Pre-calc map2 only ONCE on large ROI to avoid re-computing gradients on interpolated data
+                const searchMargin = 20; const largeCrop = crop + searchMargin*2;
+                const roi2Large = new Float32Array(largeCrop*largeCrop);
+                for(let y=0; y<largeCrop; y++) { const r=Math.imul(cy-(largeCrop>>1)+y-oy, width), r2=Math.imul(y, largeCrop); for(let x=0; x<largeCrop; x++) roi2Large[r2+x]=buff2[r+cx-(largeCrop>>1)+x-ox]; }
+                const map2Large = computeLoGMap(roi2Large, largeCrop, largeCrop);
 
                 const getError = (dx, dy) => {
                     let err = 0.0;
-                    const roi2 = new Float32Array(crop*crop);
-                    for(let y=0; y<crop; y++) {
-                        const r = cy-(crop>>1)+y; const r2 = Math.imul(y, crop);
-                        for(let x=0; x<crop; x++) roi2[r2+x] = sampleLanczos(buff2, width, height, cx-(crop>>1)+x-(ox+dx), r-(oy+dy));
+                    // Interpolate from the pre-computed feature map
+                    for(let y=0; y<crop; y+=4) {
+                        const sy = y + searchMargin - dy;
+                        if(sy<0 || sy>=largeCrop-1) continue;
+                        for(let x=0; x<crop; x+=4) {
+                            const sx = x + searchMargin - dx;
+                            if(sx<0 || sx>=largeCrop-1) continue;
+                            
+                            // Bilinear sample from map2Large
+                            const ix=sx|0, iy=sy|0, fx=sx-ix, fy=sy-iy;
+                            const idx = iy*largeCrop + ix;
+                            const val = map2Large[idx]*(1-fx)*(1-fy) + map2Large[idx+1]*fx*(1-fy) + map2Large[idx+largeCrop]*(1-fx)*fy + map2Large[idx+largeCrop+1]*fx*fy;
+                            
+                            err += Math.abs(map1[y*crop+x] - val);
+                        }
                     }
-                    // Compute LoG Map for Target ROI (Edge Locking)
-                    const map2 = computeLoGMap(roi2, crop, crop);
-                    for(let i=0; i<crop*crop; i+=2) err += Math.abs(map1[i]-map2[i]);
                     return err;
                 };
-                let curX = 0, curY = 0, step = 1.0, minErr = getError(0,0);
+
+                let curX = 0, curY = 0, step = 2.0, minErr = getError(0,0);
                 for(let iter=0; iter<20; iter++) {
                     let bestE = minErr, bestX = curX, bestY = curY;
                     [[0,-1],[0,1],[-1,0],[1,0]].forEach(d => { const nx = curX + d[0]*step, ny = curY + d[1]*step, e = getError(nx, ny); if(e < bestE) { bestE = e; bestX = nx; bestY = ny; } });
@@ -628,12 +620,18 @@
 
             const runAutoAlign = async () => {
                 if(!img1 || !img2) return; setIsAligning(true); setAlignStatus("Analysing...");
-                const getL = (img, ox, oy) => { const c = document.createElement('canvas'); c.width=img.width; c.height=img.height; const ctx = c.getContext('2d'); ctx.drawImage(img, ox, oy); const d = ctx.getImageData(0,0,img.width,img.height).data; const l = new Float32Array(d.length/4); for(let i=0; i<l.length; i++) l[i] = d[i*4]*0.299 + d[i*4+1]*0.587 + d[i*4+2]*0.114; return l; };
+                // Use Rec.709 Coefficients if available, else fallback
+                const getL = (img, ox, oy) => { const c = document.createElement('canvas'); c.width=img.width; c.height=img.height; const ctx = c.getContext('2d'); ctx.drawImage(img, ox, oy); const d = ctx.getImageData(0,0,img.width,img.height).data; const l = new Float32Array(d.length/4); 
+                const { LUMA_COEFFS } = PrecisionCore;
+                if (LUMA_COEFFS) { for(let i=0; i<l.length; i++) l[i] = d[i*4]*LUMA_COEFFS[0] + d[i*4+1]*LUMA_COEFFS[1] + d[i*4+2]*LUMA_COEFFS[2]; }
+                else { for(let i=0; i<l.length; i++) l[i] = d[i*4]*0.2126 + d[i*4+1]*0.7152 + d[i*4+2]*0.0722; }
+                return l; };
+                
                 const b1 = getL(img1, 0, 0); const b2 = getL(img2, offset.x, offset.y);
-                setAlignStatus("ZNCC Pass..."); await new Promise(r => setTimeout(r,10));
+                setAlignStatus("ZNCC Voting..."); await new Promise(r => setTimeout(r,10));
                 const coarse = await RegistrationEngine.computeCoarse(b1, b2, img1.width, img1.height, (p)=>setProgress(p*40));
                 if(coarse) { 
-                    setAlignStatus("LoG Pass..."); await new Promise(r => setTimeout(r,10));
+                    setAlignStatus("LoG Descent..."); await new Promise(r => setTimeout(r,10));
                     const fine = await RegistrationEngine.computeFine(b1, b2, img1.width, img1.height, coarse, (p)=>setProgress(40 + p*60)); 
                     setOffset({x: parseFloat(fine.x.toFixed(2)), y: parseFloat(fine.y.toFixed(2))}); setAlignStatus("Locked"); 
                 } else { setAlignStatus("Failed"); }
