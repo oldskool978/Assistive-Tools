@@ -535,12 +535,26 @@
                 }
                 return { nps: Math.pow(sum / len, 0.25), peak, mean: Math.pow(sum / len, 0.25), visible_pct: (violations/len)*100 };
             };
+            const computeNPS_Quant = (heuristic, luma, entropy, coherence, w, h) => {
+                const len = w * h; let sum = 0.0, peak = 0.0, violations = 0;
+                for(let i=0; i<len; i++) {
+                    const L = luma[i]; const H = entropy[i]; const C = coherence[i];
+                    const maskL = 1.0 + (1.0 - L) * 0.5; 
+                    const maskT = (H > 0.1) ? (1.0 + H * 2.0) : ((C < 0.2) ? 0.5 : 1.0);
+                    const threshold = 0.005 * maskL * maskT;
+                    const ratio = heuristic[i] / (threshold + 1e-9);
+                    if (ratio > peak) peak = ratio; 
+                    if (ratio > 1.0) violations++; 
+                    sum += ratio * ratio * ratio * ratio;
+                }
+                return { nps: Math.pow(sum / len, 0.25), peak, mean: Math.pow(sum / len, 0.25), visible_pct: (violations/len)*100 };
+            };
             const computeSignalMetrics = (buf, w, h) => {
                 const sig = PrecisionCore.estimateRobustSigma(buf, w, h);
                 const snr = (sig > 0) ? Math.min(140, 20 * Math.log10(1.0 / sig)) : 0;
                 return { snr, ebd: Math.max(0, (snr - 1.76) / 6.02), noise: sig };
             };
-            return { computeNPS, computeSignalMetrics };
+            return { computeNPS, computeNPS_Quant, computeSignalMetrics };
         })();
 
         // --- UI COMPONENTS ---
@@ -693,7 +707,7 @@
                     }
                     const keys = ['heuristic', 'perceptual', 'grad', 'ssim', 'entropy', 'coherence']; let d = 0;
                     for(const key of keys) { layers.latent[key] = await ForensicFilter.generateManifold(layers[key].raw, w, h, key, (p) => setProgress(70 + (d/6 + p/6)*30)); d++; }
-                    const sm = QualityMetricEngine.computeSignalMetrics(t1.oklab.l, w, h); const sens = new Float32Array(size).fill(0.01); const scores = QualityMetricEngine.computeNPS(layers.heuristic.raw, sens, w, h);
+                    const sm = QualityMetricEngine.computeSignalMetrics(t1.oklab.l, w, h); const scores = QualityMetricEngine.computeNPS_Quant(layers.heuristic.raw, t1.oklab.l, layers.entropy.raw, layers.coherence.raw, w, h);
                     setTensor({ ...layers, meta: { w, h, bitDepth: t1.meta.bitDepth }, source_metrics: sm, scores: scores }); setStatus("Ready"); setProgress(100);
                 } catch(e) { console.error(e); setStatus("Error"); } finally { setIsProcessing(false); }
             }, [img1, img2, debouncedOffset, activeTab, isReady]);
