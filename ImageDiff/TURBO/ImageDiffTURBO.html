@@ -220,12 +220,12 @@
             return { getStructureTensor, getEntropy, getSSIM, getPerceptualDelta };
         })();
 
-        // --- 5. FORENSIC FILTER ---
+        // --- 5. FORENSIC FILTER (ADAPTIVE TOPOLOGY) ---
         const ForensicFilter = (() => {
             const tasks = {
-                geodesic: (mask, width, height, stats) => {
+                geodesic: (mask, width, height, stats, tuning) => {
                     const len = mask.length; const marker = new Float32Array(len);
-                    const floor = stats ? Math.max(1e-5, stats.statFloor * 1.5) : 0.005;
+                    const floor = stats ? Math.max(1e-6, stats.statFloor * tuning.geoScale) : 0.005;
                     for(let i=0; i<len; i++) marker[i] = Math.max(0, mask[i] - floor);
                     for(let k=0; k<3; k++) {
                         for(let i=0; i<len; i++) {
@@ -241,9 +241,11 @@
                     }
                     return marker;
                 },
-                nlm: (input, width, height, stats) => {
+                nlm: (input, width, height, stats, tuning) => {
                     const len = input.length; const output = new Float32Array(len);
-                    const sigma = stats ? stats.robustSigma : 0.01; const h2 = sigma * sigma * 1.5;
+                    const sigma = stats ? stats.robustSigma : 0.01; 
+                    const h2 = (sigma * sigma) * tuning.nlmDecay;
+                    
                     for(let y=3; y<height-3; y++) {
                         const row = Math.imul(y, width);
                         for(let x=3; x<width-3; x++) {
@@ -260,9 +262,11 @@
                     }
                     return output;
                 },
-                tukey: (input, width, height, stats) => {
+                tukey: (input, width, height, stats, tuning) => {
                     const len = input.length; const u = new Float32Array(input); const u_next = new Float32Array(len);
-                    const sigma = stats ? stats.robustSigma : 0.01; const K = sigma * 3.0; const K2 = K * K;
+                    const sigma = stats ? stats.robustSigma : 0.01; 
+                    const K = sigma * tuning.tukeyK; const K2 = K * K;
+                    
                     for(let iter=0; iter<3; iter++) {
                         for(let y=1; y<height-1; y++) {
                             const row = Math.imul(y, width);
@@ -278,15 +282,31 @@
                     return u;
                 }
             };
-            const generateManifold = async (base, w, h, cb) => {
+            const generateManifold = async (base, w, h, layerKey, cb) => {
                 const manifolds = new Array(8);
-                const robustSigma = PrecisionCore.estimateRobustSigma(base, w, h);
+                const isSSIM = layerKey === 'ssim';
+                
+                // 1. Error Space Normalization
+                const working = new Float32Array(base.length);
+                if (isSSIM) { for(let i=0; i<base.length; i++) working[i] = Math.max(0, 1.0 - base[i]); } 
+                else { working.set(base); }
+
+                const robustSigma = PrecisionCore.estimateRobustSigma(working, w, h);
                 const stats = { robustSigma, statFloor: Math.max(robustSigma, 1.0/65535.0) };
+                
+                // 2. Adaptive Tuning based on Physics
+                const tuning = { geoScale: 1.5, nlmDecay: 1.5, tukeyK: 3.0 };
+                
+                if (layerKey === 'ssim') { tuning.nlmDecay = 0.8; tuning.tukeyK = 2.0; } 
+                else if (layerKey === 'grad') { tuning.tukeyK = 4.0; tuning.geoScale = 2.0; } 
+                else if (layerKey === 'entropy') { tuning.geoScale = 2.5; tuning.nlmDecay = 1.0; } // Kill speckle
+                else if (layerKey === 'coherence') { tuning.tukeyK = 6.0; tuning.nlmDecay = 3.0; } // Kill geometric noise
+
                 for(let m=0; m<8; m++) {
-                    let curr = new Float32Array(base);
-                    if(m & 1) curr = tasks.tukey(curr, w, h, stats);
-                    if(m & 2) curr = tasks.nlm(curr, w, h, stats);
-                    if(m & 4) curr = tasks.geodesic(curr, w, h, stats);
+                    let curr = new Float32Array(working);
+                    if(m & 1) curr = tasks.tukey(curr, w, h, stats, tuning);
+                    if(m & 2) curr = tasks.nlm(curr, w, h, stats, tuning);
+                    if(m & 4) curr = tasks.geodesic(curr, w, h, stats, tuning);
                     manifolds[m] = curr;
                     if(cb) cb(m/8.0); await new Promise(r => setTimeout(r, 0));
                 }
@@ -298,8 +318,17 @@
         // --- 6. OPTIMIZATION ENGINE ---
         const OptimizationEngine = (() => {
             const solve = (tensor, layerKey, activeMask, viewMode) => {
-                let buf; if(viewMode === 'clean' && tensor.latent[layerKey]) buf = tensor.latent[layerKey][activeMask]; else buf = tensor[layerKey].raw;
+                let buf; 
+                if(viewMode === 'clean' && tensor.latent[layerKey]) {
+                    buf = tensor.latent[layerKey][activeMask];
+                } else {
+                    const raw = tensor[layerKey].raw; if (!raw) return null;
+                    // If SSIM raw, invert for statistics calculation
+                    if (layerKey === 'ssim') { buf = new Float32Array(raw.length); for(let i=0; i<raw.length; i++) buf[i] = Math.max(0, 1.0 - raw[i]); } 
+                    else { buf = raw; }
+                }
                 if(!buf) return null;
+
                 const len = buf.length; const stride = Math.floor(len / 10000) || 1;
                 let n = 0, m1 = 0, m2 = 0, m4 = 0;
                 for(let i=0; i<len; i+=stride) { m1 += buf[i]; n++; } const mu = m1 / n;
@@ -324,7 +353,7 @@
             const computeLoGMap = (input, w, h) => {
                 const out = new Float32Array(input.length);
                 for(let y=1; y<h-1; y++) {
-                    const r = y*w;
+                    const r = Math.imul(y, w);
                     for(let x=1; x<w-1; x++) {
                         const i = r+x;
                         out[i] = Math.abs(input[i]*4 - input[i-1] - input[i+1] - input[i-w] - input[i+w]);
@@ -332,6 +361,7 @@
                 }
                 return out;
             };
+
             const sampleLanczos = (buffer, width, height, x, y) => {
                 const { LANCZOS_LUT } = PrecisionCore; if(!LANCZOS_LUT) return 0;
                 const ix = Math.floor(x), iy = Math.floor(y); const fx = x - ix, fy = y - iy; const LUT_SCALE = 2000.0 / 3.0;
@@ -373,6 +403,8 @@
                 const crop = 256, cx = width >> 1, cy = height >> 1; const ox = coarse.dx, oy = coarse.dy;
                 const roi1 = new Float32Array(crop*crop);
                 for(let y=0; y<crop; y++) { const r=Math.imul(cy-(crop>>1)+y, width), r2=Math.imul(y, crop); for(let x=0; x<crop; x++) roi1[r2+x]=buff1[r+cx-(crop>>1)+x]; }
+                
+                // Compute LoG Map for Reference ROI
                 const map1 = computeLoGMap(roi1, crop, crop);
 
                 const getError = (dx, dy) => {
@@ -382,11 +414,12 @@
                         const r = cy-(crop>>1)+y; const r2 = Math.imul(y, crop);
                         for(let x=0; x<crop; x++) roi2[r2+x] = sampleLanczos(buff2, width, height, cx-(crop>>1)+x-(ox+dx), r-(oy+dy));
                     }
+                    // Compute LoG Map for Target ROI (Edge Locking)
                     const map2 = computeLoGMap(roi2, crop, crop);
                     for(let i=0; i<crop*crop; i+=2) err += Math.abs(map1[i]-map2[i]);
                     return err;
                 };
-                let curX = 0, curY = 0, step = 2.0, minErr = getError(0,0);
+                let curX = 0, curY = 0, step = 1.0, minErr = getError(0,0);
                 for(let iter=0; iter<20; iter++) {
                     let bestE = minErr, bestX = curX, bestY = curY;
                     [[0,-1],[0,1],[-1,0],[1,0]].forEach(d => { const nx = curX + d[0]*step, ny = curY + d[1]*step, e = getError(nx, ny); if(e < bestE) { bestE = e; bestX = nx; bestY = ny; } });
@@ -566,8 +599,8 @@
                         const termPercep = deltaE[i]; const termStruct = Math.log1p(gDiff) * 2.0; const termSSIM = Math.max(0, 1.0 - ssim[i]); const termEnt = eDiff * INV_LOG_25;
                         layers.heuristic.raw[i] = Math.sqrt((termPercep * flatWeight)**2 + (termStruct * edgeWeight)**2 + (termSSIM * edgeWeight)**2 + (termEnt * flatWeight * 0.5)**2 + (cDiff * 0.25)**2);
                     }
-                    const keys = ['heuristic', 'perceptual', 'grad', 'ssim']; let d = 0;
-                    for(const key of keys) { layers.latent[key] = await ForensicFilter.generateManifold(layers[key].raw, w, h, (p) => setProgress(70 + (d/4 + p/4)*30)); d++; }
+                    const keys = ['heuristic', 'perceptual', 'grad', 'ssim', 'entropy', 'coherence']; let d = 0;
+                    for(const key of keys) { layers.latent[key] = await ForensicFilter.generateManifold(layers[key].raw, w, h, key, (p) => setProgress(70 + (d/6 + p/6)*30)); d++; }
                     const sm = QualityMetricEngine.computeSignalMetrics(t1.oklab.l, w, h); const sens = new Float32Array(size).fill(0.01); const scores = QualityMetricEngine.computeNPS(layers.heuristic.raw, sens, w, h);
                     setTensor({ ...layers, meta: { w, h, bitDepth: t1.meta.bitDepth }, source_metrics: sm, scores: scores }); setStatus("Ready"); setProgress(100);
                 } catch(e) { console.error(e); setStatus("Error"); } finally { setIsProcessing(false); }
@@ -607,8 +640,8 @@
                 
                 for(let i=0; i<len; i++) {
                     let val = layer[i];
-                    // Invert SSIM for display if raw
-                    if (activeLayer === 'ssim') val = Math.max(0, 1.0 - val);
+                    // Normalize raw SSIM for display (0=Good -> 0=Good)
+                    if (activeLayer === 'ssim' && viewMode === 'raw') val = Math.max(0, 1.0 - val);
 
                     const pVal = val * 255.0 * physics.gain; 
                     let alpha = 0.0;
