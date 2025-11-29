@@ -7,11 +7,8 @@ import json
 import glob
 import datetime
 
-# --- 100-DPS HYPER-PRECISION STANDARD ---
 mp.dps = 100
-
 DATA_MAP = {}
-
 TARGET_MANIFEST = {
     "KAISER_13", "FARID_P", "FARID_D", "ENTROPY_LUT", "LINEAR_LUT_HQ",
     "KURTOSIS_LUT", "SIGMA_LUT", "LANCZOS_LUT", "TURBO", "INFERNO",
