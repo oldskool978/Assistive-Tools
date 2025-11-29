@@ -223,7 +223,7 @@
             return { getStructureTensor, getEntropy, getSSIM, getPerceptualDelta };
         })();
 
-        // --- 5. FORENSIC FILTER (ADAPTIVE TOPOLOGY) ---
+        // --- 5. FORENSIC FILTER ---
         const ForensicFilter = (() => {
             const tasks = {
                 geodesic: (mask, width, height, stats, tuning) => {
@@ -313,12 +313,11 @@
             return { generateManifold };
         })();
 
-        // --- 6. OPTIMIZATION ENGINE ---
+        // --- 6. OPTIMIZATION ENGINE (CONTEXT-AWARE AUTO-TUNE) ---
         const OptimizationEngine = (() => {
             const solve = (tensor, layerKey, activeMask, viewMode) => {
-                // FORCE RAW FOR AUTO-TUNE BASELINE
-                const raw = tensor[layerKey].raw; 
-                if (!raw) return null; 
+                // 1. Always base stats on RAW layer to establish ground truth noise floor
+                const raw = tensor[layerKey].raw; if (!raw) return null; 
                 
                 let buf;
                 if (layerKey === 'ssim') { 
@@ -336,17 +335,49 @@
                 const variance = m2 / n; const kurtosis = (variance < 1e-20) ? 3.0 : (m4 / n) / (variance * variance);
                 const { KURTOSIS_LUT, SIGMA_LUT } = PrecisionCore; let sigmaCorrection = 1.0;
                 if (KURTOSIS_LUT && SIGMA_LUT) { const kClamped = Math.max(1.8, Math.min(10.0, kurtosis)); sigmaCorrection = SIGMA_LUT[Math.floor(((kClamped - 1.8) / 8.2) * 255)]; }
+                
                 let estSigma = PrecisionCore.estimateRobustSigma(buf, tensor.meta.w, tensor.meta.h);
                 if (layerKey === 'entropy') estSigma = Math.max(estSigma, 0.01);
+                
+                // CONTEXT-AWARE TUNING
+                let sigmaMult = 3.0; // Default "Golden Mean"
+                let gainBoost = 1.0;
+                let gammaTarget = 1.0;
+
+                switch(layerKey) {
+                    case 'entropy':
+                        sigmaMult = 5.0; // High gate to cut blocky noise
+                        break;
+                    case 'ssim':
+                        sigmaMult = 2.0; // Low gate to show subtle structural damage
+                        gainBoost = 2.0; // SSIM errors are small, boost them
+                        break;
+                    case 'grad':
+                        gammaTarget = 0.8; // Expand edge dynamic range
+                        break;
+                    case 'coherence':
+                        sigmaMult = 3.5;
+                        break;
+                }
+
                 const trueNoiseFloor = estSigma * sigmaCorrection;
-                const gate = Math.max(0.5/255.0, trueNoiseFloor * 3.0);
+                const gate = Math.max(0.5/255.0, trueNoiseFloor * sigmaMult);
+                
                 sampleValues.sort(); const p99 = sampleValues[Math.floor(n * 0.99)];
-                return { gain: Math.min(100000, Math.max(1, 0.85 / Math.max(p99, gate * 4.0))), threshold: Math.min(255, gate * 255), gamma: 1.0, softness: gate * 255 * 0.5 };
+                const targetSignal = Math.max(p99, gate * 4.0);
+                const gain = Math.min(100000, Math.max(1, (0.85 / targetSignal) * gainBoost));
+
+                return { 
+                    gain, 
+                    threshold: Math.min(255, gate * 255), 
+                    gamma: gammaTarget, 
+                    softness: gate * 255 * 0.5 
+                };
             };
             return { solve };
         })();
 
-        // --- 7. REGISTRATION ENGINE (HYBRID CONSENSUS + GRADIENT) ---
+        // --- 7. REGISTRATION ENGINE ---
         const RegistrationEngine = (() => {
             const { FARID_D, FARID_P, LANCZOS_LUT } = PrecisionCore;
             
@@ -379,11 +410,13 @@
                 if(!LANCZOS_LUT) return 0;
                 const ix = Math.floor(x), iy = Math.floor(y); const fx = x - ix, fy = y - iy; const LUT_SCALE = 2000.0 / 3.0;
                 let val = 0.0, wSum = 0.0;
-                for (let j=-2; j<=3; j++) {
+                
+                // SYMMETRIC KERNEL WINDOW (-3 to +3) for ZERO PHASE SHIFT
+                for (let j=-3; j<=3; j++) {
                     const r = iy + j; if (r < 0 || r >= height) continue;
                     const dy = Math.abs(j - fy); if (dy >= 3.0) continue;
                     const wy = LANCZOS_LUT[(dy * LUT_SCALE)|0]; const rOffset = Math.imul(r, width);
-                    for (let k=-2; k<=3; k++) {
+                    for (let k=-3; k<=3; k++) {
                         const c = ix + k; if (c < 0 || c >= width) continue;
                         const dx = Math.abs(k - fx); if (dx >= 3.0) continue;
                         const w = wy * LANCZOS_LUT[(dx * LUT_SCALE)|0];
@@ -394,7 +427,6 @@
             };
 
             const computeCoarse = async (buff1, buff2, width, height, cb) => {
-                // 1. Pre-process: GRADIENT MAPS (Illumination Invariant)
                 const map1 = getGradientMap(buff1, width, height);
                 const map2 = getGradientMap(buff2, width, height);
 
@@ -416,26 +448,20 @@
 
                     for(let dy=-search; dy<=search; dy+=step) for(let dx=-search; dx<=search; dx+=step) {
                         const p2=[]; const s2 = getPatchStats(map2, anc.x-dx, anc.y-dy, p2); if(s2 < 1e-5) continue;
-                        let dot = 0; for(let k=0; k<p1.length; k+=2) dot += p1[k]*p2[k]; // Sparse dot
+                        let dot = 0; for(let k=0; k<p1.length; k+=2) dot += p1[k]*p2[k];
                         const score = dot / (s1 * s2);
                         if(score > localBest) { localBest = score; lDx = dx; lDy = dy; }
                     }
-                    
                     if (localBest > 0.4) votes.push({dx:lDx, dy:lDy, score: localBest});
                     if(cb) cb(i/anchors.length * 0.5); await new Promise(r => setTimeout(r,0));
                 }
 
-                // Weighted Democracy
                 const bins = {}; let maxScore=0, consensus={dx:0, dy:0};
                 votes.forEach(v => {
                     const k = `${Math.round(v.dx/2)*2},${Math.round(v.dy/2)*2}`;
                     bins[k] = (bins[k]||0) + v.score;
                     if(bins[k]>maxScore) { maxScore=bins[k]; consensus=v; }
                 });
-                
-                // IDEMPOTENT RETURN: The vector is (dx, dy).
-                // If we found match at `x - dx`, it means Image 2 is shifted by `+dx`.
-                // To align, we need Offset = `+dx`.
                 return maxScore > 0 ? consensus : null;
             };
 
@@ -443,14 +469,14 @@
                 const crop = 256, cx = width >> 1, cy = height >> 1; const ox = coarse.dx, oy = coarse.dy;
                 const roi1 = new Float32Array(crop*crop);
                 for(let y=0; y<crop; y++) { const r=Math.imul(cy-(crop>>1)+y, width), r2=Math.imul(y, crop); for(let x=0; x<crop; x++) roi1[r2+x]=buff1[r+cx-(crop>>1)+x]; }
-                const map1 = getGradientMap(roi1, crop, crop); // Use Gradients for Fine Lock too
+                const map1 = getGradientMap(roi1, crop, crop); 
                 
                 const searchMargin = 10; const largeCrop = crop + searchMargin*2;
                 const roi2Large = new Float32Array(largeCrop*largeCrop);
                 for(let y=0; y<largeCrop; y++) { 
-                    const r = Math.imul(Math.max(0, Math.min(height-1, (cy-(largeCrop>>1)+y+oy))), width);
+                    const r = Math.imul(Math.max(0, Math.min(height-1, (cy-(largeCrop>>1)+y-oy))), width);
                     const r2 = Math.imul(y, largeCrop); 
-                    for(let x=0; x<largeCrop; x++) roi2Large[r2+x]=buff2[r + Math.max(0, Math.min(width-1, (cx-(largeCrop>>1)+x+ox)))]; 
+                    for(let x=0; x<largeCrop; x++) roi2Large[r2+x]=buff2[r + Math.max(0, Math.min(width-1, (cx-(largeCrop>>1)+x-ox)))]; 
                 }
                 const map2Large = getGradientMap(roi2Large, largeCrop, largeCrop);
 
@@ -463,7 +489,8 @@
                             const ix=sx|0, iy=sy|0, fx=sx-ix, fy=sy-iy;
                             const idx = iy*largeCrop + ix;
                             const val = map2Large[idx]*(1-fx)*(1-fy) + map2Large[idx+1]*fx*(1-fy) + map2Large[idx+largeCrop]*(1-fx)*fy + map2Large[idx+largeCrop+1]*fx*fy;
-                            err += Math.abs(map1[y*crop+x] - val);
+                            const d = map1[y*crop+x] - val;
+                            err += d*d; // L2 Norm
                         }
                     }
                     return err;
@@ -472,7 +499,6 @@
                 let curX = 0, curY = 0, step = 4.0;
                 let minErr = getError(0,0);
                 
-                // Gradient Descent / Hill Climbing
                 for(let iter=0; iter<30; iter++) {
                     let bestE = minErr, bestX = curX, bestY = curY;
                     [[0,-1],[0,1],[-1,0],[1,0]].forEach(d => { 
@@ -488,8 +514,13 @@
                     if(cb) cb(0.5 + (iter/30)*0.5);
                     await new Promise(r => setTimeout(r,0));
                 }
-                // Add the refined delta to the coarse offset
-                return { x: ox + curX, y: oy + curY };
+                
+                // ZERO-SNAP HYSTERESIS
+                let finalX = ox + curX, finalY = oy + curY;
+                if (Math.abs(finalX) < 0.15) finalX = 0.0;
+                if (Math.abs(finalY) < 0.15) finalY = 0.0;
+
+                return { x: finalX, y: finalY };
             };
             return { computeCoarse, computeFine };
         })();
