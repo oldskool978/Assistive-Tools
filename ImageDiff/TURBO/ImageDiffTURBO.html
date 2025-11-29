@@ -733,9 +733,11 @@ Visible:     ${visible_pct.toFixed(2)}%
                 const bitDepth = tensor?.meta?.bitDepth || 8;
                 const qStep = 1.0 / (Math.pow(2, bitDepth) - 1);
                 
-                // Dynamic Step Sizing based on Bit Depth
+                // MAVERICK UPGRADE: DECOUPLE GATE FROM QUANTIZATION
+                // The slider (0-255) now represents "Visual Threshold" (0.0 - 1.0)
+                // This ensures the gate works for 16-bit high-gain scenarios where noise >> qStep.
                 const threshold = Math.max(0, gateState.coarse + gateState.fine);
-                const signalGate = threshold * qStep;
+                const signalGate = threshold / 255.0; // Normalized Visual Gate (0-1)
                 
                 const gamma = Math.max(0.1, Math.min(3.0, gammaState.coarse + gammaState.fine));
                 const softness = Math.max(0, Math.min(100, softState.coarse + softState.fine));
