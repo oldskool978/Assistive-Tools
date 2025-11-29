@@ -15,7 +15,8 @@ DATA_MAP = {}
 TARGET_MANIFEST = {
     "KAISER_13", "FARID_P", "FARID_D", "ENTROPY_LUT", "LINEAR_LUT_HQ",
     "KURTOSIS_LUT", "SIGMA_LUT", "LANCZOS_LUT", "TURBO", "INFERNO",
-    "BAYER_LATTICE", "M1", "M2", "PHYSICS", "LUMA_COEFFS"
+    "BAYER_LATTICE", "M1", "M2", "PHYSICS", "LUMA_COEFFS", 
+    "HVS_MASK_LUT"
 }
 
 def get_cache_filename(): return f"{datetime.date.today().isoformat()}_manifold.IGD"
@@ -151,11 +152,54 @@ def ensure_math():
         ent=[0]+[-p*(mp.log(p)/mp.log(2)) for p in [mp.mpf(i)/25.0 for i in range(1,26)]]
         register_injection("ENTROPY_LUT", ent)
 
+    if "HVS_MASK_LUT" in missing:
+        print("   ... Deriving HVS Masking Curve (Naka-Rushton)")
+        # We model the Human Visual System's contrast sensitivity roll-off (Masking)
+        # Function: M(g) = 1 / (1 + (g / sigma)^n)
+        # This preserves low-gradient detail (banding) but suppresses high-gradient noise (ringing/texture).
+        
+        # 1. Establish the semi-saturation constant (sigma) based on 8-bit quantization noise floor
+        # Typical quantization noise std dev for uniform dist is 1/sqrt(12) LSB.
+        # We want the knee to be slightly above the "texture" threshold.
+        # 1 LSB in 0-1 float is approx 0.0039.
+        # Texture threshold is often cited around 0.02 - 0.05 in normalized gradient magnitude.
+        
+        # Using 100-DPS derivation:
+        # q = 1/255
+        q_step = mp.mpf(1) / mp.mpf(255)
+        # We set the half-response point (sigma) at approx 10 LSBs of gradient energy.
+        # This is where structural edges begin to dominate over subtle texture.
+        sigma_hvs = q_step * 10.0
+        
+        # 2. Exponent (n) determines the sharpness of the transition.
+        # HVS studies often use exponents between 2.0 and 3.0 for masking.
+        n_hvs = mp.mpf(2.2) 
+        
+        lut_size = 4096
+        mask_curve = []
+        for i in range(lut_size):
+            # Normalized Gradient Input [0.0, 1.0]
+            g = mp.mpf(i) / (lut_size - 1)
+            
+            # Naka-Rushton / Michaelis-Menten Adaptation
+            # We want Weight = 1.0 when g is low, Weight -> 0.0 when g is high.
+            # W = 1.0 / (1 + (g/sigma)^n)
+            
+            if g == 0:
+                w = mp.mpf(1.0)
+            else:
+                denom = 1 + (g / sigma_hvs) ** n_hvs
+                w = 1 / denom
+            
+            mask_curve.append(w)
+            
+        register_injection("HVS_MASK_LUT", mask_curve)
+
     if "TURBO" in missing:
         C=[[0.13572138,4.61539260,-42.66032258,132.13108234,-152.94239396,59.28637943],[0.09140261,2.19418839,4.84296658,-14.18503333,4.27729857,2.82956604],[0.10667330,12.64194608,-60.58204836,110.36276771,-89.90360919,27.34824973]]
         t_d=[]
         for i in range(4096):
-            x=mp.mpf(i)/4095; rgb=[]
+            x=mp.mpf(i)/4095.0; rgb=[]
             for k in C:
                 r=mp.mpf(k[-1])
                 for c in reversed(k[:-1]): r=r*x+c
