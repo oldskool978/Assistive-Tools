@@ -292,15 +292,22 @@
                 else { working.set(base); }
 
                 const robustSigma = PrecisionCore.estimateRobustSigma(working, w, h);
-                const stats = { robustSigma, statFloor: Math.max(robustSigma, 1.0/65535.0) };
                 
-                // 2. Adaptive Tuning based on Physics
+                // 2. Adaptive Stats Force-Logic
+                // Entropy & Coherence are smooth/windowed, so Laplacian-based Sigma estimation fails (returns 0).
+                // We must enforce a floor based on the quantization of the metric itself.
+                let floorOverride = 1.0/65535.0;
+                if (layerKey === 'entropy') floorOverride = 0.01; // 1% variation is noise
+                if (layerKey === 'coherence') floorOverride = 0.005;
+                
+                const stats = { robustSigma: Math.max(robustSigma, floorOverride), statFloor: Math.max(robustSigma, floorOverride) };
+                
+                // 3. Topological Tuning
                 const tuning = { geoScale: 1.5, nlmDecay: 1.5, tukeyK: 3.0 };
-                
                 if (layerKey === 'ssim') { tuning.nlmDecay = 0.8; tuning.tukeyK = 2.0; } 
                 else if (layerKey === 'grad') { tuning.tukeyK = 4.0; tuning.geoScale = 2.0; } 
-                else if (layerKey === 'entropy') { tuning.geoScale = 2.5; tuning.nlmDecay = 1.0; } // Kill speckle
-                else if (layerKey === 'coherence') { tuning.tukeyK = 6.0; tuning.nlmDecay = 3.0; } // Kill geometric noise
+                else if (layerKey === 'entropy') { tuning.geoScale = 3.0; tuning.nlmDecay = 1.0; } // Aggressive decapitation
+                else if (layerKey === 'coherence') { tuning.tukeyK = 6.0; tuning.nlmDecay = 3.0; } 
 
                 for(let m=0; m<8; m++) {
                     let curr = new Float32Array(working);
@@ -323,7 +330,6 @@
                     buf = tensor.latent[layerKey][activeMask];
                 } else {
                     const raw = tensor[layerKey].raw; if (!raw) return null;
-                    // If SSIM raw, invert for statistics calculation
                     if (layerKey === 'ssim') { buf = new Float32Array(raw.length); for(let i=0; i<raw.length; i++) buf[i] = Math.max(0, 1.0 - raw[i]); } 
                     else { buf = raw; }
                 }
@@ -340,7 +346,11 @@
                     const kClamped = Math.max(1.8, Math.min(10.0, kurtosis));
                     sigmaCorrection = SIGMA_LUT[Math.floor(((kClamped - 1.8) / 8.2) * 255)];
                 }
-                const trueNoiseFloor = PrecisionCore.estimateRobustSigma(buf, tensor.meta.w, tensor.meta.h) * sigmaCorrection;
+                // If layer is Entropy/Coherence, use the override floor for calculation stability
+                let estSigma = PrecisionCore.estimateRobustSigma(buf, tensor.meta.w, tensor.meta.h);
+                if (layerKey === 'entropy') estSigma = Math.max(estSigma, 0.01);
+                
+                const trueNoiseFloor = estSigma * sigmaCorrection;
                 const gate = Math.max(0.5/255.0, trueNoiseFloor * 3.0);
                 sampleValues.sort(); const p99 = sampleValues[Math.floor(n * 0.99)];
                 return { gain: Math.min(100000, Math.max(1, 0.85 / Math.max(p99, gate * 4.0))), threshold: Math.min(255, gate * 255), gamma: 1.0, softness: gate * 255 * 0.5 };
