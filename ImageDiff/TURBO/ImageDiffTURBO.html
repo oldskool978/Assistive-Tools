@@ -488,11 +488,32 @@
         })();
 
         // --- UI COMPONENTS ---
-        const AuditModal = ({ isOpen, onClose, tensor, scoreData, metaNames }) => {
-            if(!isOpen || !scoreData) return null;
+        const AuditModal = ({ isOpen, onClose, tensor, scoreData, metaNames, physics }) => {
+            if(!isOpen || !scoreData || !physics) return null;
             const { nps, peak, visible_pct } = scoreData;
+            const { snr, ebd, noise } = tensor.source_metrics;
             const grade = nps<0.5 ? {t:'S (Lab)', c:'text-emerald-400'} : nps<1.0 ? {t:'A (Pro)', c:'text-cyan-400'} : {t:'C (Fail)', c:'text-rose-400'};
-            const copy = () => navigator.clipboard.writeText(`AUDIT REPORT\nScore: ${nps.toFixed(3)}\nPeak: ${peak.toFixed(2)}`);
+            const copy = () => {
+                const report = `[ 100-DPS FORENSIC AUDIT REPORT ]
+----------------------------------------
+DATE: ${new Date().toLocaleString()}
+REF:  ${metaNames.ref}
+TGT:  ${metaNames.tgt}
+DIMS: ${tensor.meta.w}x${tensor.meta.h} (${tensor.meta.bitDepth}-bit)
+
+[ SIGNAL ANALYSIS ]
+SNR:   ${snr.toFixed(2)} dB
+EBD:   ${ebd.toFixed(2)} bits
+Noise: ${noise.toExponential(4)} (σ)
+
+[ INTEGRITY METRICS ]
+NPS Score:   ${nps.toFixed(4)} [${grade.t}]
+Peak Dev:    ${peak.toFixed(4)}
+Visible:     ${visible_pct.toFixed(2)}%
+----------------------------------------
+100-DPS Engine | Float64 Precision`;
+                navigator.clipboard.writeText(report);
+            };
             return (
                 <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
                     <div className="glass-panel border border-slate-700/50 rounded-xl p-6 w-full max-w-md shadow-2xl relative overflow-hidden">
@@ -674,7 +695,7 @@
                             const fixed = val.toFixed(5);
                             return fixed + " "; // Add space to match monospace width
                         };
-                        hudRef.current.innerHTML = `<div class="space-y-1"><div class="flex justify-between text-[10px] font-bold text-slate-400 border-b border-slate-700 pb-1"><span>XY [${ix}, ${iy}]</span><span class="text-slate-600">F64 PROBE ${isPrecise?'[PRECISION]':''}</span></div><div class="grid grid-cols-2 gap-x-4 gap-y-0.5 text-[9px] font-mono leading-tight"><span class="text-indigo-400">COMP</span><span class="text-slate-200 text-right">${fmt(v('heuristic'))}</span><span class="text-emerald-400">SSIM</span><span class="text-slate-200 text-right">${fmt(v('ssim'))}</span><span class="text-cyan-400">GRAD</span><span class="text-slate-200 text-right">${fmt(v('grad'))}</span><span class="text-amber-400">ENTR</span><span class="text-slate-200 text-right">${fmt(v('entropy'))}</span><span class="text-rose-400">COHER</span><span class="text-slate-200 text-right">${fmt(v('coherence'))}</span><span class="text-blue-400">DELTA</span><span class="text-slate-200 text-right">${fmt(v('perceptual'))}</span></div></div>`;
+                        hudRef.current.innerHTML = `<div class="space-y-1"><div class="flex justify-between text-[10px] font-bold text-slate-400 border-b border-slate-700 pb-1"><span>XY [${ix}, ${iy}]</span><span class="text-slate-500">${tensor.meta.bitDepth}-BIT ${isPrecise?'[RAW]':'[STD]'}</span></div><div class="grid grid-cols-2 gap-x-4 gap-y-0.5 text-[9px] font-mono leading-tight"><span class="text-indigo-400">COMP</span><span class="text-slate-200 text-right">${fmt(v('heuristic'))}</span><span class="text-emerald-400">SSIM</span><span class="text-slate-200 text-right">${fmt(v('ssim'))}</span><span class="text-cyan-400">GRAD</span><span class="text-slate-200 text-right">${fmt(v('grad'))}</span><span class="text-amber-400">ENTR</span><span class="text-slate-200 text-right">${fmt(v('entropy'))}</span><span class="text-rose-400">COHER</span><span class="text-slate-200 text-right">${fmt(v('coherence'))}</span><span class="text-blue-400">DELTA</span><span class="text-slate-200 text-right">${fmt(v('perceptual'))}</span></div></div>`;
                     }
                 } else {
                     hudRef.current.style.display = "none";
@@ -861,7 +882,7 @@
 
             return (
                 <div className="w-screen h-screen bg-slate-950 text-slate-300 flex flex-col md:flex-row overflow-hidden font-sans select-none">
-                    <AuditModal isOpen={showAudit} onClose={()=>setShowAudit(false)} tensor={tensor} scoreData={tensor?.scores} metaNames={meta} />
+                    <AuditModal isOpen={showAudit} onClose={()=>setShowAudit(false)} tensor={tensor} scoreData={tensor?.scores} metaNames={meta} physics={physics} />
                     <div className="w-full md:w-80 shrink-0 bg-slate-900 border-r border-slate-800 flex flex-col z-20 shadow-2xl h-1/2 md:h-full order-2 md:order-1">
                         <div className="p-4 border-b border-slate-800 bg-slate-900 flex justify-between items-center"><div><h1 className="text-cyan-400 font-bold text-lg flex items-center gap-2"><Activity className="w-5 h-5"/> ImageDiff 64</h1><div className="text-[10px] text-slate-500 mt-1 font-mono uppercase tracking-widest">100-DPS Engine</div></div>
                             <div className="flex gap-2">
