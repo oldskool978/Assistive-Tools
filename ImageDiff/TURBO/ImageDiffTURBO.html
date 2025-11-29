@@ -1,0 +1,665 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>ImageDiff 100-DPS | Tensor Lab</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script type="importmap">
+        { "imports": { "react": "https://esm.sh/react@18.2.0", "react-dom/client": "https://esm.sh/react-dom@18.2.0/client", "lucide-react": "https://esm.sh/lucide-react@0.263.1" } }
+    </script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <style>
+        body { margin: 0; overflow: hidden; background-color: #020617; font-family: 'Inter', system-ui, sans-serif; }
+        ::-webkit-scrollbar { display: none; }
+        .scrollbar-hide::-webkit-scrollbar { display: none; }
+        .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
+        canvas { image-rendering: pixelated; } 
+        .hud-enter { animation: hud-in 0.2s ease-out forwards; }
+        @keyframes hud-in { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        .range-slider { -webkit-appearance: none; appearance: none; background: transparent; cursor: pointer; }
+        .range-slider::-webkit-slider-runnable-track { background: #1e293b; height: 4px; border-radius: 2px; }
+        .range-slider::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; margin-top: -6px; background-color: #38bdf8; height: 16px; width: 4px; border-radius: 2px; transition: background-color 0.2s; }
+        .range-fine::-webkit-slider-runnable-track { background: #1e293b; height: 2px; }
+        .range-fine::-webkit-slider-thumb { background-color: #94a3b8; height: 12px; width: 2px; margin-top: -5px; }
+        .cursor-crosshair { cursor: crosshair; }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+    <script type="text/babel" data-type="module">
+        import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+        import { createRoot } from 'react-dom/client';
+        import { Activity, Layers, Eye, EyeOff, Target, ShieldCheck, Loader, ScanLine, Microscope, Waves, Binary, BrainCircuit, Upload, MoveHorizontal, Zap, Sun, Compass, FileText, X, ClipboardCheck, Move, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, RotateCcw, Image as ImageIcon } from 'lucide-react';
+
+        // --- 1. PRECISION CORE ---
+        const PrecisionCore = (() => {
+            // <INJECT_PHYSICS>
+            const PHYSICS = null;
+            // </INJECT_PHYSICS>
+            // <INJECT_KAISER_13>
+            const KAISER_13 = null;
+            // </INJECT_KAISER_13>
+            // <INJECT_FARID_P>
+            const FARID_P = null;
+            // </INJECT_FARID_P>
+            // <INJECT_FARID_D>
+            const FARID_D = null;
+            // </INJECT_FARID_D>
+            // <INJECT_ENTROPY_LUT>
+            const ENTROPY_LUT = null;
+            // </INJECT_ENTROPY_LUT>
+            // <INJECT_LINEAR_LUT_HQ>
+            const LINEAR_LUT_HQ = null;
+            // </INJECT_LINEAR_LUT_HQ>
+            // <INJECT_KURTOSIS_LUT>
+            const KURTOSIS_LUT = null;
+            // </INJECT_KURTOSIS_LUT>
+            // <INJECT_SIGMA_LUT>
+            const SIGMA_LUT = null;
+            // </INJECT_SIGMA_LUT>
+            // <INJECT_LANCZOS_LUT>
+            const LANCZOS_LUT = null;
+            // </INJECT_LANCZOS_LUT>
+            // <INJECT_BAYER_LATTICE>
+            const BAYER_LATTICE = null;
+            // </INJECT_BAYER_LATTICE>
+            // <INJECT_TURBO>
+            const TURBO = null;
+            // </INJECT_TURBO>
+            // <INJECT_INFERNO>
+            const INFERNO = null;
+            // </INJECT_INFERNO>
+            // <INJECT_M1>
+            const M1 = null;
+            // </INJECT_M1>
+            // <INJECT_M2>
+            const M2 = null;
+            // </INJECT_M2>
+
+            const estimateRobustSigma = (buffer, width, height) => {
+                if (!buffer) return 1e-9;
+                const sampleW = width - 2;
+                const sampleH = height - 2;
+                const step = Math.max(1, Math.floor((sampleW * sampleH) / 10000)); 
+                const samples = new Float32Array(10000);
+                let sIdx = 0;
+                for(let i=0; i<10000; i++) {
+                    const offset = i * step;
+                    const y = 1 + Math.floor(offset / sampleW);
+                    const x = 1 + (offset % sampleW);
+                    if (y >= height - 1) break;
+                    const idx = Math.imul(y, width) + x;
+                    const val = (buffer[idx] * 4.0) - (buffer[idx-1] + buffer[idx+1] + buffer[idx-width] + buffer[idx+width]);
+                    samples[sIdx++] = Math.abs(val);
+                }
+                samples.sort();
+                const median = samples[sIdx >> 1];
+                const scale = PHYSICS ? PHYSICS[0] : 1.4826;
+                return Math.max(1e-13, median * scale);
+            };
+
+            const isReady = () => (PHYSICS && KAISER_13 && KURTOSIS_LUT && SIGMA_LUT && BAYER_LATTICE);
+
+            return {
+                M1, M2, KURTOSIS_LUT, SIGMA_LUT, ENTROPY_LUT, LINEAR_LUT_HQ, LANCZOS_LUT, TURBO, INFERNO, BAYER_LATTICE,
+                KAISER_13, FARID_P, FARID_D, PHYSICS,
+                estimateRobustSigma, isReady
+            };
+        })();
+
+        // --- 2. MEMORY VANGUARD ---
+        const MemoryVanguard = (() => {
+            const registers = [];
+            const request = (slot, size) => {
+                if (!registers[slot] || registers[slot].length < size) registers[slot] = new Float64Array(Math.ceil(size / 4096) * 4096);
+                return registers[slot].subarray(0, size);
+            };
+            return { request };
+        })();
+
+        // --- 3. INGEST ENGINE ---
+        const IngestEngine = (() => {
+            const process = (imageData, width, height) => {
+                const { data } = imageData; const len = width * height; 
+                const ok_l = new Float32Array(len), ok_a = new Float32Array(len), ok_b = new Float32Array(len);
+                const { M1, M2, LINEAR_LUT_HQ, BAYER_LATTICE } = PrecisionCore;
+                if (!M1 || !M2) return { oklab: {l:ok_l, a:ok_a, b:ok_b}, meta: {w:width, h:height, bitDepth:8} };
+
+                const lutLen = LINEAR_LUT_HQ.length - 1; const inv255 = 1.0 / 255.0;
+                for(let y=0; y<height; y++) {
+                    const rowOffset = Math.imul(y, width); const bayerRow = (y & 7) << 3; 
+                    for(let x=0; x<width; x++) {
+                        const i = rowOffset + x; const idx = i << 2;
+                        const dither = BAYER_LATTICE[bayerRow + (x & 7)] * inv255;
+                        const lookup = (v) => {
+                            const t = Math.max(0, Math.min(1, v)) * lutLen; const idx = t | 0;
+                            return LINEAR_LUT_HQ[idx] + (LINEAR_LUT_HQ[Math.min(idx+1, lutLen)] - LINEAR_LUT_HQ[idx]) * (t - idx);
+                        };
+                        const r = lookup((data[idx] * inv255) + dither);
+                        const g = lookup((data[idx+1] * inv255) + dither);
+                        const b = lookup((data[idx+2] * inv255) + dither);
+                        const l = M1[0]*r + M1[1]*g + M1[2]*b; const m = M1[3]*r + M1[4]*g + M1[5]*b; const s = M1[6]*r + M1[7]*g + M1[8]*b;
+                        const l_ = Math.cbrt(Math.max(0, l)), m_ = Math.cbrt(Math.max(0, m)), s_ = Math.cbrt(Math.max(0, s));
+                        ok_l[i] = M2[0]*l_ + M2[1]*m_ + M2[2]*s_; ok_a[i] = M2[3]*l_ + M2[4]*m_ + M2[5]*s_; ok_b[i] = M2[6]*l_ + M2[7]*m_ + M2[8]*s_;
+                    }
+                }
+                return { oklab: { l: ok_l, a: ok_a, b: ok_b }, meta: { w: width, h: height, bitDepth: 8 } };
+            };
+            return { process };
+        })();
+
+        // --- 4. ANALYSIS ENGINE ---
+        const AnalysisEngine = (() => {
+            const convolveSeparable = (input, width, height, kH, kV) => {
+                if (!kH || !kV) return new Float64Array(input.length);
+                const len = width * height; const temp = MemoryVanguard.request(0, len); const out = new Float64Array(len);
+                const kSzH = kH.length, kHalfH = (kSzH - 1) >> 1; const kSzV = kV.length, kHalfV = (kSzV - 1) >> 1;
+                for(let y=0; y<height; y++) { const row = Math.imul(y, width); for(let x=0; x<width; x++) { let sum = 0.0; for(let k=0; k<kSzH; k++) { let px = x - kHalfH + k; if (px < 0) px = -px; else if (px >= width) px = width - 1 - (px - width); sum += input[row + px] * kH[k]; } temp[row + x] = sum; } }
+                for(let y=0; y<height; y++) { const row = Math.imul(y, width); for(let x=0; x<width; x++) { let sum = 0.0; for(let k=0; k<kSzV; k++) { let py = y - kHalfV + k; if (py < 0) py = -py; else if (py >= height) py = height - 1 - (py - height); sum += temp[Math.imul(py, width) + x] * kV[k]; } out[row + x] = sum; } }
+                return out;
+            };
+
+            const getStructureTensor = (oklab, w, h) => {
+                const { FARID_P, FARID_D, KAISER_13 } = PrecisionCore; const len = w * h;
+                const Ixx = MemoryVanguard.request(1, len).fill(0), Iyy = MemoryVanguard.request(2, len).fill(0), Ixy = MemoryVanguard.request(3, len).fill(0);
+                ['l','a','b'].forEach(c => {
+                    const Ix = convolveSeparable(oklab[c], w, h, FARID_D, FARID_P); const Iy = convolveSeparable(oklab[c], w, h, FARID_P, FARID_D);
+                    for(let i=0; i<len; i++) { Ixx[i] += Ix[i] * Ix[i]; Iyy[i] += Iy[i] * Iy[i]; Ixy[i] += Ix[i] * Iy[i]; }
+                });
+                const Sxx = convolveSeparable(Ixx, w, h, KAISER_13, KAISER_13); const Syy = convolveSeparable(Iyy, w, h, KAISER_13, KAISER_13); const Sxy = convolveSeparable(Ixy, w, h, KAISER_13, KAISER_13);
+                const l1 = new Float32Array(len), l2 = new Float32Array(len), coh = new Float32Array(len);
+                for(let i=0; i<len; i++) {
+                    const tr = Sxx[i] + Syy[i]; const det = Sxx[i]*Syy[i] - Sxy[i]*Sxy[i]; const term = Math.sqrt(Math.max(0, (tr * 0.5)**2 - det));
+                    l1[i] = Math.sqrt(Math.max(0, tr * 0.5 + term)); l2[i] = Math.sqrt(Math.max(0, tr * 0.5 - term));
+                    const sum = l1[i] + l2[i]; coh[i] = (sum > 1e-12) ? ((l1[i] - l2[i]) / sum) ** 2 : 0;
+                }
+                return { l1, l2, coherence: coh };
+            };
+
+            const getEntropy = (buf, w, h) => {
+                const map = new Float32Array(w*h); const LUT = PrecisionCore.ENTROPY_LUT; if(!LUT) return map;
+                let min = Infinity, max = -Infinity; for(let i=0; i<buf.length; i+=10) { if(buf[i]<min) min=buf[i]; if(buf[i]>max) max=buf[i]; }
+                const scale = 25.0 / (max - min || 1.0);
+                for(let y=2; y<h-2; y++) {
+                    const row = Math.imul(y, w);
+                    for(let x=2; x<w-2; x++) {
+                        const hist = new Uint8Array(26);
+                        for(let ky=-2; ky<=2; ky++) { const rOff = Math.imul(y+ky, w); for(let kx=-2; kx<=2; kx++) { const val = buf[rOff + x + kx]; hist[Math.min(25, Math.max(0, ((val - min) * scale) | 0))]++; } }
+                        let H = 0.0; for(let k=0; k<=25; k++) if(hist[k] > 0) H += LUT[hist[k]];
+                        map[row+x] = H;
+                    }
+                }
+                return map;
+            };
+
+            const getSSIM = (ok1, ok2, w, h) => {
+                const { KAISER_13, PHYSICS } = PrecisionCore;
+                const C1 = PHYSICS ? PHYSICS[1] : 0.0001, C2 = PHYSICS ? PHYSICS[2] : 0.0009;
+                const mu1 = convolveSeparable(ok1.l, w, h, KAISER_13, KAISER_13), mu2 = convolveSeparable(ok2.l, w, h, KAISER_13, KAISER_13);
+                const len = w*h; const t1 = MemoryVanguard.request(1, len), t2 = MemoryVanguard.request(2, len), t3 = MemoryVanguard.request(3, len);
+                for(let i=0; i<len; i++) { t1[i] = ok1.l[i] * ok1.l[i]; t2[i] = ok2.l[i] * ok2.l[i]; t3[i] = ok1.l[i] * ok2.l[i]; }
+                const s1sq = convolveSeparable(t1, w, h, KAISER_13, KAISER_13), s2sq = convolveSeparable(t2, w, h, KAISER_13, KAISER_13), s12 = convolveSeparable(t3, w, h, KAISER_13, KAISER_13);
+                const ssim = new Float32Array(len);
+                for(let i=0; i<len; i++) {
+                    const m1 = mu1[i], m2 = mu2[i];
+                    const v1 = Math.max(0, s1sq[i] - m1*m1);
+                    const v2 = Math.max(0, s2sq[i] - m2*m2);
+                    const cov = s12[i] - m1*m2;
+                    const rawSSIM = ((2*m1*m2 + C1) * (2*cov + C2)) / ((m1*m1 + m2*m2 + C1) * (v1 + v2 + C2) + 1e-9);
+                    ssim[i] = Math.max(-1, Math.min(1, rawSSIM));
+                }
+                return ssim;
+            };
+
+            const getPerceptualDelta = (o1, o2, w, h) => {
+                const len = w*h; const d = new Float32Array(len);
+                for(let i=0; i<len; i++) d[i] = Math.sqrt((o1.l[i]-o2.l[i])**2 + (o1.a[i]-o2.a[i])**2 + (o1.b[i]-o2.b[i])**2);
+                return d;
+            };
+            return { getStructureTensor, getEntropy, getSSIM, getPerceptualDelta };
+        })();
+
+        // --- 5. FORENSIC FILTER ---
+        const ForensicFilter = (() => {
+            const tasks = {
+                geodesic: (mask, width, height, stats) => {
+                    const len = mask.length; const marker = new Float32Array(len);
+                    const floor = stats ? Math.max(1e-5, stats.statFloor * 1.5) : 0.005;
+                    for(let i=0; i<len; i++) marker[i] = Math.max(0, mask[i] - floor);
+                    for(let k=0; k<3; k++) {
+                        for(let i=0; i<len; i++) {
+                            let m = marker[i];
+                            if(i>=width) m = Math.max(m, marker[i-width]); if(i%width) m = Math.max(m, marker[i-1]);
+                            marker[i] = Math.min(m, mask[i]);
+                        }
+                        for(let i=len-1; i>=0; i--) {
+                            let m = marker[i];
+                            if(i<len-width) m = Math.max(m, marker[i+width]); if((i+1)%width) m = Math.max(m, marker[i+1]);
+                            marker[i] = Math.min(m, mask[i]);
+                        }
+                    }
+                    return marker;
+                },
+                nlm: (input, width, height, stats) => {
+                    const len = input.length; const output = new Float32Array(len);
+                    const sigma = stats ? stats.robustSigma : 0.01; const h2 = sigma * sigma * 1.5;
+                    for(let y=3; y<height-3; y++) {
+                        const row = Math.imul(y, width);
+                        for(let x=3; x<width-3; x++) {
+                            const idx = row + x; let wSum = 0.0, vSum = 0.0;
+                            for(let dy=-2; dy<=2; dy++) for(let dx=-2; dx<=2; dx++) {
+                                let dist = 0.0; const sIdx = idx + Math.imul(dy, width) + dx;
+                                for(let py=-1; py<=1; py++) for(let px=-1; px<=1; px++) {
+                                    const d = input[idx + Math.imul(py, width) + px] - input[sIdx + Math.imul(py, width) + px]; dist += d*d;
+                                }
+                                const w = Math.exp(-Math.max(0, dist - 2*h2) / (h2 + 1e-9)); vSum += input[sIdx] * w; wSum += w;
+                            }
+                            output[idx] = vSum / (wSum + 1e-9);
+                        }
+                    }
+                    return output;
+                },
+                tukey: (input, width, height, stats) => {
+                    const len = input.length; const u = new Float32Array(input); const u_next = new Float32Array(len);
+                    const sigma = stats ? stats.robustSigma : 0.01; const K = sigma * 3.0; const K2 = K * K;
+                    for(let iter=0; iter<3; iter++) {
+                        for(let y=1; y<height-1; y++) {
+                            const row = Math.imul(y, width);
+                            for(let x=1; x<width-1; x++) {
+                                const idx = row + x; const v = u[idx];
+                                const n=u[idx-width]-v, s=u[idx+width]-v, e=u[idx+1]-v, w=u[idx-1]-v;
+                                const c = (d) => { const d2 = d*d; return (d2 <= K2) ? 0.5 * ((1.0 - d2/K2)**2) : 0.0; };
+                                u_next[idx] = v + 0.25 * (c(n)*n + c(s)*s + c(e)*e + c(w)*w);
+                            }
+                        }
+                        u.set(u_next);
+                    }
+                    return u;
+                }
+            };
+            const generateManifold = async (base, w, h, cb) => {
+                const manifolds = new Array(8);
+                const robustSigma = PrecisionCore.estimateRobustSigma(base, w, h);
+                const stats = { robustSigma, statFloor: Math.max(robustSigma, 1.0/65535.0) };
+                for(let m=0; m<8; m++) {
+                    let curr = new Float32Array(base);
+                    if(m & 1) curr = tasks.tukey(curr, w, h, stats);
+                    if(m & 2) curr = tasks.nlm(curr, w, h, stats);
+                    if(m & 4) curr = tasks.geodesic(curr, w, h, stats);
+                    manifolds[m] = curr;
+                    if(cb) cb(m/8.0); await new Promise(r => setTimeout(r, 0));
+                }
+                return manifolds;
+            };
+            return { generateManifold };
+        })();
+
+        // --- 6. OPTIMIZATION ENGINE ---
+        const OptimizationEngine = (() => {
+            const solve = (tensor, layerKey, activeMask, viewMode) => {
+                let buf; if(viewMode === 'clean' && tensor.latent[layerKey]) buf = tensor.latent[layerKey][activeMask]; else buf = tensor[layerKey].raw;
+                if(!buf) return null;
+                const len = buf.length; const stride = Math.floor(len / 10000) || 1;
+                let n = 0, m1 = 0, m2 = 0, m4 = 0;
+                for(let i=0; i<len; i+=stride) { m1 += buf[i]; n++; } const mu = m1 / n;
+                const sampleValues = new Float32Array(n); let sIdx = 0;
+                for(let i=0; i<len; i+=stride) { const d = buf[i] - mu; m2 += d*d; m4 += d*d*d*d; sampleValues[sIdx++] = buf[i]; }
+                const variance = m2 / n; const kurtosis = (variance < 1e-20) ? 3.0 : (m4 / n) / (variance * variance);
+                const { KURTOSIS_LUT, SIGMA_LUT } = PrecisionCore; let sigmaCorrection = 1.0;
+                if (KURTOSIS_LUT && SIGMA_LUT) {
+                    const kClamped = Math.max(1.8, Math.min(10.0, kurtosis));
+                    sigmaCorrection = SIGMA_LUT[Math.floor(((kClamped - 1.8) / 8.2) * 255)];
+                }
+                const trueNoiseFloor = PrecisionCore.estimateRobustSigma(buf, tensor.meta.w, tensor.meta.h) * sigmaCorrection;
+                const gate = Math.max(0.5/255.0, trueNoiseFloor * 3.0);
+                sampleValues.sort(); const p99 = sampleValues[Math.floor(n * 0.99)];
+                return { gain: Math.min(100000, Math.max(1, 0.85 / Math.max(p99, gate * 4.0))), threshold: Math.min(255, gate * 255), gamma: 1.0, softness: gate * 255 * 0.5 };
+            };
+            return { solve };
+        })();
+
+        // --- 7. REGISTRATION ENGINE ---
+        const RegistrationEngine = (() => {
+            const computeLoGMap = (input, w, h) => {
+                const out = new Float32Array(input.length);
+                for(let y=1; y<h-1; y++) {
+                    const r = y*w;
+                    for(let x=1; x<w-1; x++) {
+                        const i = r+x;
+                        out[i] = Math.abs(input[i]*4 - input[i-1] - input[i+1] - input[i-w] - input[i+w]);
+                    }
+                }
+                return out;
+            };
+            const sampleLanczos = (buffer, width, height, x, y) => {
+                const { LANCZOS_LUT } = PrecisionCore; if(!LANCZOS_LUT) return 0;
+                const ix = Math.floor(x), iy = Math.floor(y); const fx = x - ix, fy = y - iy; const LUT_SCALE = 2000.0 / 3.0;
+                let val = 0.0, wSum = 0.0;
+                for (let j=-2; j<=3; j++) {
+                    const r = iy + j; if (r < 0 || r >= height) continue;
+                    const dy = Math.abs(j - fy); if (dy >= 3.0) continue;
+                    const wy = LANCZOS_LUT[(dy * LUT_SCALE)|0]; const rOffset = Math.imul(r, width);
+                    for (let k=-2; k<=3; k++) {
+                        const c = ix + k; if (c < 0 || c >= width) continue;
+                        const dx = Math.abs(k - fx); if (dx >= 3.0) continue;
+                        const w = wy * LANCZOS_LUT[(dx * LUT_SCALE)|0];
+                        val += buffer[rOffset + c] * w; wSum += w;
+                    }
+                }
+                return wSum !== 0 ? val / wSum : 0;
+            };
+            const computeCoarse = async (buff1, buff2, width, height, cb) => {
+                const anchors = []; for(let y=1; y<=3; y++) for(let x=1; x<=3; x++) anchors.push({x: (width*x)/4|0, y: (height*y)/4|0});
+                const pSz = 48, hSz = 24, search = 40, step = 2; let bestScore = -1, bestDx = 0, bestDy = 0;
+                const getPatchStats = (buf, cx, cy) => {
+                    let sum = 0, sqSum = 0;
+                    for(let y=0; y<pSz; y++) { const r = Math.imul(cy-hSz+y, width); for(let x=0; x<pSz; x++) { const v = buf[r + cx-hSz+x]; sum += v; sqSum += v*v; } }
+                    const n = pSz*pSz, mean = sum/n; return { mean, std: Math.sqrt(sqSum/n - mean*mean) };
+                };
+                for(let i=0; i<anchors.length; i++) {
+                    const anc = anchors[i], s1 = getPatchStats(buff1, anc.x, anc.y); if(s1.std < 1e-5) continue;
+                    for(let dy=-search; dy<=search; dy+=step) for(let dx=-search; dx<=search; dx+=step) {
+                        const s2 = getPatchStats(buff2, anc.x-dx, anc.y-dy); if(s2.std < 1e-5) continue;
+                        let cov = 0;
+                        for(let py=0; py<pSz; py++) { const r1 = Math.imul(anc.y-hSz+py, width), r2 = Math.imul(anc.y-dy-hSz+py, width); for(let px=0; px<pSz; px++) { cov += (buff1[r1 + anc.x-hSz+px] - s1.mean) * (buff2[r2 + anc.x-dx-hSz+px] - s2.mean); } }
+                        const score = cov / (pSz*pSz * s1.std * s2.std); if(score > bestScore) { bestScore = score; bestDx = dx; bestDy = dy; }
+                    }
+                    if(cb) cb(i/anchors.length * 0.5); await new Promise(r => setTimeout(r,0));
+                }
+                return { dx: bestDx, dy: bestDy };
+            };
+            const computeFine = async (buff1, buff2, width, height, coarse, cb) => {
+                const crop = 256, cx = width >> 1, cy = height >> 1; const ox = coarse.dx, oy = coarse.dy;
+                const roi1 = new Float32Array(crop*crop);
+                for(let y=0; y<crop; y++) { const r=Math.imul(cy-(crop>>1)+y, width), r2=Math.imul(y, crop); for(let x=0; x<crop; x++) roi1[r2+x]=buff1[r+cx-(crop>>1)+x]; }
+                const map1 = computeLoGMap(roi1, crop, crop);
+
+                const getError = (dx, dy) => {
+                    let err = 0.0;
+                    const roi2 = new Float32Array(crop*crop);
+                    for(let y=0; y<crop; y++) {
+                        const r = cy-(crop>>1)+y; const r2 = Math.imul(y, crop);
+                        for(let x=0; x<crop; x++) roi2[r2+x] = sampleLanczos(buff2, width, height, cx-(crop>>1)+x-(ox+dx), r-(oy+dy));
+                    }
+                    const map2 = computeLoGMap(roi2, crop, crop);
+                    for(let i=0; i<crop*crop; i+=2) err += Math.abs(map1[i]-map2[i]);
+                    return err;
+                };
+                let curX = 0, curY = 0, step = 2.0, minErr = getError(0,0);
+                for(let iter=0; iter<20; iter++) {
+                    let bestE = minErr, bestX = curX, bestY = curY;
+                    [[0,-1],[0,1],[-1,0],[1,0]].forEach(d => { const nx = curX + d[0]*step, ny = curY + d[1]*step, e = getError(nx, ny); if(e < bestE) { bestE = e; bestX = nx; bestY = ny; } });
+                    if(bestE < minErr) { minErr = bestE; curX = bestX; curY = bestY; } else step *= 0.5;
+                    if(step < 0.05) break; 
+                    if(cb) cb(0.5 + (iter/20)*0.5);
+                    await new Promise(r => setTimeout(r,0));
+                }
+                return { x: ox+curX, y: oy+curY };
+            };
+            return { computeCoarse, computeFine };
+        })();
+
+        // --- 8. QUALITY METRICS ---
+        const QualityMetricEngine = (() => {
+            const computeNPS = (heuristic, sensitivity, w, h) => {
+                const len = w * h; let sum = 0.0, peak = 0.0, violations = 0;
+                for(let i=0; i<len; i++) {
+                    const ratio = heuristic[i] / (sensitivity[i] + 1e-9);
+                    if (ratio > peak) peak = ratio; if (ratio > 1.0) violations++; sum += ratio * ratio * ratio * ratio;
+                }
+                return { nps: Math.pow(sum / len, 0.25), peak, mean: Math.pow(sum / len, 0.25), visible_pct: (violations/len)*100 };
+            };
+            const computeSignalMetrics = (buf, w, h) => {
+                const sig = PrecisionCore.estimateRobustSigma(buf, w, h);
+                const snr = (sig > 0) ? Math.min(140, 20 * Math.log10(1.0 / sig)) : 0;
+                return { snr, ebd: Math.max(0, (snr - 1.76) / 6.02), noise: sig };
+            };
+            return { computeNPS, computeSignalMetrics };
+        })();
+
+        // --- UI COMPONENTS ---
+        const AuditModal = ({ isOpen, onClose, tensor, scoreData, metaNames }) => {
+            if(!isOpen || !scoreData) return null;
+            const { nps, peak, visible_pct } = scoreData;
+            const grade = nps<0.5 ? {t:'S (Lab)', c:'text-emerald-400'} : nps<1.0 ? {t:'A (Pro)', c:'text-cyan-400'} : {t:'C (Fail)', c:'text-rose-400'};
+            const copy = () => navigator.clipboard.writeText(`AUDIT REPORT\nScore: ${nps.toFixed(3)}\nPeak: ${peak.toFixed(2)}`);
+            return (
+                <div className="fixed inset-0 z-50 bg-black/90 flex items-center justify-center p-4">
+                    <div className="bg-slate-900 border border-slate-700 rounded-xl p-6 w-full max-w-md shadow-2xl">
+                        <div className="flex justify-between items-center mb-6"><h2 className="text-xl font-bold text-white flex items-center gap-2"><ClipboardCheck className="w-5 h-5 text-cyan-400"/> Audit</h2><button onClick={onClose}><X className="text-slate-500 hover:text-white"/></button></div>
+                        <div className="text-center mb-8"><div className="text-xs font-bold text-slate-500 uppercase tracking-widest">NPS Score</div><div className={`text-6xl font-black font-mono my-2 ${grade.c}`}>{nps.toFixed(2)}</div><div className={`inline-block px-3 py-1 rounded border border-slate-700 bg-slate-800 text-xs font-bold ${grade.c}`}>{grade.t}</div></div>
+                        <div className="grid grid-cols-2 gap-4 mb-6">
+                            <div className="bg-slate-800/50 p-3 rounded text-center"><div className="text-[10px] uppercase text-slate-500 font-bold">Peak Error</div><div className="text-lg font-mono text-white">{peak.toFixed(2)}</div></div>
+                            <div className="bg-slate-800/50 p-3 rounded text-center"><div className="text-[10px] uppercase text-slate-500 font-bold">Vis %</div><div className="text-lg font-mono text-white">{visible_pct.toFixed(2)}%</div></div>
+                        </div>
+                        <button onClick={copy} className="w-full py-3 bg-slate-800 hover:bg-slate-700 text-cyan-400 font-bold rounded flex items-center justify-center gap-2 transition-colors"><FileText className="w-4 h-4"/> Copy Report</button>
+                    </div>
+                </div>
+            );
+        };
+
+        const Histogram = ({ data, cutoff, height=60 }) => {
+            const ref = useRef(null);
+            useEffect(() => {
+                if(!ref.current || !data) return;
+                const ctx = ref.current.getContext('2d'), w = ref.current.width, h = ref.current.height;
+                ctx.clearRect(0,0,w,h);
+                let max = 0; for(let i=0; i<data.length; i++) if(data[i]>max) max=data[i];
+                const logMax = Math.log(max+1), barW = w/data.length;
+                ctx.fillStyle = "#0ea5e9";
+                for(let i=0; i<data.length; i++) { const val = Math.log(data[i]+1); const barH = (val/logMax)*h; ctx.fillRect(i*barW, h-barH, Math.max(0.5, barW), barH); }
+                if (cutoff >= 0 && cutoff <= 1) { 
+                    const threshX = cutoff * w; ctx.beginPath(); ctx.strokeStyle = "#ef4444"; ctx.lineWidth = 2; ctx.moveTo(threshX, 0); ctx.lineTo(threshX, h); ctx.stroke(); 
+                }
+            }, [data, cutoff]);
+            return <canvas ref={ref} width={300} height={height} className="w-full opacity-80" />;
+        };
+
+        const ChannelRow = ({ label, active, onClick, icon: Icon, special }) => (
+            <button onClick={onClick} className={`w-full flex items-center gap-3 p-3 rounded-lg border transition-all ${active ? (special ? 'bg-indigo-950/50 border-indigo-500/50 text-indigo-400 shadow-[0_0_15px_rgba(99,102,241,0.2)]' : 'bg-cyan-950/30 border-cyan-500/50 text-cyan-400 shadow-[0_0_15px_rgba(6,182,212,0.1)]') : 'bg-slate-900/50 border-slate-800 text-slate-500 hover:border-slate-600 hover:text-slate-300'}`}>
+                <Icon className={`w-4 h-4 ${special && active ? 'animate-pulse' : ''}`} />
+                <span className="text-xs font-bold uppercase tracking-wider">{label}</span>
+            </button>
+        );
+
+        const DualSlider = ({ label, displayValue, value, onChange, minCoarse, maxCoarse, stepCoarse, minFine, maxFine, stepFine }) => (
+            <div className="bg-slate-900/30 border border-slate-800/60 p-2 rounded-lg space-y-2 hover:border-slate-700/60 transition-colors group">
+                <div className="flex justify-between items-baseline"><div className="flex items-center gap-2"><span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest group-hover:text-slate-400 transition-colors">{label}</span>{value.fine !== 0 && <span className="text-[8px] font-mono text-cyan-500/70 animate-pulse">•</span>}</div><span className="text-xs font-mono font-bold text-cyan-400 bg-cyan-950/20 px-1.5 py-0.5 rounded border border-cyan-900/30">{displayValue}</span></div>
+                <div className="relative h-5 flex items-center"><input type="range" min={minCoarse} max={maxCoarse} step={stepCoarse} value={value.coarse} onChange={(e)=>onChange({...value, coarse: Number(e.target.value)})} className="absolute inset-0 w-full h-1.5 bg-slate-800 rounded-full appearance-none accent-cyan-500 cursor-pointer hover:bg-slate-700 transition-all range-slider"/></div>
+                <div className="flex items-center gap-2 pl-1"><span className="text-[8px] font-mono text-slate-600 uppercase tracking-tight w-4">Trim</span><div className="relative flex-1 h-4 flex items-center"><div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-px h-2 bg-slate-700 pointer-events-none"></div><input type="range" min={minFine} max={maxFine} step={stepFine} value={value.fine} onChange={(e)=>onChange({...value, fine: Number(e.target.value)})} className="w-full h-0.5 bg-slate-800 rounded appearance-none accent-slate-500 hover:accent-cyan-300/80 cursor-col-resize transition-all range-fine"/></div><button onClick={()=>onChange({...value, fine: 0})} className={`p-1 rounded hover:bg-rose-950/30 hover:text-rose-400 transition-colors ${value.fine !== 0 ? 'text-slate-500' : 'text-slate-800 pointer-events-none'}`}><RotateCcw className="w-3 h-3"/></button></div>
+            </div>
+        );
+
+        const Legend = ({ physics, type }) => {
+            const ref=useRef(null);
+            useEffect(() => {
+                if(!ref.current) return;
+                const isEntropy = type === 'entropy';
+                const LUT = isEntropy && PrecisionCore.INFERNO ? PrecisionCore.INFERNO : PrecisionCore.TURBO;
+                if (!LUT) return;
+                const ctx=ref.current.getContext('2d'), w=256, h=12;
+                const imgData = ctx.createImageData(w,h);
+                const d = imgData.data;
+                const lutLen = LUT.length/3;
+                
+                for(let i=0; i<w; i++) { 
+                    const t = i/(w-1); const rawIdx = t * (lutLen-1); const i0 = Math.floor(rawIdx); const i1 = Math.min(lutLen-1, i0+1); const f = rawIdx - i0;
+                    const r = LUT[i0*3]*(1-f) + LUT[i1*3]*f; const g = LUT[i0*3+1]*(1-f) + LUT[i1*3+1]*f; const b = LUT[i0*3+2]*(1-f) + LUT[i1*3+2]*f;
+                    for(let y=0;y<h;y++) { const p=(y*w+i)*4; d[p]=r*255; d[p+1]=g*255; d[p+2]=b*255; d[p+3]=255; }
+                }
+                ctx.putImageData(imgData,0,0);
+            }, [type, PrecisionCore.TURBO, PrecisionCore.INFERNO]); 
+            return <div className="bg-slate-900/50 p-2 rounded border border-slate-700 mt-4"><div className="flex justify-between text-[9px] text-slate-500 font-mono uppercase mb-1"><span>Min</span><span>Max</span></div><canvas ref={ref} width={256} height={12} className="w-full rounded-sm opacity-90"/><div className="text-[9px] text-center text-slate-600 font-mono mt-1">{type === 'entropy' ? 'INFERNO (Log)' : 'TURBO (JND)'}</div></div>;
+        };
+
+        const ImageDiff = () => {
+            const [isReady, setIsReady] = useState(false);
+            const [img1, setImg1] = useState(null);
+            const [img2, setImg2] = useState(null);
+            const [meta, setMeta] = useState({ref:'', tgt:''});
+            const [tensor, setTensor] = useState(null);
+            const [activeTab, setActiveTab] = useState('analysis');
+            const [activeLayer, setActiveLayer] = useState('heuristic');
+            const [viewMode, setViewMode] = useState('raw');
+            const [repairSettings, setRepairSettings] = useState({ chroma: false, ringing: false, geodesic: false });
+            const [displayData, setDisplayData] = useState(null);
+            const [transform, setTransform] = useState({k:1, x:0, y:0});
+            const [offset, setOffset] = useState({x:0, y:0});
+            const [debouncedOffset, setDebouncedOffset] = useState({x:0,y:0});
+            const dragRef = useRef({active:false, x:0, y:0});
+            const [gainState, setGainState] = useState({coarse:45, fine:0});
+            const [gateState, setGateState] = useState({coarse:0.5, fine:0});
+            const [gammaState, setGammaState] = useState({coarse:1.0, fine:0});
+            const [softState, setSoftState] = useState({coarse:10, fine:0});
+            const [status, setStatus] = useState("Idle");
+            const [progress, setProgress] = useState(0);
+            const [isProcessing, setIsProcessing] = useState(false);
+            const [showAudit, setShowAudit] = useState(false);
+            const [isAligning, setIsAligning] = useState(false);
+            const [alignStatus, setAlignStatus] = useState("");
+            const [mix, setMix] = useState(0);
+            const [opacity, setOpacity] = useState(1);
+            const [showMap, setShowMap] = useState(true);
+            const [showSource, setShowSource] = useState(true);
+            const [flicker, setFlicker] = useState(false);
+            const [flickerState, setFlickerState] = useState(0);
+            const [regMode, setRegMode] = useState('difference');
+            const canvasRef = useRef(null); const containerRef = useRef(null); const viewRef = useRef(null); const displayBufferRef = useRef(null); const offscreenCanvasRef = useRef(null); const hudRef = useRef(null);
+            const [stats, setStats] = useState(null);
+
+            useEffect(() => { const t = setInterval(() => { if (PrecisionCore.isReady()) { setIsReady(true); clearInterval(t); } }, 100); return () => clearInterval(t); }, []);
+            useEffect(() => { const t = setTimeout(() => setDebouncedOffset(offset), 300); return () => clearTimeout(t); }, [offset]);
+            useEffect(() => { let t; if(flicker) t = setInterval(() => setFlickerState(s => s===0?1:0), 120); else setFlickerState(0); return () => clearInterval(t); }, [flicker]);
+
+            const physics = useMemo(() => {
+                const logBase = -4 + (gainState.coarse/100.0)*10;
+                const gain = Math.pow(10, logBase + gainState.fine);
+                const bitDepth = tensor?.meta?.bitDepth || 8;
+                const qStep = 1.0 / (bitDepth===16 ? 65535.0 : 255.0);
+                const threshold = Math.max(0, gateState.coarse + gateState.fine);
+                const signalGate = threshold * qStep;
+                const gamma = Math.max(0.1, Math.min(3.0, gammaState.coarse + gammaState.fine));
+                const softness = Math.max(0, Math.min(100, softState.coarse + softState.fine));
+                return { gain, signalGate, gamma, softness, threshold };
+            }, [gainState, gateState, gammaState, softState, tensor]);
+
+            const buildTensor = useCallback(async () => {
+                if(!img1 || !img2 || activeTab !== 'analysis' || !isReady) return;
+                setStatus("Manifold Projection..."); setIsProcessing(true); setProgress(0); await new Promise(r=>setTimeout(r,10));
+                try {
+                    const w = img1.width, h = img1.height; const size = w * h;
+                    const getBytes = (img, ox, oy) => { const c = document.createElement('canvas'); c.width=w; c.height=h; const ctx = c.getContext('2d'); ctx.drawImage(img, ox, oy); return ctx.getImageData(0,0,w,h); };
+                    const t1 = IngestEngine.process(getBytes(img1,0,0), w, h); setProgress(20);
+                    const t2 = IngestEngine.process(getBytes(img2, debouncedOffset.x, debouncedOffset.y), w, h); setProgress(40);
+                    const st1 = AnalysisEngine.getStructureTensor(t1.oklab, w, h);
+                    const st2 = AnalysisEngine.getStructureTensor(t2.oklab, w, h);
+                    const ssim = AnalysisEngine.getSSIM(t1.oklab, t2.oklab, w, h);
+                    const deltaE = AnalysisEngine.getPerceptualDelta(t1.oklab, t2.oklab, w, h);
+                    const ent1 = AnalysisEngine.getEntropy(t1.oklab.l, w, h); const ent2 = AnalysisEngine.getEntropy(t2.oklab.l, w, h); setProgress(60);
+                    const layers = { perceptual: {raw: deltaE}, ssim: {raw: ssim}, grad: {raw: new Float32Array(size)}, coherence: {raw: new Float32Array(size)}, entropy: {raw: new Float32Array(size)}, heuristic: {raw: new Float32Array(size)}, latent: {} };
+                    const INV_LOG_25 = 1.0 / 4.64;
+                    for(let i=0; i<size; i++) {
+                        const gDiff = Math.abs(st1.l1[i] - st2.l1[i]); const cDiff = Math.abs(st1.coherence[i] - st2.coherence[i]); const eDiff = Math.abs(ent1[i] - ent2[i]);
+                        layers.grad.raw[i] = gDiff; layers.coherence.raw[i] = cDiff; layers.entropy.raw[i] = eDiff;
+                        const localCoh = Math.max(st1.coherence[i], st2.coherence[i]); const flatWeight = 1.0 - (localCoh * 0.5); const edgeWeight = 0.5 + (localCoh * 2.0);
+                        const termPercep = deltaE[i]; const termStruct = Math.log1p(gDiff) * 2.0; const termSSIM = Math.max(0, 1.0 - ssim[i]); const termEnt = eDiff * INV_LOG_25;
+                        layers.heuristic.raw[i] = Math.sqrt((termPercep * flatWeight)**2 + (termStruct * edgeWeight)**2 + (termSSIM * edgeWeight)**2 + (termEnt * flatWeight * 0.5)**2 + (cDiff * 0.25)**2);
+                    }
+                    const keys = ['heuristic', 'perceptual', 'grad', 'ssim']; let d = 0;
+                    for(const key of keys) { layers.latent[key] = await ForensicFilter.generateManifold(layers[key].raw, w, h, (p) => setProgress(70 + (d/4 + p/4)*30)); d++; }
+                    const sm = QualityMetricEngine.computeSignalMetrics(t1.oklab.l, w, h); const sens = new Float32Array(size).fill(0.01); const scores = QualityMetricEngine.computeNPS(layers.heuristic.raw, sens, w, h);
+                    setTensor({ ...layers, meta: { w, h, bitDepth: t1.meta.bitDepth }, source_metrics: sm, scores: scores }); setStatus("Ready"); setProgress(100);
+                } catch(e) { console.error(e); setStatus("Error"); } finally { setIsProcessing(false); }
+            }, [img1, img2, debouncedOffset, activeTab, isReady]);
+
+            const runAutoTune = useCallback(async () => {
+                if(!tensor) return; setStatus("GGD Solving..."); await new Promise(r=>setTimeout(r,10));
+                const mask = (repairSettings.chroma?1:0) | (repairSettings.ringing?2:0) | (repairSettings.geodesic?4:0);
+                const s = OptimizationEngine.solve(tensor, activeLayer, mask, viewMode);
+                if(s) {
+                    const logG = Math.log10(s.gain); const cG = Math.max(0, Math.min(100, ((logG+4)/10)*100));
+                    setGainState({coarse: cG, fine: 0}); setGateState({coarse: s.threshold, fine: 0}); setGammaState({coarse: s.gamma, fine: 0}); setSoftState({coarse: s.softness/255*100, fine: 0}); setStatus(`Locked: ${s.gain.toFixed(1)}x`);
+                }
+            }, [tensor, activeLayer, viewMode, repairSettings]);
+
+            const runAutoAlign = async () => {
+                if(!img1 || !img2) return; setIsAligning(true); setAlignStatus("Analysing...");
+                const getL = (img, ox, oy) => { const c = document.createElement('canvas'); c.width=img.width; c.height=img.height; const ctx = c.getContext('2d'); ctx.drawImage(img, ox, oy); const d = ctx.getImageData(0,0,img.width,img.height).data; const l = new Float32Array(d.length/4); for(let i=0; i<l.length; i++) l[i] = d[i*4]*0.299 + d[i*4+1]*0.587 + d[i*4+2]*0.114; return l; };
+                const b1 = getL(img1, 0, 0); const b2 = getL(img2, offset.x, offset.y);
+                setAlignStatus("ZNCC Pass..."); await new Promise(r => setTimeout(r,10));
+                const coarse = await RegistrationEngine.computeCoarse(b1, b2, img1.width, img1.height, (p)=>setProgress(p*40));
+                if(coarse) { 
+                    setAlignStatus("LoG Pass..."); await new Promise(r => setTimeout(r,10));
+                    const fine = await RegistrationEngine.computeFine(b1, b2, img1.width, img1.height, coarse, (p)=>setProgress(40 + p*60)); 
+                    setOffset({x: parseFloat(fine.x.toFixed(2)), y: parseFloat(fine.y.toFixed(2))}); setAlignStatus("Locked"); 
+                } else { setAlignStatus("Failed"); }
+                setIsAligning(false); setProgress(0);
+            };
+
+            const updateDisplay = useCallback(() => {
+                if(!tensor || !img1 || !PrecisionCore.TURBO) return;
+                const w = tensor.meta.w, h = tensor.meta.h, len = w*h; let layer;
+                if(viewMode === 'clean' && tensor.latent[activeLayer]) { const mask = (repairSettings.chroma?1:0) | (repairSettings.ringing?2:0) | (repairSettings.geodesic?4:0); layer = tensor.latent[activeLayer][mask]; } else { layer = tensor[activeLayer].raw; } if(!layer) return;
+                if(!displayBufferRef.current || displayBufferRef.current.length !== len*4) { displayBufferRef.current = new Uint8ClampedArray(len*4); }
+                const output = displayBufferRef.current; const LUT = (activeLayer === 'entropy') && PrecisionCore.INFERNO ? PrecisionCore.INFERNO : PrecisionCore.TURBO; const lutLen = (LUT.length/3) - 1; const vGate = physics.signalGate * 255.0; const vSoft = Math.max(0.1, physics.softness); const invSoft = 1.0 / vSoft; const { BAYER_LATTICE } = PrecisionCore;
+                const hist = new Uint32Array(256);
+                
+                for(let i=0; i<len; i++) {
+                    let val = layer[i];
+                    // Invert SSIM for display if raw
+                    if (activeLayer === 'ssim') val = Math.max(0, 1.0 - val);
+
+                    const pVal = val * 255.0 * physics.gain; 
+                    let alpha = 0.0;
+                    const histIdx = Math.min(255, Math.max(0, pVal|0)); hist[histIdx]++;
+                    
+                    if(pVal < vGate) alpha = 0.0; else if(pVal >= vGate + vSoft) alpha = 1.0; else { const t = (pVal - vGate) * invSoft; alpha = t * t * (3.0 - 2.0 * t); }
+                    const idx = i << 2;
+                    if(alpha > 0) {
+                        let nVal = pVal / 255.0; if(physics.gamma !== 1.0 && nVal > 0) nVal = Math.pow(nVal, 1.0/physics.gamma);
+                        const y = (i / w) | 0; const x = i % w; const dither = BAYER_LATTICE ? BAYER_LATTICE[((y & 7) << 3) + (x & 7)] * (1.0/lutLen) : 0; nVal = Math.max(0, Math.min(1, nVal + dither));
+                        const rawIdx = nVal * lutLen; const i0 = Math.floor(rawIdx); const i1 = Math.min(lutLen, i0+1); const f = rawIdx - i0;
+                        const r = LUT[i0*3]*(1-f) + LUT[i1*3]*f; const g = LUT[i0*3+1]*(1-f) + LUT[i1*3+1]*f; const b = LUT[i0*3+2]*(1-f) + LUT[i1*3+2]*f;
+                        output[idx] = r * 255; output[idx+1] = g * 255; output[idx+2] = b * 255; output[idx+3] = alpha * 255 * opacity;
+                    } else { output[idx+3] = 0; }
+                }
+                setStats({hist});
+                setDisplayData(new ImageData(output, w, h));
+            }, [tensor, activeLayer, viewMode, repairSettings, physics, opacity, isReady]);
+
+            useEffect(() => { buildTensor(); }, [buildTensor]); useEffect(() => { updateDisplay(); }, [updateDisplay]);
+            useEffect(() => { const cvs = canvasRef.current; if(!cvs || !img1) return; const ctx = cvs.getContext('2d'); cvs.width = img1.width; cvs.height = img1.height; ctx.fillStyle = "#000"; ctx.fillRect(0,0,cvs.width, cvs.height); if(activeTab === 'registration') { ctx.globalAlpha = 1.0; ctx.drawImage(img1, 0, 0); if(img2) { ctx.globalCompositeOperation = regMode === 'difference' ? 'difference' : 'source-over'; ctx.globalAlpha = regMode === 'difference' ? 1.0 : 0.5; ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high'; ctx.drawImage(img2, offset.x, offset.y); } } else { if(showSource) { ctx.globalAlpha = 1.0; if(flicker) { if(flickerState === 0) ctx.drawImage(img1, 0, 0); else if(img2) ctx.drawImage(img2, offset.x, offset.y); } else { ctx.drawImage(img1, 0, 0); if(img2 && mix > 0) { ctx.globalAlpha = mix; ctx.drawImage(img2, offset.x, offset.y); } } } if(displayData && showMap) { let t = offscreenCanvasRef.current; if(!t) { t = document.createElement('canvas'); offscreenCanvasRef.current = t; } t.width = cvs.width; t.height = cvs.height; t.getContext('2d').putImageData(displayData, 0, 0); ctx.globalCompositeOperation = 'source-over'; ctx.globalAlpha = 1.0; ctx.drawImage(t, 0, 0); } } }, [displayData, img1, img2, activeTab, offset, regMode, mix, showSource, showMap, flicker, flickerState]);
+
+            const handleUpload = (isRef) => (e) => { const f = e.target.files[0]; if(f) createImageBitmap(f).then(b => { if(isRef) { setImg1(b); setMeta(m=>({...m, ref:f.name})); if(viewRef.current) { const r = viewRef.current.getBoundingClientRect(); const s = Math.min(r.width/b.width, r.height/b.height)*0.9; setTransform({k:s, x:(r.width-b.width*s)/2, y:(r.height-b.height*s)/2}); } } else { setImg2(b); setMeta(m=>({...m, tgt:f.name})); } }); };
+            const handleWheelControl = (axis, e) => { e.stopPropagation(); e.preventDefault(); const delta = -Math.sign(e.deltaY); let step = 1.0; if(e.shiftKey) step = 10.0; else if(e.altKey) step = 0.1; setOffset(p => ({...p, [axis]: parseFloat((p[axis] + delta*step).toFixed(2))})); };
+            const formatName = (n) => n ? (n.length>12?n.substr(0,8)+'...'+n.substr(-4):n) : 'N/A';
+
+            if(!isReady) return <div className="h-screen w-screen bg-slate-950 flex flex-col items-center justify-center text-slate-500 font-mono animate-pulse"><Activity className="w-12 h-12 mb-4 text-rose-500 opacity-50"/><h1 className="text-xl font-bold">MANIFOLD UNINITIALIZED</h1><p className="text-xs mt-2">Run THECALC.py to inject math kernel.</p></div>;
+
+            return (
+                <div className="w-screen h-screen bg-slate-950 text-slate-300 flex flex-col md:flex-row overflow-hidden font-sans select-none">
+                    <AuditModal isOpen={showAudit} onClose={()=>setShowAudit(false)} tensor={tensor} scoreData={tensor?.scores} metaNames={meta} />
+                    <div className="w-full md:w-80 shrink-0 bg-slate-900 border-r border-slate-800 flex flex-col z-20 shadow-2xl h-1/2 md:h-full order-2 md:order-1">
+                        <div className="p-4 border-b border-slate-800 bg-slate-900 flex justify-between items-center"><div><h1 className="text-cyan-400 font-bold text-lg flex items-center gap-2"><Activity className="w-5 h-5"/> ImageDiff 64</h1><div className="text-[10px] text-slate-500 mt-1 font-mono uppercase tracking-widest">100-DPS Engine</div></div><button onClick={()=>window.location.reload()} className="p-2 hover:bg-slate-800 rounded text-slate-500 hover:text-rose-400"><RotateCcw className="w-4 h-4"/></button></div>
+                        <div className="flex border-b border-slate-800"><button onClick={()=>setActiveTab('analysis')} className={`flex-1 py-3 text-xs font-bold ${activeTab==='analysis'?'text-cyan-400 border-b-2 border-cyan-400 bg-slate-800/30':'text-slate-500'}`}>ANALYSIS</button><button onClick={()=>setActiveTab('registration')} className={`flex-1 py-3 text-xs font-bold ${activeTab==='registration'?'text-cyan-400 border-b-2 border-cyan-400 bg-slate-800/30':'text-slate-500'}`}>ALIGNMENT</button></div>
+                        <div className="flex-1 overflow-y-auto p-4 space-y-6 scrollbar-hide">
+                            <div className="space-y-2"><label className="block p-2 border border-slate-700 border-dashed rounded hover:border-cyan-500/50 cursor-pointer transition-colors bg-slate-900/50"><div className="flex justify-between text-xs font-bold"><span>REF (A)</span><span className="text-cyan-400 font-mono">{formatName(meta.ref)}</span></div><input type="file" className="hidden" accept="image/*" onChange={handleUpload(true)}/></label><label className="block p-2 border border-slate-700 border-dashed rounded hover:border-cyan-500/50 cursor-pointer transition-colors bg-slate-900/50"><div className="flex justify-between text-xs font-bold"><span>TGT (B)</span><span className="text-cyan-400 font-mono">{formatName(meta.tgt)}</span></div><input type="file" className="hidden" accept="image/*" onChange={handleUpload(false)}/></label></div>
+                            {activeTab === 'registration' && (<div className="space-y-4 animate-in fade-in"><div className="p-3 bg-slate-800/50 rounded border border-slate-700 font-mono text-xs"><div className="grid grid-cols-3 gap-1 text-center"><button onClick={()=>setOffset(p=>({...p,x:p.x-1}))} className="bg-slate-700 hover:bg-slate-600 rounded py-2">←</button><div className="grid gap-1"><button onClick={()=>setOffset(p=>({...p,y:p.y-1}))} className="bg-slate-700 hover:bg-slate-600 rounded py-1">↑</button><button onClick={()=>setOffset(p=>({...p,y:p.y+1}))} className="bg-slate-700 hover:bg-slate-600 rounded py-1">↓</button></div><button onClick={()=>setOffset(p=>({...p,x:p.x+1}))} className="bg-slate-700 hover:bg-slate-600 rounded py-2">→</button></div></div><div className="flex flex-col gap-2 p-3 bg-slate-800/50 border border-slate-700 rounded items-center justify-center"><div className="text-[9px] text-slate-500 font-bold uppercase mb-1">Scroll Tuner (Shift/Alt)</div><div className="flex gap-2"><div className="w-20 h-12 bg-slate-950 border border-slate-800 rounded flex items-center justify-center cursor-ns-resize hover:border-cyan-500/50 transition-colors" onWheel={(e)=>handleWheelControl('x',e)}><span className="font-mono text-xs text-cyan-400">X: {offset.x.toFixed(1)}</span></div><div className="w-20 h-12 bg-slate-950 border border-slate-800 rounded flex items-center justify-center cursor-ns-resize hover:border-cyan-500/50 transition-colors" onWheel={(e)=>handleWheelControl('y',e)}><span className="font-mono text-xs text-cyan-400">Y: {offset.y.toFixed(1)}</span></div></div></div><button onClick={runAutoAlign} disabled={isAligning} className="w-full py-3 bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs rounded flex items-center justify-center gap-2 transition-all shadow-lg shadow-indigo-900/20">{isAligning?<Loader className="w-3 h-3 animate-spin"/>:<Target className="w-3 h-3"/>} {alignStatus||"Auto-Align"}</button><div className="flex gap-2"><button onClick={()=>setRegMode('difference')} className={`flex-1 py-2 text-[10px] font-bold border rounded transition-all ${regMode==='difference'?'bg-slate-700 text-white':'bg-slate-900 text-slate-500'}`}>DIFF</button><button onClick={()=>setRegMode('mix')} className={`flex-1 py-2 text-[10px] font-bold border rounded transition-all ${regMode==='mix'?'bg-slate-700 text-white':'bg-slate-900 text-slate-500'}`}>MIX</button></div></div>)}
+                            {activeTab === 'analysis' && tensor && (<div className="space-y-4 animate-in fade-in"><div className="space-y-1"><ChannelRow label="Composite" active={activeLayer==='heuristic'} onClick={()=>setActiveLayer('heuristic')} icon={BrainCircuit} special={true}/><ChannelRow label="Structure" active={activeLayer==='grad'} onClick={()=>setActiveLayer('grad')} icon={ScanLine}/><ChannelRow label="Delta-E" active={activeLayer==='perceptual'} onClick={()=>setActiveLayer('perceptual')} icon={Sun}/><ChannelRow label="SSIM" active={activeLayer==='ssim'} onClick={()=>setActiveLayer('ssim')} icon={Binary}/><ChannelRow label="Entropy" active={activeLayer==='entropy'} onClick={()=>setActiveLayer('entropy')} icon={Waves}/><ChannelRow label="Geometric" active={activeLayer==='coherence'} onClick={()=>setActiveLayer('coherence')} icon={Compass}/></div><div className="p-3 bg-slate-800/50 rounded border border-slate-700 space-y-3"><div className="flex justify-between items-center"><span className="text-[10px] font-bold text-slate-500 uppercase flex items-center gap-1"><Eye className="w-3 h-3"/> Heatmap</span><div className="flex bg-slate-950 rounded p-0.5 border border-slate-800"><button onClick={()=>setShowMap(true)} className={`px-2 py-0.5 text-[10px] rounded font-bold ${showMap?'bg-slate-700 text-white':'text-slate-500'}`}>ON</button><button onClick={()=>setShowMap(false)} className={`px-2 py-0.5 text-[10px] rounded font-bold ${!showMap?'bg-slate-700 text-white':'text-slate-500'}`}>OFF</button></div></div><div className="space-y-1"><div className="flex justify-between text-[10px] font-bold text-slate-500 uppercase"><span>Opacity</span><span className="text-cyan-400">{Math.round(opacity*100)}%</span></div><input type="range" min="0" max="1" step="0.01" value={opacity} onChange={e=>setOpacity(parseFloat(e.target.value))} className="w-full h-1 bg-slate-700 rounded appearance-none accent-cyan-500"/></div><div className="space-y-1"><div className="flex justify-between text-[10px] font-bold text-slate-500 uppercase"><span>Mix</span><span className="text-cyan-400">{Math.round(mix*100)}%</span></div><input type="range" min="0" max="1" step="0.01" value={mix} onChange={e=>setMix(parseFloat(e.target.value))} className="w-full h-1 bg-slate-700 rounded appearance-none accent-cyan-500"/></div><button onClick={()=>setFlicker(!flicker)} className={`w-full py-1.5 text-[10px] font-bold rounded border transition-all flex items-center justify-center gap-2 ${flicker ? 'bg-amber-900/30 border-amber-500 text-amber-400' : 'bg-slate-900 border-slate-700 text-slate-500 hover:border-slate-600'}`}><Zap className={`w-3 h-3 ${flicker?'fill-current':''}`}/> {flicker ? 'FLICKER ACTIVE' : 'ENABLE FLICKER'}</button></div><div className="p-3 bg-slate-800/50 rounded border border-slate-700"><div className="flex justify-between mb-2 items-center"><span className="text-[10px] font-bold text-slate-500 uppercase flex items-center gap-1"><ShieldCheck className="w-3 h-3"/> Forensics</span><div className="flex bg-slate-950 rounded p-0.5 border border-slate-800"><button onClick={()=>setViewMode('raw')} className={`px-2 py-0.5 text-[10px] rounded font-bold ${viewMode==='raw'?'bg-slate-700 text-white':'text-slate-500'}`}>RAW</button><button onClick={()=>setViewMode('clean')} className={`px-2 py-0.5 text-[10px] rounded font-bold ${viewMode==='clean'?'bg-emerald-600 text-white shadow-lg':'text-slate-500'}`}>FILTER</button></div></div><div className="grid grid-cols-3 gap-1"><button onClick={()=>setRepairSettings(p=>({...p, chroma:!p.chroma}))} className={`py-1.5 text-[9px] font-bold rounded border transition-all ${repairSettings.chroma?'bg-cyan-900/40 border-cyan-500 text-cyan-400':'bg-slate-900 border-slate-800 text-slate-500 hover:border-slate-600'}`}>Tukey</button><button onClick={()=>setRepairSettings(p=>({...p, ringing:!p.ringing}))} className={`py-1.5 text-[9px] font-bold rounded border transition-all ${repairSettings.ringing?'bg-cyan-900/40 border-cyan-500 text-cyan-400':'bg-slate-900 border-slate-800 text-slate-500 hover:border-slate-600'}`}>NLM</button><button onClick={()=>setRepairSettings(p=>({...p, geodesic:!p.geodesic}))} className={`py-1.5 text-[9px] font-bold rounded border transition-all ${repairSettings.geodesic?'bg-rose-900/40 border-rose-500 text-rose-400':'bg-slate-900 border-slate-800 text-slate-500 hover:border-slate-600'}`}>Geo</button></div></div><button onClick={runAutoTune} className="w-full py-2 bg-indigo-900/30 border border-indigo-500/30 text-indigo-300 text-[10px] font-bold rounded flex items-center justify-center gap-2 hover:bg-indigo-900/50 transition-all"><Target className="w-3 h-3"/> GGD Auto-Tune</button><div className="space-y-2"><DualSlider label="Gain" displayValue={`${physics.gain.toFixed(0)}x`} value={gainState} onChange={setGainState} minCoarse={1} maxCoarse={100} stepCoarse={1} minFine={-1.0} maxFine={1.0} stepFine={0.001}/><DualSlider label="Gate" displayValue={physics.threshold.toFixed(2)} value={gateState} onChange={setGateState} minCoarse={0} maxCoarse={255} stepCoarse={0.1} minFine={-10} maxFine={10} stepFine={0.01}/><DualSlider label="Gamma" displayValue={physics.gamma.toFixed(2)} value={gammaState} onChange={setGammaState} minCoarse={0.1} maxCoarse={3} stepCoarse={0.1} minFine={-0.2} maxFine={0.2} stepFine={0.001}/><DualSlider label="Soft" displayValue={physics.softness.toFixed(0)} value={softState} onChange={setSoftState} minCoarse={0} maxCoarse={100} stepCoarse={1} minFine={-5} maxFine={5} stepFine={0.1}/></div><button onClick={()=>setShowAudit(true)} className="w-full py-3 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded uppercase tracking-wider flex items-center justify-center gap-2 shadow-lg shadow-emerald-900/20 transition-all"><ClipboardCheck className="w-4 h-4"/> View Audit</button>{stats && (<div className="pt-4 border-t border-slate-800 space-y-3"><Legend physics={physics} type={activeLayer}/><Histogram data={stats.hist} cutoff={physics.threshold/255.0}/></div>)}</div>)}
+                            <div className="absolute top-4 right-4 flex gap-2"><button onClick={()=>setShowSource(!showSource)} className={`p-2 rounded bg-slate-900/80 border ${showSource?'border-cyan-500 text-cyan-400':'border-slate-700 text-slate-500'} hover:bg-slate-800 transition-colors`} title="Toggle Source Visibility"><ImageIcon className="w-4 h-4"/></button></div>
+                        </div>
+                    </div>
+                    <div className="flex-1 bg-black relative overflow-hidden flex items-center justify-center cursor-crosshair order-1 md:order-2 h-1/2 md:h-full" ref={viewRef} onWheel={(e)=>{const s=e.deltaY>0?0.9:1.1; setTransform(p=>({k:p.k*s, x:e.clientX-(e.clientX-p.x)*s, y:e.clientY-(e.clientY-p.y)*s}));}} onMouseDown={e=>dragRef.current={active:true,x:e.clientX,y:e.clientY}} onMouseMove={e=>{if(dragRef.current.active){const dx=e.clientX-dragRef.current.x, dy=e.clientY-dragRef.current.y; setTransform(t=>({...t,x:t.x+dx,y:t.y+dy})); dragRef.current={active:true,x:e.clientX,y:e.clientY}} else {const r=containerRef.current.getBoundingClientRect(); const x=(e.clientX-r.left-transform.x)/transform.k, y=(e.clientY-r.top-transform.y)/transform.k; if(tensor&&hudRef.current) { const ix=x|0, iy=y|0; if(ix>=0&&ix<tensor.meta.w&&iy>=0&&iy<tensor.meta.h) { hudRef.current.style.display="block"; hudRef.current.style.left=`${e.clientX+15}px`; hudRef.current.style.top=`${e.clientY+15}px`; const idx=iy*tensor.meta.w+ix; hudRef.current.innerHTML=`<div class="font-mono text-[10px] text-slate-300"><div class="font-bold text-slate-400">[${ix}, ${iy}]</div><div class="grid grid-cols-2 gap-x-4"><span class="text-cyan-400">COMP</span><span>${(tensor.heuristic.raw[idx]||0).toFixed(4)}</span><span class="text-slate-500">SSIM</span><span>${(tensor.ssim.raw[idx]||0).toFixed(4)}</span></div></div>`; } else hudRef.current.style.display="none"; }}}} onMouseUp={()=>dragRef.current.active=false}>
+                        <div ref={hudRef} className="fixed z-50 bg-slate-900/90 border border-slate-700 p-2 rounded shadow-xl pointer-events-none hidden backdrop-blur-sm hud-enter text-left"></div>
+                        {isProcessing && <div className="absolute inset-0 bg-black/80 z-50 flex items-center justify-center flex-col backdrop-blur-sm"><Loader className="w-10 h-10 text-cyan-400 animate-spin mb-4"/><span className="text-cyan-400 text-xs font-mono tracking-widest uppercase">{status}</span><div className="w-64 h-1 bg-slate-800 rounded mt-4 overflow-hidden"><div className="h-full bg-cyan-500 transition-all duration-100 ease-out" style={{width: `${progress}%`}}></div></div></div>}
+                        <div ref={containerRef} className="absolute top-0 left-0 origin-top-left" style={{transform:`translate(${transform.x}px,${transform.y}px) scale(${transform.k})`, imageRendering:'pixelated'}}><canvas ref={canvasRef}/></div>
+                        {!img1 && <div className="absolute inset-0 flex items-center justify-center pointer-events-none opacity-50"><Upload className="w-24 h-24 text-slate-800"/></div>}
+                    </div>
+                </div>
+            );
+        };
+        const root = createRoot(document.getElementById('root')); root.render(<ImageDiff />);
+    </script>
+</body>
+</html>
