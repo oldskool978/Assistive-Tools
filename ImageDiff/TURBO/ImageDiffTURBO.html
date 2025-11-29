@@ -127,7 +127,6 @@
         const IngestEngine = (() => {
             const process = (imageData, width, height) => {
                 const { data } = imageData; const len = width * height; 
-                // HIGH PRECISION UPGRADE: Use Float64 for Oklab pipeline
                 const ok_l = new Float64Array(len), ok_a = new Float64Array(len), ok_b = new Float64Array(len);
                 const { M1, M2, LINEAR_LUT_HQ, BAYER_LATTICE } = PrecisionCore;
                 if (!M1 || !M2) return { oklab: {l:ok_l, a:ok_a, b:ok_b}, meta: {w:width, h:height, bitDepth:8} };
@@ -164,7 +163,6 @@
             const convolveSeparable = (input, width, height, kH, kV) => {
                 if (!kH || !kV) return new Float64Array(input.length);
                 const len = width * height; const temp = MemoryVanguard.request(0, len); 
-                // HIGH PRECISION UPGRADE: Output is Float64
                 const out = new Float64Array(len);
                 const kSzH = kH.length, kHalfH = (kSzH - 1) >> 1; const kSzV = kV.length, kHalfV = (kSzV - 1) >> 1;
                 for(let y=0; y<height; y++) { const row = Math.imul(y, width); for(let x=0; x<width; x++) { let sum = 0.0; for(let k=0; k<kSzH; k++) { let px = x - kHalfH + k; if (px < 0) px = -px; else if (px >= width) px = width - 1 - (px - width); sum += input[row + px] * kH[k]; } temp[row + x] = sum; } }
@@ -181,7 +179,6 @@
                 });
                 const Sxx = convolveSeparable(Ixx, w, h, KAISER_13, KAISER_13); const Syy = convolveSeparable(Iyy, w, h, KAISER_13, KAISER_13); const Sxy = convolveSeparable(Ixy, w, h, KAISER_13, KAISER_13);
                 
-                // HIGH PRECISION UPGRADE: Float64 for Eigenvalues
                 const l1 = new Float64Array(len), l2 = new Float64Array(len), coh = new Float64Array(len);
                 for(let i=0; i<len; i++) {
                     const tr = Sxx[i] + Syy[i]; const det = Sxx[i]*Syy[i] - Sxy[i]*Sxy[i]; const term = Math.sqrt(Math.max(0, (tr * 0.5)**2 - det));
@@ -211,7 +208,6 @@
                 const { KAISER_13, PHYSICS } = PrecisionCore;
                 const C1 = PHYSICS ? PHYSICS[1] : 0.0001, C2 = PHYSICS ? PHYSICS[2] : 0.0009;
                 const len = w*h;
-                // HIGH PRECISION UPGRADE: Float64
                 const ssim = new Float64Array(len);
                 ['l', 'a', 'b'].forEach(key => {
                     const buf1 = ok1[key]; const buf2 = ok2[key];
@@ -248,11 +244,10 @@
         const ForensicFilter = (() => {
             const tasks = {
                 geodesic: (mask, width, height, stats, tuning) => {
-                    // HIGH PRECISION UPGRADE: Float64 for erosion stability
                     const len = mask.length; const marker = new Float64Array(len);
                     const floor = stats ? Math.max(1e-6, stats.statFloor * tuning.geoScale) : 0.005;
                     for(let i=0; i<len; i++) marker[i] = Math.max(0, mask[i] - floor);
-                    for(let k=0; k<3; k++) {
+                    for(let k=0; k<5; k++) {
                         for(let i=0; i<len; i++) {
                             let m = marker[i];
                             if(i>=width) m = Math.max(m, marker[i-width]); if(i%width) m = Math.max(m, marker[i-1]);
@@ -267,7 +262,7 @@
                     return marker;
                 },
                 nlm: (input, width, height, stats, tuning) => {
-                    const len = input.length; const output = new Float64Array(len);
+                    const len = input.length; const output = new Float64Array(input);
                     const sigma = stats ? stats.robustSigma : 0.01; 
                     const h2 = (sigma * sigma) * tuning.nlmDecay;
                     for(let y=3; y<height-3; y++) {
@@ -290,6 +285,7 @@
                     const len = input.length; const u = new Float64Array(input); const u_next = new Float64Array(len);
                     const sigma = stats ? stats.robustSigma : 0.01; 
                     const K = sigma * tuning.tukeyK; const K2 = K * K;
+                    u_next.set(u);
                     for(let iter=0; iter<3; iter++) {
                         for(let y=1; y<height-1; y++) {
                             const row = Math.imul(y, width);
@@ -308,7 +304,6 @@
             const generateManifold = async (base, w, h, layerKey, cb) => {
                 const manifolds = new Array(8);
                 const isSSIM = layerKey === 'ssim';
-                // HIGH PRECISION UPGRADE: Float64
                 const working = new Float64Array(base.length);
                 if (isSSIM) { for(let i=0; i<base.length; i++) working[i] = Math.max(0, 1.0 - base[i]); } 
                 else { working.set(base); }
@@ -382,7 +377,6 @@
         const RegistrationEngine = (() => {
             const { FARID_D, FARID_P, LANCZOS_LUT } = PrecisionCore;
             const convolve1D = (inp, w, h, k) => {
-                // HIGH PRECISION UPGRADE
                 const out = new Float64Array(inp.length);
                 const kLen = k.length, half = kLen>>1;
                 for(let y=0; y<h; y++) {
