@@ -131,25 +131,30 @@
                 const { M1, M2, LINEAR_LUT_HQ, BAYER_LATTICE } = PrecisionCore;
                 if (!M1 || !M2) return { oklab: {l:ok_l, a:ok_a, b:ok_b}, meta: {w:width, h:height, bitDepth:8} };
 
-                const lutLen = LINEAR_LUT_HQ.length - 1; const inv255 = 1.0 / 255.0;
+                // Dynamic Bit Depth Detection (QOL Upgrade)
+                const is16Bit = data instanceof Uint16Array;
+                const bitDepth = is16Bit ? 16 : 8;
+                const normScale = is16Bit ? 1.0/65535.0 : 1.0/255.0;
+
+                const lutLen = LINEAR_LUT_HQ.length - 1;
                 for(let y=0; y<height; y++) {
                     const rowOffset = Math.imul(y, width); const bayerRow = (y & 7) << 3; 
                     for(let x=0; x<width; x++) {
                         const i = rowOffset + x; const idx = i << 2;
-                        const dither = BAYER_LATTICE[bayerRow + (x & 7)] * inv255;
+                        const dither = BAYER_LATTICE[bayerRow + (x & 7)] * normScale;
                         const lookup = (v) => {
                             const t = Math.max(0, Math.min(1, v)) * lutLen; const idx = t | 0;
                             return LINEAR_LUT_HQ[idx] + (LINEAR_LUT_HQ[Math.min(idx+1, lutLen)] - LINEAR_LUT_HQ[idx]) * (t - idx);
                         };
-                        const r = lookup((data[idx] * inv255) + dither);
-                        const g = lookup((data[idx+1] * inv255) + dither);
-                        const b = lookup((data[idx+2] * inv255) + dither);
+                        const r = lookup((data[idx] * normScale) + dither);
+                        const g = lookup((data[idx+1] * normScale) + dither);
+                        const b = lookup((data[idx+2] * normScale) + dither);
                         const l = M1[0]*r + M1[1]*g + M1[2]*b; const m = M1[3]*r + M1[4]*g + M1[5]*b; const s = M1[6]*r + M1[7]*g + M1[8]*b;
                         const l_ = Math.cbrt(Math.max(0, l)), m_ = Math.cbrt(Math.max(0, m)), s_ = Math.cbrt(Math.max(0, s));
                         ok_l[i] = M2[0]*l_ + M2[1]*m_ + M2[2]*s_; ok_a[i] = M2[3]*l_ + M2[4]*m_ + M2[5]*s_; ok_b[i] = M2[6]*l_ + M2[7]*m_ + M2[8]*s_;
                     }
                 }
-                return { oklab: { l: ok_l, a: ok_a, b: ok_b }, meta: { w: width, h: height, bitDepth: 8 } };
+                return { oklab: { l: ok_l, a: ok_a, b: ok_b }, meta: { w: width, h: height, bitDepth } };
             };
             return { process };
         })();
@@ -341,6 +346,10 @@
                 let estSigma = PrecisionCore.estimateRobustSigma(buf, tensor.meta.w, tensor.meta.h);
                 if (layerKey === 'entropy') estSigma = Math.max(estSigma, 0.01);
                 
+                // Dynamic Scale Awareness (8-bit vs 16-bit)
+                const bitDepth = tensor.meta.bitDepth || 8;
+                const qStep = 1.0 / (Math.pow(2, bitDepth) - 1);
+                
                 // CONTEXT-AWARE TUNING
                 let sigmaMult = 3.0; // Default "Golden Mean"
                 let gainBoost = 1.0;
@@ -372,7 +381,7 @@
                 }
 
                 const trueNoiseFloor = estSigma * sigmaCorrection;
-                const gate = Math.max(0.5/255.0, trueNoiseFloor * sigmaMult);
+                const gate = Math.max(qStep * 0.5, trueNoiseFloor * sigmaMult);
                 
                 sampleValues.sort(); const p99 = sampleValues[Math.floor(n * 0.99)];
                 const targetSignal = Math.max(p99, gate * 4.0);
@@ -621,6 +630,51 @@
             </div>
         );
 
+        const Scrubber = ({ value, onChange, axis }) => {
+            const scrubRef = useRef({ active: false, startY: 0, startVal: 0, startX: 0 });
+            
+            const handleWheel = (e) => {
+                e.preventDefault(); e.stopPropagation();
+                const delta = -Math.sign(e.deltaY);
+                let step = 0.1;
+                if (e.shiftKey) step = 1.0;
+                if (e.altKey) step = 0.01;
+                onChange(parseFloat((value + delta * step).toFixed(2)));
+            };
+
+            const handlePointerDown = (e) => {
+                e.preventDefault(); e.stopPropagation();
+                e.target.setPointerCapture(e.pointerId);
+                scrubRef.current = { active: true, startY: e.clientY, startVal: value, startX: e.clientX };
+                e.target.classList.add('scrubbing');
+            };
+
+            const handlePointerMove = (e) => {
+                if (!scrubRef.current.active) return;
+                e.preventDefault();
+                const deltaY = scrubRef.current.startY - e.clientY; 
+                const deltaX = Math.abs(e.clientX - scrubRef.current.startX); 
+                const damping = 1.0 + (deltaX * 0.05);
+                const sensitivity = 0.1 / damping; 
+                const diff = deltaY * sensitivity;
+                onChange(parseFloat((scrubRef.current.startVal + diff).toFixed(2)));
+            };
+
+            const handlePointerUp = (e) => {
+                scrubRef.current.active = false;
+                e.target.classList.remove('scrubbing');
+            };
+
+            return (
+                <div className="w-20 h-12 bg-slate-950 border border-slate-800 rounded flex flex-col items-center justify-center cursor-ns-resize hover:border-cyan-500/50 transition-colors select-none touch-none relative overflow-hidden"
+                     style={{ touchAction: 'none' }}
+                     onWheel={handleWheel} onPointerDown={handlePointerDown} onPointerMove={handlePointerMove} onPointerUp={handlePointerUp} onPointerLeave={handlePointerUp}>
+                    <span className="font-mono text-xs text-cyan-400 pointer-events-none relative z-10">{axis}: {value.toFixed(2)}</span>
+                    <div className="text-[7px] text-slate-600 pointer-events-none relative z-10 uppercase tracking-tight mt-0.5">Slide Y / Pull X</div>
+                </div>
+            );
+        };
+
         const Legend = ({ physics, type }) => {
             const ref=useRef(null);
             useEffect(() => {
@@ -704,50 +758,6 @@
                 }
             };
 
-            const Scrubber = ({ value, onChange, axis }) => {
-                const scrubRef = useRef({ active: false, startY: 0, startVal: 0, startX: 0 });
-                
-                const handleWheel = (e) => {
-                    e.preventDefault(); e.stopPropagation();
-                    const delta = -Math.sign(e.deltaY);
-                    let step = 0.1;
-                    if (e.shiftKey) step = 1.0;
-                    if (e.altKey) step = 0.01;
-                    onChange(parseFloat((value + delta * step).toFixed(2)));
-                };
-
-                const handlePointerDown = (e) => {
-                    e.preventDefault(); e.stopPropagation();
-                    e.target.setPointerCapture(e.pointerId);
-                    scrubRef.current = { active: true, startY: e.clientY, startVal: value, startX: e.clientX };
-                    e.target.classList.add('scrubbing');
-                };
-
-                const handlePointerMove = (e) => {
-                    if (!scrubRef.current.active) return;
-                    e.preventDefault();
-                    const deltaY = scrubRef.current.startY - e.clientY; 
-                    const deltaX = Math.abs(e.clientX - scrubRef.current.startX); 
-                    const damping = 1.0 + (deltaX * 0.05);
-                    const sensitivity = 0.1 / damping; 
-                    const diff = deltaY * sensitivity;
-                    onChange(parseFloat((scrubRef.current.startVal + diff).toFixed(2)));
-                };
-
-                const handlePointerUp = (e) => {
-                    scrubRef.current.active = false;
-                    e.target.classList.remove('scrubbing');
-                };
-
-                return (
-                    <div className="w-20 h-12 bg-slate-950 border border-slate-800 rounded flex flex-col items-center justify-center cursor-ns-resize hover:border-cyan-500/50 transition-colors select-none touch-none relative overflow-hidden"
-                         onWheel={handleWheel} onPointerDown={handlePointerDown} onPointerMove={handlePointerMove} onPointerUp={handlePointerUp} onPointerLeave={handlePointerUp}>
-                        <span className="font-mono text-xs text-cyan-400 pointer-events-none relative z-10">{axis}: {value.toFixed(2)}</span>
-                        <div className="text-[7px] text-slate-600 pointer-events-none relative z-10 uppercase tracking-tight mt-0.5">Slide Y / Pull X</div>
-                    </div>
-                );
-            };
-
             const handleTouchStart = (e) => {
                 if(e.touches.length === 1) { touchRef.current = { x: e.touches[0].clientX, y: e.touches[0].clientY, dist: 0, active: true }; dragRef.current.active = true; } 
                 else if (e.touches.length === 2) { const t1 = e.touches[0], t2 = e.touches[1]; const dist = Math.hypot(t1.clientX - t2.clientX, t1.clientY - t2.clientY); touchRef.current = { ...touchRef.current, dist, active: true }; dragRef.current.active = false; }
@@ -785,7 +795,7 @@
                 const logBase = -4 + (gainState.coarse/100.0)*10;
                 const gain = Math.pow(10, logBase + gainState.fine);
                 const bitDepth = tensor?.meta?.bitDepth || 8;
-                const qStep = 1.0 / (bitDepth===16 ? 65535.0 : 255.0);
+                const qStep = 1.0 / (Math.pow(2, bitDepth) - 1);
                 const threshold = Math.max(0, gateState.coarse + gateState.fine);
                 const signalGate = threshold * qStep;
                 const gamma = Math.max(0.1, Math.min(3.0, gammaState.coarse + gammaState.fine));
