@@ -23,7 +23,6 @@
         .range-fine::-webkit-slider-runnable-track { background: #1e293b; height: 2px; }
         .range-fine::-webkit-slider-thumb { background-color: #94a3b8; height: 12px; width: 2px; margin-top: -5px; }
         .cursor-crosshair { cursor: crosshair; }
-        /* Scrubber Active State */
         .scrubbing { cursor: none; background-color: rgba(56, 189, 248, 0.1); border-color: rgba(56, 189, 248, 0.5); }
     </style>
 </head>
@@ -131,12 +130,11 @@
                 const { M1, M2, LINEAR_LUT_HQ, BAYER_LATTICE } = PrecisionCore;
                 if (!M1 || !M2) return { oklab: {l:ok_l, a:ok_a, b:ok_b}, meta: {w:width, h:height, bitDepth:8} };
 
-                // Dynamic Bit Depth Detection (QOL Upgrade)
                 const is16Bit = data instanceof Uint16Array;
                 const bitDepth = is16Bit ? 16 : 8;
                 const normScale = is16Bit ? 1.0/65535.0 : 1.0/255.0;
 
-                const lutLen = LINEAR_LUT_HQ.length - 1;
+                const lutLen = LINEAR_LUT_HQ.length - 1; 
                 for(let y=0; y<height; y++) {
                     const rowOffset = Math.imul(y, width); const bayerRow = (y & 7) << 3; 
                     for(let x=0; x<width; x++) {
@@ -206,19 +204,28 @@
             const getSSIM = (ok1, ok2, w, h) => {
                 const { KAISER_13, PHYSICS } = PrecisionCore;
                 const C1 = PHYSICS ? PHYSICS[1] : 0.0001, C2 = PHYSICS ? PHYSICS[2] : 0.0009;
-                const mu1 = convolveSeparable(ok1.l, w, h, KAISER_13, KAISER_13), mu2 = convolveSeparable(ok2.l, w, h, KAISER_13, KAISER_13);
-                const len = w*h; const t1 = MemoryVanguard.request(1, len), t2 = MemoryVanguard.request(2, len), t3 = MemoryVanguard.request(3, len);
-                for(let i=0; i<len; i++) { t1[i] = ok1.l[i] * ok1.l[i]; t2[i] = ok2.l[i] * ok2.l[i]; t3[i] = ok1.l[i] * ok2.l[i]; }
-                const s1sq = convolveSeparable(t1, w, h, KAISER_13, KAISER_13), s2sq = convolveSeparable(t2, w, h, KAISER_13, KAISER_13), s12 = convolveSeparable(t3, w, h, KAISER_13, KAISER_13);
+                const len = w*h;
                 const ssim = new Float32Array(len);
-                for(let i=0; i<len; i++) {
-                    const m1 = mu1[i], m2 = mu2[i];
-                    const v1 = Math.max(0, s1sq[i] - m1*m1);
-                    const v2 = Math.max(0, s2sq[i] - m2*m2);
-                    const cov = s12[i] - m1*m2;
-                    const rawSSIM = ((2*m1*m2 + C1) * (2*cov + C2)) / ((m1*m1 + m2*m2 + C1) * (v1 + v2 + C2) + 1e-9);
-                    ssim[i] = Math.max(-1, Math.min(1, rawSSIM));
-                }
+                ['l', 'a', 'b'].forEach(key => {
+                    const buf1 = ok1[key]; const buf2 = ok2[key];
+                    const mu1 = convolveSeparable(buf1, w, h, KAISER_13, KAISER_13);
+                    const mu2 = convolveSeparable(buf2, w, h, KAISER_13, KAISER_13);
+                    const t1 = MemoryVanguard.request(1, len); const t2 = MemoryVanguard.request(2, len); const t3 = MemoryVanguard.request(3, len);
+                    for(let i=0; i<len; i++) { t1[i] = buf1[i] * buf1[i]; t2[i] = buf2[i] * buf2[i]; t3[i] = buf1[i] * buf2[i]; }
+                    const sig1_sq_raw = convolveSeparable(t1, w, h, KAISER_13, KAISER_13);
+                    const sig2_sq_raw = convolveSeparable(t2, w, h, KAISER_13, KAISER_13);
+                    const sig12_raw = convolveSeparable(t3, w, h, KAISER_13, KAISER_13);
+                    for(let i=0; i<len; i++) {
+                        const m1 = mu1[i], m2 = mu2[i];
+                        const sig1_sq = sig1_sq_raw[i] - m1*m1;
+                        const sig2_sq = sig2_sq_raw[i] - m2*m2;
+                        const sig12 = sig12_raw[i] - m1*m2;
+                        const score = ((2*m1*m2 + C1) * (2*sig12 + C2)) / ((m1*m1 + m2*m2 + C1) * (sig1_sq + sig2_sq + C2));
+                        ssim[i] += score;
+                    }
+                });
+                const inv3 = 1.0/3.0;
+                for(let i=0; i<len; i++) ssim[i] = Math.max(-1, Math.min(1, ssim[i] * inv3));
                 return ssim;
             };
 
@@ -255,7 +262,6 @@
                     const len = input.length; const output = new Float32Array(len);
                     const sigma = stats ? stats.robustSigma : 0.01; 
                     const h2 = (sigma * sigma) * tuning.nlmDecay;
-                    
                     for(let y=3; y<height-3; y++) {
                         const row = Math.imul(y, width);
                         for(let x=3; x<width-3; x++) {
@@ -276,7 +282,6 @@
                     const len = input.length; const u = new Float32Array(input); const u_next = new Float32Array(len);
                     const sigma = stats ? stats.robustSigma : 0.01; 
                     const K = sigma * tuning.tukeyK; const K2 = K * K;
-                    
                     for(let iter=0; iter<3; iter++) {
                         for(let y=1; y<height-1; y++) {
                             const row = Math.imul(y, width);
@@ -320,20 +325,16 @@
             return { generateManifold };
         })();
 
-        // --- 6. OPTIMIZATION ENGINE (CONTEXT-AWARE AUTO-TUNE) ---
+        // --- 6. OPTIMIZATION ENGINE (SUPERIOR CASCADE) ---
         const OptimizationEngine = (() => {
             const solve = (tensor, layerKey, activeMask, viewMode) => {
-                // 1. Always base stats on RAW layer to establish ground truth noise floor
                 const raw = tensor[layerKey].raw; if (!raw) return null; 
-                
                 let buf;
+                // Correctly normalize SSIM for stats calc (0=Good -> 0=Empty)
                 if (layerKey === 'ssim') { 
                     buf = new Float32Array(raw.length); 
                     for(let i=0; i<raw.length; i++) buf[i] = Math.max(0, 1.0 - raw[i]); 
-                } else { 
-                    buf = raw; 
-                }
-                
+                } else { buf = raw; }
                 const len = buf.length; const stride = Math.floor(len / 10000) || 1;
                 let n = 0, m1 = 0, m2 = 0, m4 = 0;
                 for(let i=0; i<len; i+=stride) { m1 += buf[i]; n++; } const mu = m1 / n;
@@ -342,57 +343,42 @@
                 const variance = m2 / n; const kurtosis = (variance < 1e-20) ? 3.0 : (m4 / n) / (variance * variance);
                 const { KURTOSIS_LUT, SIGMA_LUT } = PrecisionCore; let sigmaCorrection = 1.0;
                 if (KURTOSIS_LUT && SIGMA_LUT) { const kClamped = Math.max(1.8, Math.min(10.0, kurtosis)); sigmaCorrection = SIGMA_LUT[Math.floor(((kClamped - 1.8) / 8.2) * 255)]; }
-                
                 let estSigma = PrecisionCore.estimateRobustSigma(buf, tensor.meta.w, tensor.meta.h);
                 if (layerKey === 'entropy') estSigma = Math.max(estSigma, 0.01);
                 
-                // Dynamic Scale Awareness (8-bit vs 16-bit)
+                // --- CASCADE SOLVER LOGIC ---
+                // 1. Parameters
                 const bitDepth = tensor.meta.bitDepth || 8;
                 const qStep = 1.0 / (Math.pow(2, bitDepth) - 1);
-                
-                // CONTEXT-AWARE TUNING
-                let sigmaMult = 3.0; // Default "Golden Mean"
-                let gainBoost = 1.0;
-                let gammaTarget = 1.0;
-
+                let sigmaMult = 3.0; let gainBoost = 1.0; let gammaTarget = 1.0;
                 switch(layerKey) {
-                    case 'entropy':
-                        sigmaMult = 5.0; // High gate to cut blocky noise
-                        break;
-                    case 'ssim':
-                        sigmaMult = 2.0; // Low gate to show subtle structural damage
-                        gainBoost = 2.0; // SSIM errors are small, boost them
-                        break;
-                    case 'grad':
-                        gammaTarget = 0.8; // Expand edge dynamic range
-                        break;
-                    case 'coherence':
-                        sigmaMult = 3.5;
-                        break;
-                    case 'heuristic':
-                        gammaTarget = 1.2; // Compress composite dynamic range
-                        sigmaMult = 2.5;
-                        break;
-                    case 'perceptual':
-                        gammaTarget = 1.0;
-                        sigmaMult = 2.8;
-                        gainBoost = 1.5;
-                        break;
+                    case 'entropy': sigmaMult = 5.0; break;
+                    case 'ssim': sigmaMult = 2.0; gainBoost = 2.0; break;
+                    case 'grad': gammaTarget = 0.8; break;
+                    case 'coherence': sigmaMult = 3.5; break;
+                    case 'heuristic': gammaTarget = 1.2; sigmaMult = 2.5; break;
+                    case 'perceptual': gammaTarget = 1.0; sigmaMult = 2.8; gainBoost = 1.5; break;
                 }
 
+                // 2. Base Noise Floor
                 const trueNoiseFloor = estSigma * sigmaCorrection;
-                const gate = Math.max(qStep * 0.5, trueNoiseFloor * sigmaMult);
                 
+                // 3. Signal Peak
                 sampleValues.sort(); const p99 = sampleValues[Math.floor(n * 0.99)];
-                const targetSignal = Math.max(p99, gate * 4.0);
-                const gain = Math.min(100000, Math.max(1, (0.85 / targetSignal) * gainBoost));
+                
+                // 4. Gain Calculation (Targeting)
+                // We want P99 to sit at 85% luminance.
+                // We ensure targetSignal is at least slightly above noise floor to prevent massive gain on black images.
+                const safeTarget = Math.max(p99, trueNoiseFloor * 2.0, qStep); 
+                const gain = Math.min(100000, Math.max(1, (0.85 / safeTarget) * gainBoost));
 
-                return { 
-                    gain, 
-                    threshold: Math.min(255, gate * 255), 
-                    gamma: gammaTarget, 
-                    softness: gate * 255 * 0.5 
-                };
+                // 5. Threshold Calculation (Cascading)
+                // The visual threshold must hide the *amplified* noise.
+                // Threshold (0-255) = (Noise * Gain * SigmaMult) * 255
+                const gate = (trueNoiseFloor * gain * sigmaMult);
+                const threshold = Math.min(255, gate * 255);
+
+                return { gain, threshold, gamma: gammaTarget, softness: threshold * 0.5 };
             };
             return { solve };
         })();
@@ -400,106 +386,61 @@
         // --- 7. REGISTRATION ENGINE ---
         const RegistrationEngine = (() => {
             const { FARID_D, FARID_P, LANCZOS_LUT } = PrecisionCore;
-            
             const convolve1D = (inp, w, h, k) => {
                 const out = new Float32Array(inp.length);
                 const kLen = k.length, half = kLen>>1;
                 for(let y=0; y<h; y++) {
                     const r = y*w;
                     for(let x=0; x<w; x++) {
-                        let sum=0; for(let i=0; i<kLen; i++) {
-                            const ox = x-half+i;
-                            if(ox>=0 && ox<w) sum += inp[r+ox] * k[i];
-                        }
+                        let sum=0; for(let i=0; i<kLen; i++) { const ox = x-half+i; if(ox>=0 && ox<w) sum += inp[r+ox] * k[i]; }
                         out[r+x] = sum;
                     }
                 }
                 return out;
             };
-
             const getGradientMap = (luma, w, h) => {
                 if (!FARID_D) return luma;
-                const gx = convolve1D(luma, w, h, FARID_D);
-                const gy = convolve1D(luma, w, h, FARID_P);
+                const gx = convolve1D(luma, w, h, FARID_D); const gy = convolve1D(luma, w, h, FARID_P);
                 const mag = new Float32Array(luma.length);
                 for(let i=0; i<mag.length; i++) mag[i] = Math.sqrt(gx[i]*gx[i] + gy[i]*gy[i]);
                 return mag;
             };
-
-            const sampleLanczos = (buffer, width, height, x, y) => {
-                if(!LANCZOS_LUT) return 0;
-                const ix = Math.floor(x), iy = Math.floor(y); const fx = x - ix, fy = y - iy; const LUT_SCALE = 2000.0 / 3.0;
-                let val = 0.0, wSum = 0.0;
-                
-                // SYMMETRIC KERNEL WINDOW (-3 to +3) for ZERO PHASE SHIFT
-                for (let j=-3; j<=3; j++) {
-                    const r = iy + j; if (r < 0 || r >= height) continue;
-                    const dy = Math.abs(j - fy); if (dy >= 3.0) continue;
-                    const wy = LANCZOS_LUT[(dy * LUT_SCALE)|0]; const rOffset = Math.imul(r, width);
-                    for (let k=-3; k<=3; k++) {
-                        const c = ix + k; if (c < 0 || c >= width) continue;
-                        const dx = Math.abs(k - fx); if (dx >= 3.0) continue;
-                        const w = wy * LANCZOS_LUT[(dx * LUT_SCALE)|0];
-                        val += buffer[rOffset + c] * w; wSum += w;
-                    }
-                }
-                return wSum !== 0 ? val / wSum : 0;
-            };
-
             const computeCoarse = async (buff1, buff2, width, height, cb) => {
-                const map1 = getGradientMap(buff1, width, height);
-                const map2 = getGradientMap(buff2, width, height);
-
+                const map1 = getGradientMap(buff1, width, height); const map2 = getGradientMap(buff2, width, height);
                 const anchors = []; for(let y=1; y<=3; y++) for(let x=1; x<=3; x++) anchors.push({x: (width*x)/4|0, y: (height*y)/4|0});
-                const pSz = 64, hSz = 32, search = 40, step = 2; 
-                const votes = [];
-
+                const pSz = 64, hSz = 32, search = 40, step = 2; const votes = [];
                 const getPatchStats = (buf, cx, cy, out) => {
-                    let sum = 0;
-                    for(let y=0; y<pSz; y++) { const r = Math.imul(cy-hSz+y, width); for(let x=0; x<pSz; x++) { const v = buf[r + cx-hSz+x]; out.push(v); sum += v; } }
+                    let sum = 0; for(let y=0; y<pSz; y++) { const r = Math.imul(cy-hSz+y, width); for(let x=0; x<pSz; x++) { const v = buf[r + cx-hSz+x]; out.push(v); sum += v; } }
                     const mean = sum/(pSz*pSz); let sqSum = 0; for(let i=0; i<out.length; i++) { out[i] -= mean; sqSum += out[i]*out[i]; }
                     return Math.sqrt(sqSum);
                 };
-
                 for(let i=0; i<anchors.length; i++) {
-                    const anc = anchors[i]; const p1=[]; const s1 = getPatchStats(map1, anc.x, anc.y, p1); 
-                    if(s1 < 1e-5) continue;
+                    const anc = anchors[i]; const p1=[]; const s1 = getPatchStats(map1, anc.x, anc.y, p1); if(s1 < 1e-5) continue;
                     let localBest = -1, lDx = 0, lDy = 0;
-
                     for(let dy=-search; dy<=search; dy+=step) for(let dx=-search; dx<=search; dx+=step) {
                         const p2=[]; const s2 = getPatchStats(map2, anc.x-dx, anc.y-dy, p2); if(s2 < 1e-5) continue;
                         let dot = 0; for(let k=0; k<p1.length; k+=2) dot += p1[k]*p2[k];
-                        const score = dot / (s1 * s2);
-                        if(score > localBest) { localBest = score; lDx = dx; lDy = dy; }
+                        const score = dot / (s1 * s2); if(score > localBest) { localBest = score; lDx = dx; lDy = dy; }
                     }
                     if (localBest > 0.4) votes.push({dx:lDx, dy:lDy, score: localBest});
                     if(cb) cb(i/anchors.length * 0.5); await new Promise(r => setTimeout(r,0));
                 }
-
                 const bins = {}; let maxScore=0, consensus={dx:0, dy:0};
-                votes.forEach(v => {
-                    const k = `${Math.round(v.dx/2)*2},${Math.round(v.dy/2)*2}`;
-                    bins[k] = (bins[k]||0) + v.score;
-                    if(bins[k]>maxScore) { maxScore=bins[k]; consensus=v; }
-                });
+                votes.forEach(v => { const k = `${Math.round(v.dx/2)*2},${Math.round(v.dy/2)*2}`; bins[k] = (bins[k]||0) + v.score; if(bins[k]>maxScore) { maxScore=bins[k]; consensus=v; } });
                 return maxScore > 0 ? consensus : null;
             };
-
             const computeFine = async (buff1, buff2, width, height, coarse, cb) => {
                 const crop = 256, cx = width >> 1, cy = height >> 1; const ox = coarse.dx, oy = coarse.dy;
                 const roi1 = new Float32Array(crop*crop);
                 for(let y=0; y<crop; y++) { const r=Math.imul(cy-(crop>>1)+y, width), r2=Math.imul(y, crop); for(let x=0; x<crop; x++) roi1[r2+x]=buff1[r+cx-(crop>>1)+x]; }
                 const map1 = getGradientMap(roi1, crop, crop); 
-                
                 const searchMargin = 10; const largeCrop = crop + searchMargin*2;
                 const roi2Large = new Float32Array(largeCrop*largeCrop);
                 for(let y=0; y<largeCrop; y++) { 
-                    const r = Math.imul(Math.max(0, Math.min(height-1, (cy-(largeCrop>>1)+y-oy))), width);
-                    const r2 = Math.imul(y, largeCrop); 
+                    const r = Math.imul(Math.max(0, Math.min(height-1, (cy-(largeCrop>>1)+y-oy))), width); const r2 = Math.imul(y, largeCrop); 
                     for(let x=0; x<largeCrop; x++) roi2Large[r2+x]=buff2[r + Math.max(0, Math.min(width-1, (cx-(largeCrop>>1)+x-ox)))]; 
                 }
                 const map2Large = getGradientMap(roi2Large, largeCrop, largeCrop);
-
                 const getError = (dx, dy) => {
                     let err = 0.0;
                     for(let y=0; y<crop; y+=4) {
@@ -509,37 +450,20 @@
                             const ix=sx|0, iy=sy|0, fx=sx-ix, fy=sy-iy;
                             const idx = iy*largeCrop + ix;
                             const val = map2Large[idx]*(1-fx)*(1-fy) + map2Large[idx+1]*fx*(1-fy) + map2Large[idx+largeCrop]*(1-fx)*fy + map2Large[idx+largeCrop+1]*fx*fy;
-                            const d = map1[y*crop+x] - val;
-                            err += d*d; // L2 Norm
+                            const d = map1[y*crop+x] - val; err += d*d;
                         }
                     }
                     return err;
                 };
-
-                let curX = 0, curY = 0, step = 4.0;
-                let minErr = getError(0,0);
-                
+                let curX = 0, curY = 0, step = 4.0; let minErr = getError(0,0);
                 for(let iter=0; iter<30; iter++) {
                     let bestE = minErr, bestX = curX, bestY = curY;
-                    [[0,-1],[0,1],[-1,0],[1,0]].forEach(d => { 
-                        const nx = curX + d[0]*step, ny = curY + d[1]*step;
-                        const e = getError(nx, ny); 
-                        if(e < bestE) { bestE = e; bestX = nx; bestY = ny; } 
-                    });
-                    
-                    if(bestE < minErr) { minErr = bestE; curX = bestX; curY = bestY; } 
-                    else { step *= 0.5; }
-                    
-                    if(step < 0.005) break; 
-                    if(cb) cb(0.5 + (iter/30)*0.5);
-                    await new Promise(r => setTimeout(r,0));
+                    [[0,-1],[0,1],[-1,0],[1,0]].forEach(d => { const nx = curX + d[0]*step, ny = curY + d[1]*step; const e = getError(nx, ny); if(e < bestE) { bestE = e; bestX = nx; bestY = ny; } });
+                    if(bestE < minErr) { minErr = bestE; curX = bestX; curY = bestY; } else { step *= 0.5; }
+                    if(step < 0.005) break; if(cb) cb(0.5 + (iter/30)*0.5); await new Promise(r => setTimeout(r,0));
                 }
-                
-                // ZERO-SNAP HYSTERESIS
                 let finalX = ox + curX, finalY = oy + curY;
-                if (Math.abs(finalX) < 0.15) finalX = 0.0;
-                if (Math.abs(finalY) < 0.15) finalY = 0.0;
-
+                if (Math.abs(finalX) < 0.15) finalX = 0.0; if (Math.abs(finalY) < 0.15) finalY = 0.0;
                 return { x: finalX, y: finalY };
             };
             return { computeCoarse, computeFine };
@@ -547,24 +471,14 @@
 
         // --- 8. QUALITY METRICS ---
         const QualityMetricEngine = (() => {
-            const computeNPS = (heuristic, sensitivity, w, h) => {
-                const len = w * h; let sum = 0.0, peak = 0.0, violations = 0;
-                for(let i=0; i<len; i++) {
-                    const ratio = heuristic[i] / (sensitivity[i] + 1e-9);
-                    if (ratio > peak) peak = ratio; if (ratio > 1.0) violations++; sum += ratio * ratio * ratio * ratio;
-                }
-                return { nps: Math.pow(sum / len, 0.25), peak, mean: Math.pow(sum / len, 0.25), visible_pct: (violations/len)*100 };
-            };
             const computeNPS_Quant = (heuristic, luma, entropy, coherence, w, h) => {
                 const len = w * h; let sum = 0.0, peak = 0.0, violations = 0;
                 for(let i=0; i<len; i++) {
                     const L = luma[i]; const H = entropy[i]; const C = coherence[i];
-                    const maskL = 1.0 + (1.0 - L) * 0.5; 
-                    const maskT = (H > 0.1) ? (1.0 + H * 2.0) : ((C < 0.2) ? 0.5 : 1.0);
+                    const maskL = 1.0 + (1.0 - L) * 0.5; const maskT = (H > 0.1) ? (1.0 + H * 2.0) : ((C < 0.2) ? 0.5 : 1.0);
                     const threshold = 0.005 * maskL * maskT;
                     const ratio = heuristic[i] / (threshold + 1e-9);
-                    if (ratio > peak) peak = ratio; 
-                    if (ratio > 1.0) violations++; 
+                    if (ratio > peak) peak = ratio; if (ratio > 1.0) violations++; 
                     sum += ratio * ratio * ratio * ratio;
                 }
                 return { nps: Math.pow(sum / len, 0.25), peak, mean: Math.pow(sum / len, 0.25), visible_pct: (violations/len)*100 };
@@ -574,7 +488,7 @@
                 const snr = (sig > 0) ? Math.min(140, 20 * Math.log10(1.0 / sig)) : 0;
                 return { snr, ebd: Math.max(0, (snr - 1.76) / 6.02), noise: sig };
             };
-            return { computeNPS, computeNPS_Quant, computeSignalMetrics };
+            return { computeNPS_Quant, computeSignalMetrics };
         })();
 
         // --- UI COMPONENTS ---
@@ -632,23 +546,19 @@
 
         const Scrubber = ({ value, onChange, axis }) => {
             const scrubRef = useRef({ active: false, startY: 0, startVal: 0, startX: 0 });
-            
             const handleWheel = (e) => {
                 e.preventDefault(); e.stopPropagation();
                 const delta = -Math.sign(e.deltaY);
                 let step = 0.1;
-                if (e.shiftKey) step = 1.0;
-                if (e.altKey) step = 0.01;
+                if (e.shiftKey) step = 1.0; if (e.altKey) step = 0.01;
                 onChange(parseFloat((value + delta * step).toFixed(2)));
             };
-
             const handlePointerDown = (e) => {
                 e.preventDefault(); e.stopPropagation();
                 e.target.setPointerCapture(e.pointerId);
                 scrubRef.current = { active: true, startY: e.clientY, startVal: value, startX: e.clientX };
                 e.target.classList.add('scrubbing');
             };
-
             const handlePointerMove = (e) => {
                 if (!scrubRef.current.active) return;
                 e.preventDefault();
@@ -659,12 +569,10 @@
                 const diff = deltaY * sensitivity;
                 onChange(parseFloat((scrubRef.current.startVal + diff).toFixed(2)));
             };
-
             const handlePointerUp = (e) => {
                 scrubRef.current.active = false;
                 e.target.classList.remove('scrubbing');
             };
-
             return (
                 <div className="w-20 h-12 bg-slate-950 border border-slate-800 rounded flex flex-col items-center justify-center cursor-ns-resize hover:border-cyan-500/50 transition-colors select-none touch-none relative overflow-hidden"
                      style={{ touchAction: 'none' }}
@@ -686,7 +594,6 @@
                 const imgData = ctx.createImageData(w,h);
                 const d = imgData.data;
                 const lutLen = LUT.length/3;
-                
                 for(let i=0; i<w; i++) { 
                     const t = i/(w-1); const rawIdx = t * (lutLen-1); const i0 = Math.floor(rawIdx); const i1 = Math.min(lutLen-1, i0+1); const f = rawIdx - i0;
                     const r = LUT[i0*3]*(1-f) + LUT[i1*3]*f; const g = LUT[i0*3+1]*(1-f) + LUT[i1*3+1]*f; const b = LUT[i0*3+2]*(1-f) + LUT[i1*3+2]*f;
@@ -758,6 +665,7 @@
                 }
             };
 
+            // Direct event handlers (no stale closures)
             const handleTouchStart = (e) => {
                 if(e.touches.length === 1) { touchRef.current = { x: e.touches[0].clientX, y: e.touches[0].clientY, dist: 0, active: true }; dragRef.current.active = true; } 
                 else if (e.touches.length === 2) { const t1 = e.touches[0], t2 = e.touches[1]; const dist = Math.hypot(t1.clientX - t2.clientX, t1.clientY - t2.clientY); touchRef.current = { ...touchRef.current, dist, active: true }; dragRef.current.active = false; }
@@ -789,7 +697,26 @@
                     }
                 }
             };
+
             const handleTouchEnd = () => { touchRef.current.active = false; dragRef.current.active = false; if(hudRef.current) hudRef.current.style.display="none"; };
+            
+            const handleCanvasWheel = (e) => {
+                e.preventDefault(); e.stopPropagation();
+                const s = e.deltaY > 0 ? 0.9 : 1.1;
+                setTransform(p => ({ k: p.k * s, x: e.clientX - (e.clientX - p.x) * s, y: e.clientY - (e.clientY - p.y) * s }));
+            };
+
+            const handleCanvasDown = (e) => { dragRef.current = { active: true, x: e.clientX, y: e.clientY }; };
+            
+            const handleCanvasMove = (e) => {
+                if(dragRef.current.active){
+                    const dx = e.clientX - dragRef.current.x; const dy = e.clientY - dragRef.current.y;
+                    setTransform(t => ({...t, x: t.x + dx, y: t.y + dy}));
+                    dragRef.current = { active: true, x: e.clientX, y: e.clientY };
+                } else { updateHUD(e.clientX, e.clientY); }
+            };
+            
+            const handleCanvasUp = () => { dragRef.current.active = false; };
 
             const physics = useMemo(() => {
                 const logBase = -4 + (gainState.coarse/100.0)*10;
@@ -844,7 +771,6 @@
 
             const runAutoAlign = async () => {
                 if(!img1 || !img2) return; setIsAligning(true); setAlignStatus("Analysing...");
-                // Always fetch RAW Luma (offset 0,0) for global search to ensure idempotency
                 const getRawL = (img) => { const c = document.createElement('canvas'); c.width=img.width; c.height=img.height; const ctx = c.getContext('2d'); ctx.drawImage(img, 0, 0); const d = ctx.getImageData(0,0,img.width,img.height).data; const l = new Float32Array(d.length/4); 
                 const { LUMA_COEFFS } = PrecisionCore;
                 if (LUMA_COEFFS) { for(let i=0; i<l.length; i++) l[i] = d[i*4]*LUMA_COEFFS[0] + d[i*4+1]*LUMA_COEFFS[1] + d[i*4+2]*LUMA_COEFFS[2]; }
@@ -865,16 +791,25 @@
             const updateDisplay = useCallback(() => {
                 if(!tensor || !img1 || !PrecisionCore.TURBO) return;
                 const w = tensor.meta.w, h = tensor.meta.h, len = w*h; let layer;
-                if(viewMode === 'clean' && tensor.latent[activeLayer]) { const mask = (repairSettings.chroma?1:0) | (repairSettings.ringing?2:0) | (repairSettings.geodesic?4:0); layer = tensor.latent[activeLayer][mask]; } else { layer = tensor[activeLayer].raw; } if(!layer) return;
+                
+                // --- CORRECT RAW VS CLEAN FETCHING ---
+                if(viewMode === 'clean' && tensor.latent[activeLayer]) { 
+                    const mask = (repairSettings.chroma?1:0) | (repairSettings.ringing?2:0) | (repairSettings.geodesic?4:0); 
+                    layer = tensor.latent[activeLayer][mask]; 
+                } else { 
+                    layer = tensor[activeLayer].raw; 
+                } 
+                
+                if(!layer) return;
                 if(!displayBufferRef.current || displayBufferRef.current.length !== len*4) { displayBufferRef.current = new Uint8ClampedArray(len*4); }
                 const output = displayBufferRef.current; const LUT = (activeLayer === 'entropy') && PrecisionCore.INFERNO ? PrecisionCore.INFERNO : PrecisionCore.TURBO; const lutLen = (LUT.length/3) - 1; const vGate = physics.signalGate * 255.0; const vSoft = Math.max(0.1, physics.softness); const invSoft = 1.0 / vSoft; const { BAYER_LATTICE } = PrecisionCore;
                 const hist = new Uint32Array(256);
                 
                 for(let i=0; i<len; i++) {
                     let val = layer[i];
-                    // Normalize raw SSIM for display (0=Good -> 0=Good)
+                    // --- CORRECT SSIM INVERSION LOGIC ---
                     if (activeLayer === 'ssim' && viewMode === 'raw') val = Math.max(0, 1.0 - val);
-
+                    
                     const pVal = val * 255.0 * physics.gain; 
                     let alpha = 0.0;
                     const histIdx = Math.min(255, Math.max(0, pVal|0)); hist[histIdx]++;
@@ -908,21 +843,33 @@
                     <div className="w-full md:w-80 shrink-0 bg-slate-900 border-r border-slate-800 flex flex-col z-20 shadow-2xl h-1/2 md:h-full order-2 md:order-1">
                         <div className="p-4 border-b border-slate-800 bg-slate-900 flex justify-between items-center"><div><h1 className="text-cyan-400 font-bold text-lg flex items-center gap-2"><Activity className="w-5 h-5"/> ImageDiff 64</h1><div className="text-[10px] text-slate-500 mt-1 font-mono uppercase tracking-widest">100-DPS Engine</div></div>
                             <div className="flex gap-2">
-                                <button onClick={()=>setShowSource(!showSource)} className={`p-2 rounded hover:bg-slate-800 transition-colors ${showSource?'text-cyan-400':'text-slate-600'}`} title="Toggle Source Visibility"><ImageIcon className="w-4 h-4"/></button>
                                 <button onClick={()=>window.location.reload()} className="p-2 hover:bg-slate-800 rounded text-slate-500 hover:text-rose-400"><RotateCcw className="w-4 h-4"/></button>
                             </div>
                         </div>
                         <div className="flex border-b border-slate-800"><button onClick={()=>setActiveTab('analysis')} className={`flex-1 py-3 text-xs font-bold ${activeTab==='analysis'?'text-cyan-400 border-b-2 border-cyan-400 bg-slate-800/30':'text-slate-500'}`}>ANALYSIS</button><button onClick={()=>setActiveTab('registration')} className={`flex-1 py-3 text-xs font-bold ${activeTab==='registration'?'text-cyan-400 border-b-2 border-cyan-400 bg-slate-800/30':'text-slate-500'}`}>ALIGNMENT</button></div>
                         <div className="flex-1 overflow-y-auto p-4 space-y-6 scrollbar-hide">
                             <div className="space-y-2">
-                                <div className="flex justify-between items-center mb-2"><span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest flex items-center gap-2"><Layers className="w-3 h-3"/> Sources</span></div>
+                                <div className="flex justify-between items-center mb-2">
+                                    <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest flex items-center gap-2"><Layers className="w-3 h-3"/> Sources</span>
+                                    <button onClick={()=>setShowSource(!showSource)} className={`p-1 rounded hover:bg-slate-800 transition-colors ${showSource?'text-cyan-400':'text-slate-600'}`}>{showSource ? <Eye className="w-4 h-4"/> : <EyeOff className="w-4 h-4"/>}</button>
+                                </div>
                                 <label className="block p-2 border border-slate-700 border-dashed rounded hover:border-cyan-500/50 cursor-pointer transition-colors bg-slate-900/50"><div className="flex justify-between text-xs font-bold"><span>REF (A)</span><span className="text-cyan-400 font-mono">{formatName(meta.ref)}</span></div><input type="file" className="hidden" accept="image/*" onChange={handleUpload(true)}/></label><label className="block p-2 border border-slate-700 border-dashed rounded hover:border-cyan-500/50 cursor-pointer transition-colors bg-slate-900/50"><div className="flex justify-between text-xs font-bold"><span>TGT (B)</span><span className="text-cyan-400 font-mono">{formatName(meta.tgt)}</span></div><input type="file" className="hidden" accept="image/*" onChange={handleUpload(false)}/></label>
                             </div>
                             {activeTab === 'registration' && (<div className="space-y-4 animate-in fade-in"><div className="p-3 bg-slate-800/50 rounded border border-slate-700 font-mono text-xs"><div className="grid grid-cols-3 gap-1 text-center"><button onClick={()=>setOffset(p=>({...p,x:p.x-1}))} className="bg-slate-700 hover:bg-slate-600 rounded py-2">←</button><div className="grid gap-1"><button onClick={()=>setOffset(p=>({...p,y:p.y-1}))} className="bg-slate-700 hover:bg-slate-600 rounded py-1">↑</button><button onClick={()=>setOffset(p=>({...p,y:p.y+1}))} className="bg-slate-700 hover:bg-slate-600 rounded py-1">↓</button></div><button onClick={()=>setOffset(p=>({...p,x:p.x+1}))} className="bg-slate-700 hover:bg-slate-600 rounded py-2">→</button></div></div><div className="flex flex-col gap-2 p-3 bg-slate-800/50 border border-slate-700 rounded items-center justify-center"><div className="text-[9px] text-slate-500 font-bold uppercase mb-1">Kinetic Tuner</div><div className="flex gap-2"><Scrubber axis="X" value={offset.x} onChange={(v)=>setOffset(p=>({...p, x:v}))} /><Scrubber axis="Y" value={offset.y} onChange={(v)=>setOffset(p=>({...p, y:v}))} /></div></div><button onClick={runAutoAlign} disabled={isAligning} className="w-full py-3 bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs rounded flex items-center justify-center gap-2 transition-all shadow-lg shadow-indigo-900/20">{isAligning?<Loader className="w-3 h-3 animate-spin"/>:<Target className="w-3 h-3"/>} {alignStatus||"Autolock"}</button><div className="flex gap-2"><button onClick={()=>setRegMode('difference')} className={`flex-1 py-2 text-[10px] font-bold border rounded transition-all ${regMode==='difference'?'bg-slate-700 text-white':'bg-slate-900 text-slate-500'}`}>DIFF</button><button onClick={()=>setRegMode('mix')} className={`flex-1 py-2 text-[10px] font-bold border rounded transition-all ${regMode==='mix'?'bg-slate-700 text-white':'bg-slate-900 text-slate-500'}`}>MIX</button></div></div>)}
-                            {activeTab === 'analysis' && tensor && (<div className="space-y-4 animate-in fade-in"><div className="space-y-1"><ChannelRow label="Composite" active={activeLayer==='heuristic'} onClick={()=>setActiveLayer('heuristic')} icon={BrainCircuit} special={true}/><ChannelRow label="Structure" active={activeLayer==='grad'} onClick={()=>setActiveLayer('grad')} icon={ScanLine}/><ChannelRow label="Delta-E" active={activeLayer==='perceptual'} onClick={()=>setActiveLayer('perceptual')} icon={Sun}/><ChannelRow label="SSIM" active={activeLayer==='ssim'} onClick={()=>setActiveLayer('ssim')} icon={Binary}/><ChannelRow label="Entropy" active={activeLayer==='entropy'} onClick={()=>setActiveLayer('entropy')} icon={Waves}/><ChannelRow label="Geometric" active={activeLayer==='coherence'} onClick={()=>setActiveLayer('coherence')} icon={Compass}/></div><div className="p-3 bg-slate-800/50 rounded border border-slate-700 space-y-3"><div className="flex justify-between items-center"><span className="text-[10px] font-bold text-slate-500 uppercase flex items-center gap-1"><Eye className="w-3 h-3"/> Heatmap</span><div className="flex bg-slate-950 rounded p-0.5 border border-slate-800"><button onClick={()=>setShowMap(true)} className={`px-2 py-0.5 text-[10px] rounded font-bold ${showMap?'bg-slate-700 text-white':'text-slate-500'}`}>ON</button><button onClick={()=>setShowMap(false)} className={`px-2 py-0.5 text-[10px] rounded font-bold ${!showMap?'bg-slate-700 text-white':'text-slate-500'}`}>OFF</button></div></div><div className="space-y-1"><div className="flex justify-between text-[10px] font-bold text-slate-500 uppercase"><span>Opacity</span><span className="text-cyan-400">{Math.round(opacity*100)}%</span></div><input type="range" min="0" max="1" step="0.01" value={opacity} onChange={e=>setOpacity(parseFloat(e.target.value))} className="w-full h-1 bg-slate-700 rounded appearance-none accent-cyan-500"/></div><div className="space-y-1"><div className="flex justify-between text-[10px] font-bold text-slate-500 uppercase"><span>Mix</span><span className="text-cyan-400">{Math.round(mix*100)}%</span></div><input type="range" min="0" max="1" step="0.01" value={mix} onChange={e=>setMix(parseFloat(e.target.value))} className="w-full h-1 bg-slate-700 rounded appearance-none accent-cyan-500"/></div><button onClick={()=>setFlicker(!flicker)} className={`w-full py-1.5 text-[10px] font-bold rounded border transition-all flex items-center justify-center gap-2 ${flicker ? 'bg-amber-900/30 border-amber-500 text-amber-400' : 'bg-slate-900 border-slate-700 text-slate-500 hover:border-slate-600'}`}><Zap className={`w-3 h-3 ${flicker?'fill-current':''}`}/> {flicker ? 'FLICKER ACTIVE' : 'ENABLE FLICKER'}</button></div><div className="p-3 bg-slate-800/50 rounded border border-slate-700"><div className="flex justify-between mb-2 items-center"><span className="text-[10px] font-bold text-slate-500 uppercase flex items-center gap-1"><ShieldCheck className="w-3 h-3"/> Forensics</span><div className="flex bg-slate-950 rounded p-0.5 border border-slate-800"><button onClick={()=>setViewMode('raw')} className={`px-2 py-0.5 text-[10px] rounded font-bold ${viewMode==='raw'?'bg-slate-700 text-white':'text-slate-500'}`}>RAW</button><button onClick={()=>setViewMode('clean')} className={`px-2 py-0.5 text-[10px] rounded font-bold ${viewMode==='clean'?'bg-emerald-600 text-white shadow-lg':'text-slate-500'}`}>FILTER</button></div></div><div className="grid grid-cols-3 gap-1"><button onClick={()=>setRepairSettings(p=>({...p, chroma:!p.chroma}))} className={`py-1.5 text-[9px] font-bold rounded border transition-all ${repairSettings.chroma?'bg-cyan-900/40 border-cyan-500 text-cyan-400':'bg-slate-900 border-slate-800 text-slate-500 hover:border-slate-600'}`}>Tukey</button><button onClick={()=>setRepairSettings(p=>({...p, ringing:!p.ringing}))} className={`py-1.5 text-[9px] font-bold rounded border transition-all ${repairSettings.ringing?'bg-cyan-900/40 border-cyan-500 text-cyan-400':'bg-slate-900 border-slate-800 text-slate-500 hover:border-slate-600'}`}>NLM</button><button onClick={()=>setRepairSettings(p=>({...p, geodesic:!p.geodesic}))} className={`py-1.5 text-[9px] font-bold rounded border transition-all ${repairSettings.geodesic?'bg-rose-900/40 border-rose-500 text-rose-400':'bg-slate-900 border-slate-800 text-slate-500 hover:border-slate-600'}`}>Geo</button></div></div><button onClick={runAutoTune} className="w-full py-2 bg-indigo-900/30 border border-indigo-500/30 text-indigo-300 text-[10px] font-bold rounded flex items-center justify-center gap-2 hover:bg-indigo-900/50 transition-all"><Target className="w-3 h-3"/> GGD Auto-Tune</button><div className="space-y-2"><DualSlider label="Gain" displayValue={`${physics.gain.toFixed(0)}x`} value={gainState} onChange={setGainState} minCoarse={1} maxCoarse={100} stepCoarse={1} minFine={-1.0} maxFine={1.0} stepFine={0.001}/><DualSlider label="Gate" displayValue={physics.threshold.toFixed(2)} value={gateState} onChange={setGateState} minCoarse={0} maxCoarse={255} stepCoarse={0.1} minFine={-10} maxFine={10} stepFine={0.01}/><DualSlider label="Gamma" displayValue={physics.gamma.toFixed(2)} value={gammaState} onChange={setGammaState} minCoarse={0.1} maxCoarse={3} stepCoarse={0.1} minFine={-0.2} maxFine={0.2} stepFine={0.001}/><DualSlider label="Soft" displayValue={physics.softness.toFixed(0)} value={softState} onChange={setSoftState} minCoarse={0} maxCoarse={100} stepCoarse={1} minFine={-5} maxFine={5} stepFine={0.1}/></div><button onClick={()=>setShowAudit(true)} className="w-full py-3 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded uppercase tracking-wider flex items-center justify-center gap-2 shadow-lg shadow-emerald-900/20 transition-all"><ClipboardCheck className="w-4 h-4"/> View Audit</button>{stats && (<div className="pt-4 border-t border-slate-800 space-y-3"><Legend physics={physics} type={activeLayer}/><Histogram data={stats.hist} cutoff={physics.threshold/255.0}/></div>)}</div>)}
+                            {activeTab === 'analysis' && tensor && (<div className="space-y-4 animate-in fade-in">
+                                <div className="flex justify-between items-center mb-2">
+                                    <span className="text-[10px] font-bold text-slate-500 uppercase flex items-center gap-1"><Eye className="w-3 h-3"/> Tensor Field</span>
+                                    <button onClick={()=>setShowMap(!showMap)} className={`p-1 rounded hover:bg-slate-800 transition-colors ${showMap?'text-cyan-400':'text-slate-600'}`}>{showMap ? <Eye className="w-4 h-4"/> : <EyeOff className="w-4 h-4"/>}</button>
+                                </div>
+                                <div className="space-y-1"><ChannelRow label="Composite" active={activeLayer==='heuristic'} onClick={()=>setActiveLayer('heuristic')} icon={BrainCircuit} special={true}/><ChannelRow label="Structure" active={activeLayer==='grad'} onClick={()=>setActiveLayer('grad')} icon={ScanLine}/><ChannelRow label="Delta-E" active={activeLayer==='perceptual'} onClick={()=>setActiveLayer('perceptual')} icon={Sun}/><ChannelRow label="SSIM" active={activeLayer==='ssim'} onClick={()=>setActiveLayer('ssim')} icon={Binary}/><ChannelRow label="Entropy" active={activeLayer==='entropy'} onClick={()=>setActiveLayer('entropy')} icon={Waves}/><ChannelRow label="Geometric" active={activeLayer==='coherence'} onClick={()=>setActiveLayer('coherence')} icon={Compass}/></div>
+                                <button onClick={runAutoTune} className="w-full py-2 bg-indigo-900/30 border border-indigo-500/30 text-indigo-300 text-[10px] font-bold rounded flex items-center justify-center gap-2 hover:bg-indigo-900/50 transition-all"><Target className="w-3 h-3"/> GGD Auto-Tune</button>
+                                <div className="p-3 bg-slate-800/50 rounded border border-slate-700"><div className="flex justify-between mb-2 items-center"><span className="text-[10px] font-bold text-slate-500 uppercase flex items-center gap-1"><ShieldCheck className="w-3 h-3"/> Forensics</span><div className="flex bg-slate-950 rounded p-0.5 border border-slate-800"><button onClick={()=>setViewMode('raw')} className={`px-2 py-0.5 text-[10px] rounded font-bold ${viewMode==='raw'?'bg-slate-700 text-white':'text-slate-500'}`}>RAW</button><button onClick={()=>setViewMode('clean')} className={`px-2 py-0.5 text-[10px] rounded font-bold ${viewMode==='clean'?'bg-emerald-600 text-white shadow-lg':'text-slate-500'}`}>FILTER</button></div></div><div className="grid grid-cols-3 gap-1"><button onClick={()=>setRepairSettings(p=>({...p, chroma:!p.chroma}))} className={`py-1.5 text-[9px] font-bold rounded border transition-all ${repairSettings.chroma?'bg-cyan-900/40 border-cyan-500 text-cyan-400':'bg-slate-900 border-slate-800 text-slate-500 hover:border-slate-600'}`}>Tukey</button><button onClick={()=>setRepairSettings(p=>({...p, ringing:!p.ringing}))} className={`py-1.5 text-[9px] font-bold rounded border transition-all ${repairSettings.ringing?'bg-cyan-900/40 border-cyan-500 text-cyan-400':'bg-slate-900 border-slate-800 text-slate-500 hover:border-slate-600'}`}>NLM</button><button onClick={()=>setRepairSettings(p=>({...p, geodesic:!p.geodesic}))} className={`py-1.5 text-[9px] font-bold rounded border transition-all ${repairSettings.geodesic?'bg-rose-900/40 border-rose-500 text-rose-400':'bg-slate-900 border-slate-800 text-slate-500 hover:border-slate-600'}`}>Geo</button></div></div>
+                                <div className="space-y-2"><DualSlider label="Gain" displayValue={`${physics.gain.toFixed(0)}x`} value={gainState} onChange={setGainState} minCoarse={1} maxCoarse={100} stepCoarse={1} minFine={-1.0} maxFine={1.0} stepFine={0.001}/><DualSlider label="Gamma" displayValue={physics.gamma.toFixed(2)} value={gammaState} onChange={setGammaState} minCoarse={0.1} maxCoarse={3} stepCoarse={0.1} minFine={-0.2} maxFine={0.2} stepFine={0.001}/><DualSlider label="Gate" displayValue={physics.threshold.toFixed(2)} value={gateState} onChange={setGateState} minCoarse={0} maxCoarse={255} stepCoarse={0.1} minFine={-10} maxFine={10} stepFine={0.01}/><DualSlider label="Soft" displayValue={physics.softness.toFixed(0)} value={softState} onChange={setSoftState} minCoarse={0} maxCoarse={100} stepCoarse={1} minFine={-5} maxFine={5} stepFine={0.1}/></div>
+                                <div className="p-3 bg-slate-800/50 rounded border border-slate-700 space-y-3"><div className="space-y-1"><div className="flex justify-between text-[10px] font-bold text-slate-500 uppercase"><span>Opacity</span><span className="text-cyan-400">{Math.round(opacity*100)}%</span></div><input type="range" min="0" max="1" step="0.01" value={opacity} onChange={e=>setOpacity(parseFloat(e.target.value))} className="w-full h-1 bg-slate-700 rounded appearance-none accent-cyan-500"/></div><div className="space-y-1"><div className="flex justify-between text-[10px] font-bold text-slate-500 uppercase"><span>Mix</span><span className="text-cyan-400">{Math.round(mix*100)}%</span></div><input type="range" min="0" max="1" step="0.01" value={mix} onChange={e=>setMix(parseFloat(e.target.value))} className="w-full h-1 bg-slate-700 rounded appearance-none accent-cyan-500"/></div><button onClick={()=>setFlicker(!flicker)} className={`w-full py-1.5 text-[10px] font-bold rounded border transition-all flex items-center justify-center gap-2 ${flicker ? 'bg-amber-900/30 border-amber-500 text-amber-400' : 'bg-slate-900 border-slate-700 text-slate-500 hover:border-slate-600'}`}><Zap className={`w-3 h-3 ${flicker?'fill-current':''}`}/> {flicker ? 'FLICKER ACTIVE' : 'ENABLE FLICKER'}</button></div>
+                                <button onClick={()=>setShowAudit(true)} className="w-full py-3 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded uppercase tracking-wider flex items-center justify-center gap-2 shadow-lg shadow-emerald-900/20 transition-all"><ClipboardCheck className="w-4 h-4"/> View Audit</button>{stats && (<div className="pt-4 border-t border-slate-800 space-y-3"><Legend physics={physics} type={activeLayer}/><Histogram data={stats.hist} cutoff={physics.threshold/255.0}/></div>)}</div>)}
                         </div>
                     </div>
-                    <div className="flex-1 bg-black relative overflow-hidden flex items-center justify-center cursor-crosshair order-1 md:order-2 h-1/2 md:h-full" ref={viewRef} onWheel={(e)=>{const s=e.deltaY>0?0.9:1.1; setTransform(p=>({k:p.k*s, x:e.clientX-(e.clientX-p.x)*s, y:e.clientY-(e.clientY-p.y)*s}));}} onMouseDown={e=>dragRef.current={active:true,x:e.clientX,y:e.clientY}} onMouseMove={e=>{if(dragRef.current.active){const dx=e.clientX-dragRef.current.x, dy=e.clientY-dragRef.current.y; setTransform(t=>({...t,x:t.x+dx,y:t.y+dy})); dragRef.current={active:true,x:e.clientX,y:e.clientY}} else {updateHUD(e.clientX, e.clientY);}}} onMouseUp={()=>dragRef.current.active=false} onTouchStart={handleTouchStart} onTouchMove={handleTouchMove} onTouchEnd={handleTouchEnd} onMouseLeave={() => { if(hudRef.current) hudRef.current.style.display="none"; }}>
+                    <div className="flex-1 bg-black relative overflow-hidden flex items-center justify-center cursor-crosshair order-1 md:order-2 h-1/2 md:h-full" ref={viewRef} onWheel={handleCanvasWheel} onMouseDown={handleCanvasDown} onMouseMove={handleCanvasMove} onMouseUp={handleCanvasUp} onTouchStart={handleTouchStart} onTouchMove={handleTouchMove} onTouchEnd={handleTouchEnd} onMouseLeave={() => { if(hudRef.current) hudRef.current.style.display="none"; }}>
                         <div ref={hudRef} className="fixed z-50 bg-slate-900/90 border border-slate-700 p-2 rounded shadow-xl pointer-events-none hidden backdrop-blur-sm hud-enter text-left"></div>
                         {isProcessing && <div className="absolute inset-0 bg-black/80 z-50 flex items-center justify-center flex-col backdrop-blur-sm"><Loader className="w-10 h-10 text-cyan-400 animate-spin mb-4"/><span className="text-cyan-400 text-xs font-mono tracking-widest uppercase">{status}</span><div className="w-64 h-1 bg-slate-800 rounded mt-4 overflow-hidden"><div className="h-full bg-cyan-500 transition-all duration-100 ease-out" style={{width: `${progress}%`}}></div></div></div>}
                         <div ref={containerRef} className="absolute top-0 left-0 origin-top-left" style={{transform:`translate(${transform.x}px,${transform.y}px) scale(${transform.k})`, imageRendering:'pixelated'}}><canvas ref={canvasRef}/></div>
