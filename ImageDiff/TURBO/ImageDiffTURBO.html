@@ -325,12 +325,11 @@
             return { generateManifold };
         })();
 
-        // --- 6. OPTIMIZATION ENGINE (SUPERIOR CASCADE) ---
+        // --- 6. OPTIMIZATION ENGINE (CASCADE) ---
         const OptimizationEngine = (() => {
             const solve = (tensor, layerKey, activeMask, viewMode) => {
                 const raw = tensor[layerKey].raw; if (!raw) return null; 
                 let buf;
-                // Correctly normalize SSIM for stats calc (0=Good -> 0=Empty)
                 if (layerKey === 'ssim') { 
                     buf = new Float32Array(raw.length); 
                     for(let i=0; i<raw.length; i++) buf[i] = Math.max(0, 1.0 - raw[i]); 
@@ -346,8 +345,6 @@
                 let estSigma = PrecisionCore.estimateRobustSigma(buf, tensor.meta.w, tensor.meta.h);
                 if (layerKey === 'entropy') estSigma = Math.max(estSigma, 0.01);
                 
-                // --- CASCADE SOLVER LOGIC ---
-                // 1. Parameters
                 const bitDepth = tensor.meta.bitDepth || 8;
                 const qStep = 1.0 / (Math.pow(2, bitDepth) - 1);
                 let sigmaMult = 3.0; let gainBoost = 1.0; let gammaTarget = 1.0;
@@ -360,21 +357,10 @@
                     case 'perceptual': gammaTarget = 1.0; sigmaMult = 2.8; gainBoost = 1.5; break;
                 }
 
-                // 2. Base Noise Floor
                 const trueNoiseFloor = estSigma * sigmaCorrection;
-                
-                // 3. Signal Peak
                 sampleValues.sort(); const p99 = sampleValues[Math.floor(n * 0.99)];
-                
-                // 4. Gain Calculation (Targeting)
-                // We want P99 to sit at 85% luminance.
-                // We ensure targetSignal is at least slightly above noise floor to prevent massive gain on black images.
                 const safeTarget = Math.max(p99, trueNoiseFloor * 2.0, qStep); 
                 const gain = Math.min(100000, Math.max(1, (0.85 / safeTarget) * gainBoost));
-
-                // 5. Threshold Calculation (Cascading)
-                // The visual threshold must hide the *amplified* noise.
-                // Threshold (0-255) = (Noise * Gain * SigmaMult) * 255
                 const gate = (trueNoiseFloor * gain * sigmaMult);
                 const threshold = Math.min(255, gate * 255);
 
@@ -665,7 +651,6 @@
                 }
             };
 
-            // Direct event handlers (no stale closures)
             const handleTouchStart = (e) => {
                 if(e.touches.length === 1) { touchRef.current = { x: e.touches[0].clientX, y: e.touches[0].clientY, dist: 0, active: true }; dragRef.current.active = true; } 
                 else if (e.touches.length === 2) { const t1 = e.touches[0], t2 = e.touches[1]; const dist = Math.hypot(t1.clientX - t2.clientX, t1.clientY - t2.clientY); touchRef.current = { ...touchRef.current, dist, active: true }; dragRef.current.active = false; }
