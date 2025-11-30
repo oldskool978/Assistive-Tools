@@ -136,19 +136,14 @@
                 const bitDepth = is16Bit ? 16 : 8;
                 const normScale = is16Bit ? 1.0/65535.0 : 1.0/255.0;
 
-                // LUT is now padded (4097 entries). valid indices 0-4095.
-                // lutLen remains 4096 (scaling factor to map 0-1 to 0-4096 index space)
-                const lutLen = LINEAR_LUT_HQ.length - 2; // Real length - padding - 1? No.
-                // Original: length 4096. lutLen = 4095.
-                // New: length 4097. We map 0..1 to 0..4095.
+                // LUT is padded. Safe to access idx+1 unconditionally.
+                // Scale factor maps 0.0-1.0 to 0-4095.
                 const scaleFactor = 4095.0;
                 
                 // FREE COMPUTE: Hoisted 'lookup' with BOUNDARY CHECK ELIMINATION
-                // Padding in Python allows unconditional access to LUT[idx+1]
                 const lookup = (v) => {
                     const t = Math.max(0, Math.min(1, v)) * scaleFactor; 
-                    const idx = t | 0; // Floor
-                    // Unconditional interpolation - safe due to padding
+                    const idx = t | 0; 
                     return LINEAR_LUT_HQ[idx] + (LINEAR_LUT_HQ[idx+1] - LINEAR_LUT_HQ[idx]) * (t - idx);
                 };
 
@@ -173,16 +168,12 @@
 
         // --- 4. ANALYSIS ENGINE ---
         const AnalysisEngine = (() => {
-            // FREE COMPUTE: 'outBuffer' argument enables Zero-Allocation convolution
+            // FREE COMPUTE: 'outBuffer' enables Zero-Allocation convolution
             const convolveSeparable = (input, width, height, kH, kV, outBuffer = null) => {
                 if (!kH || !kV) return new Float64Array(input.length);
                 const len = width * height; 
                 const temp = MemoryVanguard.request(0, len); 
-                // Use provided buffer or allocate if null (legacy support)
                 const out = outBuffer || new Float64Array(len);
-                
-                // FREE COMPUTE: Optimization Kernel Dispatch
-                // ... (Kernels remain identical, just writing to 'out') ...
                 
                 const runPass = (src, dst, w, h, k, isVert) => {
                     const kSz = k.length;
@@ -192,15 +183,19 @@
                     if (kSz === 13) { 
                         const k0=k[0], k1=k[1], k2=k[2], k3=k[3], k4=k[4], k5=k[5], k6=k[6]; // Center is k6
                         if (isVert) {
-                            for(let x=0; x<w; x++) {
-                                for(let y=0; y<h; y++) {
-                                    let sum = src[Math.imul(y, w) + x] * k6; // Center
+                            // FREE COMPUTE: CACHE COHERENCY OPTIMIZATION
+                            // Swapped loops (y outer, x inner) for Row-Major traversal.
+                            // Accesses src in linear memory order, maximizing L1 cache hits.
+                            for(let y=0; y<h; y++) {
+                                const r = Math.imul(y, w);
+                                for(let x=0; x<w; x++) {
+                                    let sum = src[r + x] * k6; // Center
                                     for(let d=1; d<=6; d++) {
                                         let yN = y-d; if(yN<0) yN=-yN; else if(yN>=h) yN=h-1-(yN-h);
                                         let yP = y+d; if(yP<0) yP=-yP; else if(yP>=h) yP=h-1-(yP-h);
                                         sum += (src[Math.imul(yN, w) + x] + src[Math.imul(yP, w) + x]) * k[6-d];
                                     }
-                                    dst[Math.imul(y, w) + x] = sum;
+                                    dst[r + x] = sum;
                                 }
                             }
                         } else {
@@ -224,14 +219,17 @@
                     if (kSz === 5 && k[2] === 0 && Math.abs(k[0] + k[4]) < 1e-15) {
                         const k0 = k[0], k1 = k[1];
                         if (isVert) {
-                            for(let x=0; x<w; x++) {
-                                for(let y=0; y<h; y++) {
+                            // Row-Major Swap
+                            for(let y=0; y<h; y++) {
+                                const r = Math.imul(y, w);
+                                for(let x=0; x<w; x++) {
                                     let yN2=y-2; if(yN2<0) yN2=-yN2; else if(yN2>=h) yN2=h-1-(yN2-h);
                                     let yP2=y+2; if(yP2<0) yP2=-yP2; else if(yP2>=h) yP2=h-1-(yP2-h);
                                     let yN1=y-1; if(yN1<0) yN1=-yN1; else if(yN1>=h) yN1=h-1-(yN1-h);
                                     let yP1=y+1; if(yP1<0) yP1=-yP1; else if(yP1>=h) yP1=h-1-(yP1-h);
-                                    dst[Math.imul(y, w) + x] = (src[Math.imul(yN2, w) + x] - src[Math.imul(yP2, w) + x]) * k0 + 
-                                                               (src[Math.imul(yN1, w) + x] - src[Math.imul(yP1, w) + x]) * k1;
+                                    
+                                    dst[r + x] = (src[Math.imul(yN2, w) + x] - src[Math.imul(yP2, w) + x]) * k0 + 
+                                                 (src[Math.imul(yN1, w) + x] - src[Math.imul(yP1, w) + x]) * k1;
                                 }
                             }
                         } else {
@@ -253,15 +251,17 @@
                     if (kSz === 5 && Math.abs(k[0] - k[4]) < 1e-15) {
                         const k0 = k[0], k1 = k[1], k2 = k[2];
                         if (isVert) {
-                            for(let x=0; x<w; x++) {
-                                for(let y=0; y<h; y++) {
+                            // Row-Major Swap
+                            for(let y=0; y<h; y++) {
+                                const r = Math.imul(y, w);
+                                for(let x=0; x<w; x++) {
                                     let yN2=y-2; if(yN2<0) yN2=-yN2; else if(yN2>=h) yN2=h-1-(yN2-h);
                                     let yP2=y+2; if(yP2<0) yP2=-yP2; else if(yP2>=h) yP2=h-1-(yP2-h);
                                     let yN1=y-1; if(yN1<0) yN1=-yN1; else if(yN1>=h) yN1=h-1-(yN1-h);
                                     let yP1=y+1; if(yP1<0) yP1=-yP1; else if(yP1>=h) yP1=h-1-(yP1-h);
-                                    dst[Math.imul(y, w) + x] = (src[Math.imul(yN2, w) + x] + src[Math.imul(yP2, w) + x]) * k0 + 
-                                                               (src[Math.imul(yN1, w) + x] + src[Math.imul(yP1, w) + x]) * k1 +
-                                                               src[Math.imul(y, w) + x] * k2;
+                                    dst[r + x] = (src[Math.imul(yN2, w) + x] + src[Math.imul(yP2, w) + x]) * k0 + 
+                                                 (src[Math.imul(yN1, w) + x] + src[Math.imul(yP1, w) + x]) * k1 +
+                                                 src[r + x] * k2;
                                 }
                             }
                         } else {
@@ -297,16 +297,14 @@
                 const bufIy = MemoryVanguard.request(5, len);
                 
                 ['l','a','b'].forEach(c => {
-                    convolveSeparable(oklab[c], w, h, FARID_D, FARID_P, bufIx); // Write to bufIx
-                    convolveSeparable(oklab[c], w, h, FARID_P, FARID_D, bufIy); // Write to bufIy
+                    convolveSeparable(oklab[c], w, h, FARID_D, FARID_P, bufIx); 
+                    convolveSeparable(oklab[c], w, h, FARID_P, FARID_D, bufIy); 
                     for(let i=0; i<len; i++) { 
                         Ixx[i] += bufIx[i] * bufIx[i]; 
                         Iyy[i] += bufIy[i] * bufIy[i]; 
                         Ixy[i] += bufIx[i] * bufIy[i]; 
                     }
                 });
-                // Convolve sums (in-place or to new buffer? We need return values)
-                // We allocate new for results as they are persistent in the tensor
                 const Sxx = convolveSeparable(Ixx, w, h, KAISER_13, KAISER_13); 
                 const Syy = convolveSeparable(Iyy, w, h, KAISER_13, KAISER_13); 
                 const Sxy = convolveSeparable(Ixy, w, h, KAISER_13, KAISER_13);
@@ -321,7 +319,7 @@
                     const sum = l1[i] + l2[i]; 
                     if (sum > 1e-12) {
                         const d = (l1[i] - l2[i]) / sum;
-                        coh[i] = d * d; // STRENGTH REDUCTION: **2 -> *
+                        coh[i] = d * d; // STRENGTH REDUCTION
                     } else {
                         coh[i] = 0;
                     }
@@ -352,18 +350,11 @@
                 const ssim = new Float64Array(len);
                 
                 // FREE COMPUTE: Reuse Vanguard slots for SSIM intermediates
-                // Slots 1,2,3 are typically free after Structure Tensor is done
                 const t1 = MemoryVanguard.request(1, len); 
                 const t2 = MemoryVanguard.request(2, len); 
                 const t3 = MemoryVanguard.request(3, len);
-                const mu1 = MemoryVanguard.request(4, len); // Reuse
-                const mu2 = MemoryVanguard.request(5, len); // Reuse
-                
-                // We need temp buffers for the sig_sq outputs. 
-                // We can't overwrite t1/t2/t3 before convolution is done.
-                // We allocate new results for sigmas temporarily or reuse complexly?
-                // For safety and "superior order", we let convolve return new for sigmas, or use more slots.
-                // Let's rely on standard GC for the sigmas (3 allocations) vs the previous 5.
+                const mu1 = MemoryVanguard.request(4, len); 
+                const mu2 = MemoryVanguard.request(5, len); 
                 
                 ['l', 'a', 'b'].forEach(key => {
                     const buf1 = ok1[key]; const buf2 = ok2[key];
@@ -372,10 +363,6 @@
                     
                     for(let i=0; i<len; i++) { t1[i] = buf1[i] * buf1[i]; t2[i] = buf2[i] * buf2[i]; t3[i] = buf1[i] * buf2[i]; }
                     
-                    // We can reuse t1, t2, t3 containers for the convolution OUTPUTS if we are careful?
-                    // convolveSeparable reads src, writes dst. If src === dst, it fails (inplace).
-                    // So we must output to new buffers or other slots. 
-                    // Let's just create variables for clarity/safety but use convolveSeparable's internal optimization.
                     const sig1_sq_raw = convolveSeparable(t1, w, h, KAISER_13, KAISER_13);
                     const sig2_sq_raw = convolveSeparable(t2, w, h, KAISER_13, KAISER_13);
                     const sig12_raw = convolveSeparable(t3, w, h, KAISER_13, KAISER_13);
@@ -412,8 +399,6 @@
         const ForensicFilter = (() => {
             const tasks = {
                 // FREE COMPUTE: Loop Unswitching (Modulo Elimination)
-                // We split loops to separate boundary conditions from the main body.
-                // The central body loop runs with ZERO conditional checks.
                 geodesic: (src, dst, width, height, stats, tuning) => {
                     const len = src.length; 
                     const floor = stats ? Math.max(1e-6, stats.statFloor * tuning.geoScale) : 0.005;
@@ -421,78 +406,44 @@
                     
                     for(let k=0; k<5; k++) {
                         // Forward Pass (Top-Left -> Bottom-Right)
-                        // Row 0 (Boundary)
-                        for(let x=0; x<width; x++) {
-                            let m = dst[x]; 
-                            if(x>0) m = Math.max(m, dst[x-1]); // Check left only
-                            dst[x] = Math.min(m, src[x]);
-                        }
-                        // Body Rows
+                        for(let x=0; x<width; x++) { let m=dst[x]; if(x>0) m=Math.max(m, dst[x-1]); dst[x]=Math.min(m, src[x]); }
                         for(let y=1; y<height; y++) {
                             const r = Math.imul(y, width);
-                            // Col 0
-                            let m0 = dst[r]; 
-                            m0 = Math.max(m0, dst[r-width]); // Check top only
-                            dst[r] = Math.min(m0, src[r]);
-                            
+                            let m0 = dst[r]; m0 = Math.max(m0, dst[r-width]); dst[r] = Math.min(m0, src[r]);
                             // Center (UNSWITCHED HOT LOOP)
                             for(let x=1; x<width; x++) {
-                                const i = r + x;
-                                let m = dst[i];
-                                m = Math.max(m, dst[i-width]); // Top (Safe)
-                                m = Math.max(m, dst[i-1]);     // Left (Safe)
+                                const i = r + x; let m = dst[i];
+                                m = Math.max(m, dst[i-width]); m = Math.max(m, dst[i-1]);
                                 dst[i] = Math.min(m, src[i]);
                             }
                         }
-
                         // Backward Pass (Bottom-Right -> Top-Left)
-                        // Last Row (Boundary)
-                        for(let x=width-1; x>=0; x--) {
-                            const i = (height-1)*width + x;
-                            let m = dst[i];
-                            if(x<width-1) m = Math.max(m, dst[i+1]); // Check right only
-                            dst[i] = Math.min(m, src[i]);
-                        }
-                        // Body Rows (Reverse)
+                        for(let x=width-1; x>=0; x--) { const i=(height-1)*width+x; let m=dst[i]; if(x<width-1) m=Math.max(m, dst[i+1]); dst[i]=Math.min(m, src[i]); }
                         for(let y=height-2; y>=0; y--) {
                             const r = Math.imul(y, width);
-                            // Last Col
-                            const iEnd = r + width - 1;
-                            let mEnd = dst[iEnd];
-                            mEnd = Math.max(mEnd, dst[iEnd+width]); // Check bottom only
-                            dst[iEnd] = Math.min(mEnd, src[iEnd]);
-
+                            const iEnd = r+width-1; let mEnd=dst[iEnd]; mEnd=Math.max(mEnd, dst[iEnd+width]); dst[iEnd]=Math.min(mEnd, src[iEnd]);
                             // Center (UNSWITCHED HOT LOOP)
                             for(let x=width-2; x>=0; x--) {
-                                const i = r + x;
-                                let m = dst[i];
-                                m = Math.max(m, dst[i+width]); // Bottom (Safe)
-                                m = Math.max(m, dst[i+1]);     // Right (Safe)
+                                const i = r + x; let m = dst[i];
+                                m = Math.max(m, dst[i+width]); m = Math.max(m, dst[i+1]);
                                 dst[i] = Math.min(m, src[i]);
                             }
                         }
                     }
                 },
                 nlm: (src, dst, width, height, stats, tuning) => {
-                    const len = src.length; 
-                    dst.set(src);
-                    
+                    const len = src.length; dst.set(src);
                     const sigma = stats ? stats.robustSigma : 0.01; 
                     const h2 = (sigma * sigma) * tuning.nlmDecay;
-                    
-                    // NLM already has padding (y=3 to h-3, x=3 to w-3)
-                    // Just ensuring the loop is tight.
                     for(let y=3; y<height-3; y++) {
                         const row = Math.imul(y, width);
                         for(let x=3; x<width-3; x++) {
                             const idx = row + x; let wSum = 0.0, vSum = 0.0;
                             for(let dy=-2; dy<=2; dy++) for(let dx=-2; dx<=2; dx++) {
                                 let dist = 0.0; const sIdx = idx + Math.imul(dy, width) + dx;
-                                // Inner loop unrolling could be done by JS JIT, but manual helps
-                                // 3x3 patch comparison
                                 for(let py=-1; py<=1; py++) for(let px=-1; px<=1; px++) {
                                     const d = src[idx + Math.imul(py, width) + px] - src[sIdx + Math.imul(py, width) + px]; 
-                                    dist += d*d;
+                                    dist += d*d; // Strength Reduction
                                 }
                                 const w = Math.exp(-Math.max(0, dist - 2*h2) / (h2 + 1e-9)); vSum += src[sIdx] * w; wSum += w;
                             }
@@ -505,22 +456,20 @@
                     const sigma = stats ? stats.robustSigma : 0.01; 
                     const K = sigma * tuning.tukeyK; const K2 = K * K;
                     dst.set(src);
-                    const temp = MemoryVanguard.request(0, len);
-                    temp.set(src);
+                    const temp = MemoryVanguard.request(0, len); temp.set(src);
                     
                     for(let iter=0; iter<3; iter++) {
                         const s = (iter % 2 === 0) ? temp : dst;
                         const d = (iter % 2 === 0) ? dst : temp;
-                        
                         // UNSWITCHED LOOP STRUCTURE
-                        // Middle Body Only (Safe from boundary checks)
                         for(let y=1; y<height-1; y++) {
                             const row = Math.imul(y, width);
-                            // We start at x=1 and end at width-1, so we never hit boundary logic
                             for(let x=1; x<width-1; x++) {
                                 const idx = row + x; const v = s[idx];
                                 const n=s[idx-width]-v, south=s[idx+width]-v, e=s[idx+1]-v, w=s[idx-1]-v;
-                                const c = (dist) => { const d2 = dist*dist; return (d2 <= K2) ? 0.5 * ((1.0 - d2/K2)**2) : 0.0; };
+                                const distSq = (delta) => delta*delta;
+                                // STRENGTH REDUCTION: Removed Math.pow
+                                const c = (diff) => { const d2 = diff*diff; if (d2 > K2) return 0.0; const t = 1.0 - d2/K2; return 0.5 * t * t; };
                                 d[idx] = v + 0.25 * (c(n)*n + c(south)*south + c(e)*e + c(w)*w);
                             }
                         }
@@ -530,15 +479,9 @@
             const generateManifold = async (base, w, h, layerKey, cb) => {
                 const manifolds = new Array(8);
                 const isSSIM = layerKey === 'ssim';
-                
                 // FREE COMPUTE: Ping-Pong Buffers
-                // Allocating 2 buffers once, instead of new buffers every step.
-                // Reusing MemoryVanguard slots if possible? No, we need persistence for the result.
-                // But we can reuse the intermediate buffers.
-                
                 const bufferA = new Float64Array(base.length);
                 const bufferB = new Float64Array(base.length);
-                
                 if (isSSIM) { for(let i=0; i<base.length; i++) bufferA[i] = Math.max(0, 1.0 - base[i]); } 
                 else { bufferA.set(base); }
                 
@@ -553,22 +496,15 @@
                 else if (layerKey === 'coherence') { tuning.tukeyK = 6.0; tuning.nlmDecay = 3.0; } 
                 
                 for(let m=0; m<8; m++) {
-                    // Reset inputs for this permutation
-                    // We copy base to A to start fresh
                     if (isSSIM) { for(let i=0; i<base.length; i++) bufferA[i] = Math.max(0, 1.0 - base[i]); }
                     else { bufferA.set(base); }
+                    let current = bufferA; let next = bufferB;
                     
-                    let current = bufferA;
-                    let next = bufferB;
-                    
-                    // Pipeline: A -> B -> A -> B
                     if(m & 1) { tasks.tukey(current, next, w, h, stats, tuning); [current, next] = [next, current]; }
                     if(m & 2) { tasks.nlm(current, next, w, h, stats, tuning); [current, next] = [next, current]; }
                     if(m & 4) { tasks.geodesic(current, next, w, h, stats, tuning); [current, next] = [next, current]; }
                     
-                    // Save result
-                    manifolds[m] = new Float64Array(current); // Must clone to persist
-                    
+                    manifolds[m] = new Float64Array(current); 
                     if(cb) cb(m/8.0); await new Promise(r => setTimeout(r, 0));
                 }
                 return manifolds;
@@ -613,21 +549,12 @@
                 sampleValues.sort(); const p99 = sampleValues[Math.floor(n * 0.99)];
                 
                 // QUALITY BIAS: Distinguish between "Pure Noise" and "Signal"
-                // If the signal peak (p99) is barely above noise floor, we assume empty channel.
-                // In that case, we target the noise floor to be "visible but dark" (low gain).
                 const signalHeadroom = p99 - trueNoiseFloor;
                 const isPureNoise = signalHeadroom < trueNoiseFloor;
                 
-                // If it's pure noise, we map noise floor to 10x quantization step (visible speckle).
-                // If it's signal, we map p99 to 0.90 (high visibility).
                 const targetLevel = isPureNoise ? trueNoiseFloor * 10.0 : p99; 
-                const safeTarget = Math.max(targetLevel, qStep * 10.0); // Absolute safety floor
-                
-                // Increased dynamic range usage to 90% (was 85%) for superior contrast
+                const safeTarget = Math.max(targetLevel, qStep * 10.0); 
                 const gain = Math.min(100000, Math.max(1, (0.90 / safeTarget) * gainBoost));
-                
-                // Gate logic: Allow texture through, but kill the floor.
-                // 0.8 factor provides a slightly "softer" gate for forensic texture preservation.
                 const gate = trueNoiseFloor * gain * (sigmaMult * 0.8); 
                 const threshold = Math.min(255, gate * 255);
 
@@ -703,22 +630,29 @@
                             const sx = x + searchMargin + dx; if(sx<0 || sx>=largeCrop-1) continue;
                             const ix=sx|0, iy=sy|0, fx=sx-ix, fy=sy-iy;
                             const idx = iy*largeCrop + ix;
-                            // Bilinear Interpolation
-                            const val = map2Large[idx]*(1-fx)*(1-fy) + map2Large[idx+1]*fx*(1-fy) + map2Large[idx+largeCrop]*(1-fx)*fy + map2Large[idx+largeCrop+1]*fx*fy;
+                            
+                            // FREE COMPUTE: Bilinear Factorization (7 mults -> 3 mults)
+                            const p00 = map2Large[idx];
+                            const p10 = map2Large[idx+1];
+                            const p01 = map2Large[idx+largeCrop];
+                            const p11 = map2Large[idx+largeCrop+1];
+                            
+                            const top = p00 + fx * (p10 - p00);
+                            const bot = p01 + fx * (p11 - p01);
+                            const val = top + fy * (bot - top);
                             
                             // QUALITY UPGRADE: SAD (Sum of Absolute Differences)
-                            // More robust to outliers (artifacts/cursors) than SSD (d*d)
                             err += Math.abs(map1[y*crop+x] - val); 
                         }
                     }
                     return err;
                 };
                 let curX = 0, curY = 0, step = 4.0; let minErr = getError(0,0);
-                for(let iter=0; iter<40; iter++) { // Increased iterations
+                for(let iter=0; iter<40; iter++) { 
                     let bestE = minErr, bestX = curX, bestY = curY;
                     [[0,-1],[0,1],[-1,0],[1,0]].forEach(d => { const nx = curX + d[0]*step, ny = curY + d[1]*step; const e = getError(nx, ny); if(e < bestE) { bestE = e; bestX = nx; bestY = ny; } });
                     if(bestE < minErr) { minErr = bestE; curX = bestX; curY = bestY; } else { step *= 0.5; }
-                    if(step < 0.001) break; // Tighter convergence threshold (was 0.005)
+                    if(step < 0.001) break; 
                     if(cb) cb(0.5 + (iter/40)*0.5); await new Promise(r => setTimeout(r,0));
                 }
                 let finalX = ox + curX, finalY = oy + curY;
@@ -732,71 +666,41 @@
         const QualityMetricEngine = (() => {
             const computeNPS_Quant = (heuristic, luma, refEntropy, refCoherence, w, h, bitDepth) => {
                 const len = w * h; let sum = 0.0, peak = 0.0, violations = 0;
-                
-                // 1. Bit-Depth Physics (The Hard Deck)
                 const qStep = 1.0 / (Math.pow(2, bitDepth) - 1);
-                
-                // 2. Sensitivity Baseline (Nyquist-Shannon + Weber Floor)
-                // We strictly bind to the derived quantization step.
-                // 100-DPS PHILOSOPHY: The noise floor is physical, not arbitrary.
                 const physicsFloor = PrecisionCore.PHYSICS ? PrecisionCore.PHYSICS[4] : (1.0/255.0);
-                
-                // For high bit depths (16-bit), we respect the precision but enforce a biological floor
-                // (Visual cortex cannot detect 1/65535 luminance delta in isolation).
-                // We use the greater of the format limit (qStep) or the biological limit (~1/1000).
                 const baseSensitivity = Math.max(qStep, physicsFloor * 0.25); 
-                
                 const maxEnt = PrecisionCore.PHYSICS ? PrecisionCore.PHYSICS[5] : 4.64;
                 const invMaxEnt = 1.0 / (maxEnt || 4.64);
-
-                // MASKING SATURATION CONSTANTS (Michaelis-Menten)
-                // Prevents infinite masking in high-texture areas.
-                const MASK_CEILING = 4.0; // Max masking factor (4x tolerance)
-                const MASK_KNEE = 0.3;    // Entropy level (0-1) where masking is 50% of max
+                const MASK_CEILING = 4.0; const MASK_KNEE = 0.3;    
 
                 for(let i=0; i<len; i++) {
                     const L = luma[i]; 
-                    // MAVERICK UPGRADE: Use Reference Content for Masking
-                    const H = refEntropy[i] * invMaxEnt; // Normalize to 0-1
-                    const C = refCoherence[i];           // Already 0-1
+                    const H = refEntropy[i] * invMaxEnt; 
+                    const C = refCoherence[i];           
 
-                    // 3. Luminance Masking (Parabolic CSF)
-                    // HVS is most sensitive at mid-grey (0.5). Sensitivity drops in deep shadows (0.0) and highlights (1.0).
-                    // We increase threshold (tolerance) at the extremes.
-                    // Curve: 1.0 at 0.5, rising to 2.0 at 0.0 and 1.0.
-                    const maskL = 1.0 + Math.pow((L - 0.5) * 2.0, 2.0); 
+                    // STRENGTH REDUCTION: Math.pow -> Multiplication
+                    const v = (L - 0.5) * 2.0;
+                    const maskL = 1.0 + v * v;
 
-                    // 4. Texture & Geometric Masking (Psychovisual Saturation)
-                    // SUPERIOR UPGRADE: Michaelis-Menten Kinetics
-                    // Instead of linear growth (1 + H*3), we saturate.
-                    // This prevents "Texture Blindness" where high entropy hides forensic artifacts.
                     const entropyMask = (MASK_CEILING * H) / (H + MASK_KNEE);
-                    
-                    // Coherence Penalty: Clean edges (High C) reduce masking (Higher Sensitivity).
-                    // We dampen the entropy mask by the coherence factor.
                     const maskT = 1.0 + (entropyMask * (1.0 - C * 0.8));
-
-                    // Composite Threshold: The "Just Noticeable Difference" at this pixel.
                     const threshold = baseSensitivity * maskL * maskT;
-
-                    // 5. Normalized Error Ratio
                     const ratio = heuristic[i] / (threshold + 1e-12);
                     
                     if (ratio > peak) peak = ratio; 
                     if (ratio > 1.0) violations++; 
                     
-                    // L4 Norm Pooling (emphasizes severe artifacts over low-level noise)
-                    sum += ratio * ratio * ratio * ratio;
+                    // L4 Norm Pooling: ratio^4
+                    const r2 = ratio * ratio;
+                    sum += r2 * r2;
                 }
-                
-                // Final Metrics
                 const nps = Math.pow(sum / len, 0.25);
                 return { nps, peak, mean: nps, visible_pct: (violations/len)*100 };
             };
             const computeSignalMetrics = (buf, w, h, bitDepth) => {
                 const sig = PrecisionCore.estimateRobustSigma(buf, w, h);
                 const qStep = 1.0 / (Math.pow(2, bitDepth) - 1);
-                const minNoise = qStep * 0.5; // Physics Floor: 0.5 LSB
+                const minNoise = qStep * 0.5; 
                 const effectiveNoise = Math.max(sig, minNoise);
                 const snr = (effectiveNoise > 0) ? Math.min(140, 20 * Math.log10(1.0 / effectiveNoise)) : 0;
                 return { snr, ebd: Math.max(0, (snr - 1.76) / 6.02), noise: effectiveNoise };
@@ -1125,9 +1029,7 @@ Visible:     ${visible_pct.toFixed(2)}%
                     const ent1 = AnalysisEngine.getEntropy(t1.oklab.l, w, h); const ent2 = AnalysisEngine.getEntropy(t2.oklab.l, w, h); setProgress(60);
                     const layers = { perceptual: {raw: deltaE}, ssim: {raw: ssim}, grad: {raw: new Float64Array(size)}, coherence: {raw: new Float64Array(size)}, entropy: {raw: new Float64Array(size)}, heuristic: {raw: new Float64Array(size)}, latent: {} };
                     const INV_LOG_25 = 1.0 / 4.64;
-                    const HVS_MASK = PrecisionCore.HVS_MASK_LUT; const HVS_LEN = HVS_MASK ? HVS_MASK.length - 2 : 0; // Adjust length for padding
-                    const HVS_SCALE = 4095.0; // Fixed scale for 4096 entry LUT
-
+                    const HVS_MASK = PrecisionCore.HVS_MASK_LUT; const HVS_LEN = HVS_MASK ? HVS_MASK.length - 1 : 0;
                     for(let i=0; i<size; i++) {
                         const gDiff = Math.abs(st1.l1[i] - st2.l1[i]); const cDiff = Math.abs(st1.coherence[i] - st2.coherence[i]); const eDiff = Math.abs(ent1[i] - ent2[i]);
                         layers.grad.raw[i] = gDiff; layers.coherence.raw[i] = cDiff; layers.entropy.raw[i] = eDiff;
@@ -1135,20 +1037,25 @@ Visible:     ${visible_pct.toFixed(2)}%
                         const termPercep = deltaE[i]; const termStruct = Math.log1p(gDiff) * 2.0; const termSSIM = Math.max(0, 1.0 - ssim[i]); const termEnt = eDiff * INV_LOG_25;
                         
                         // FORENSIC UPGRADE: HVS STRUCTURAL MASKING
+                        // If gradient is low (flat), weight -> 1.0 (Preserve Banding/Subtle Splicing)
+                        // If gradient is high (texture/edge), weight -> 0.0 (Suppress Ringing/Quantization)
                         let maskWeight = 1.0;
                         if (HVS_MASK) {
-                           const structureRef = st1.l1[i]; 
+                           const structureRef = st1.l1[i]; // Reference Structure Intensity
                            
-                           // FREE COMPUTE: Unconditional Linear Interpolation (Padding Protected)
-                           const t = structureRef * HVS_SCALE;
-                           const idx = t | 0;
-                           // No Math.min or Math.max needed if structureRef is roughly 0..1
-                           // Safety clamp for extreme outliers only, but padding handles the +1
-                           // If t > 4095, idx is large. We can clamp idx or t.
-                           // Clamping t is one branch/cmov.
-                           const tClamped = (t > HVS_SCALE) ? HVS_SCALE : ((t < 0) ? 0 : t);
-                           const idxSafe = tClamped | 0;
-                           maskWeight = HVS_MASK[idxSafe] + (HVS_MASK[idxSafe+1] - HVS_MASK[idxSafe]) * (tClamped - idxSafe);
+                           // 100-DPS PRECISION: Use Linear Interpolation for LUT lookup
+                           // Avoids quantization steps in the sensitivity mask
+                           const rawIdx = Math.max(0, structureRef * HVS_LEN);
+                           const idxLo = Math.floor(rawIdx);
+                           const idxHi = Math.min(HVS_LEN, idxLo + 1);
+                           const t = rawIdx - idxLo;
+                           
+                           // Boundary safe lookup (clamped to LUT size)
+                           // If rawIdx exceeds LUT, we clamp to the last value (max masking)
+                           const valLo = HVS_MASK[Math.min(HVS_LEN, idxLo)];
+                           const valHi = HVS_MASK[idxHi]; // idxHi is already clamped via min above
+                           
+                           maskWeight = valLo * (1.0 - t) + valHi * t;
                         }
                         
                         layers.heuristic.raw[i] = Math.sqrt((termPercep * flatWeight)**2 + (termStruct * edgeWeight)**2 + (termSSIM * edgeWeight)**2 + (termEnt * flatWeight * 0.5)**2 + (cDiff * 0.25)**2) * maskWeight;
