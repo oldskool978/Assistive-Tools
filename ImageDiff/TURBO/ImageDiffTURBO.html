@@ -137,7 +137,6 @@
                 const normScale = is16Bit ? 1.0/65535.0 : 1.0/255.0;
 
                 // LUT is padded. Safe to access idx+1 unconditionally.
-                // Scale factor maps 0.0-1.0 to 0-4095.
                 const scaleFactor = 4095.0;
                 
                 // FREE COMPUTE: Hoisted 'lookup' with BOUNDARY CHECK ELIMINATION
@@ -177,15 +176,12 @@
                 
                 const runPass = (src, dst, w, h, k, isVert) => {
                     const kSz = k.length;
-                    const half = (kSz - 1) >> 1;
                     
                     // CASE 1: Symmetric 13-Tap (KAISER_13)
                     if (kSz === 13) { 
-                        const k0=k[0], k1=k[1], k2=k[2], k3=k[3], k4=k[4], k5=k[5], k6=k[6]; // Center is k6
+                        const k6=k[6]; // Center
                         if (isVert) {
-                            // FREE COMPUTE: CACHE COHERENCY OPTIMIZATION
-                            // Swapped loops (y outer, x inner) for Row-Major traversal.
-                            // Accesses src in linear memory order, maximizing L1 cache hits.
+                            // FREE COMPUTE: CACHE COHERENCY OPTIMIZATION (Row-Major)
                             for(let y=0; y<h; y++) {
                                 const r = Math.imul(y, w);
                                 for(let x=0; x<w; x++) {
@@ -219,7 +215,6 @@
                     if (kSz === 5 && k[2] === 0 && Math.abs(k[0] + k[4]) < 1e-15) {
                         const k0 = k[0], k1 = k[1];
                         if (isVert) {
-                            // Row-Major Swap
                             for(let y=0; y<h; y++) {
                                 const r = Math.imul(y, w);
                                 for(let x=0; x<w; x++) {
@@ -251,7 +246,6 @@
                     if (kSz === 5 && Math.abs(k[0] - k[4]) < 1e-15) {
                         const k0 = k[0], k1 = k[1], k2 = k[2];
                         if (isVert) {
-                            // Row-Major Swap
                             for(let y=0; y<h; y++) {
                                 const r = Math.imul(y, w);
                                 for(let x=0; x<w; x++) {
@@ -467,7 +461,6 @@
                             for(let x=1; x<width-1; x++) {
                                 const idx = row + x; const v = s[idx];
                                 const n=s[idx-width]-v, south=s[idx+width]-v, e=s[idx+1]-v, w=s[idx-1]-v;
-                                const distSq = (delta) => delta*delta;
                                 // STRENGTH REDUCTION: Removed Math.pow
                                 const c = (diff) => { const d2 = diff*diff; if (d2 > K2) return 0.0; const t = 1.0 - d2/K2; return 0.5 * t * t; };
                                 d[idx] = v + 0.25 * (c(n)*n + c(south)*south + c(e)*e + c(w)*w);
@@ -741,13 +734,22 @@
                 const qStep = 1.0 / (Math.pow(2, bitDepth) - 1);
                 
                 // 2. Sensitivity Baseline (Nyquist-Shannon + Weber Floor)
-                // We use a tighter baseline for 16-bit to respect its precision, 
-                // but clamp to a physiological minimum (0.0001 for 16-bit, 0.002 for 8-bit approx).
-                // qStep * 2.0 is the signal processing floor.
-                const baseSensitivity = Math.max(qStep * 2.0, 1e-4); 
+                // We strictly bind to the derived quantization step.
+                // 100-DPS PHILOSOPHY: The noise floor is physical, not arbitrary.
+                const physicsFloor = PrecisionCore.PHYSICS ? PrecisionCore.PHYSICS[4] : (1.0/255.0);
+                
+                // For high bit depths (16-bit), we respect the precision but enforce a biological floor
+                // (Visual cortex cannot detect 1/65535 luminance delta in isolation).
+                // We use the greater of the format limit (qStep) or the biological limit (~1/1000).
+                const baseSensitivity = Math.max(qStep, physicsFloor * 0.25); 
                 
                 const maxEnt = PrecisionCore.PHYSICS ? PrecisionCore.PHYSICS[5] : 4.64;
                 const invMaxEnt = 1.0 / (maxEnt || 4.64);
+
+                // MASKING SATURATION CONSTANTS (Michaelis-Menten)
+                // Prevents infinite masking in high-texture areas.
+                const MASK_CEILING = 4.0; // Max masking factor (4x tolerance)
+                const MASK_KNEE = 0.3;    // Entropy level (0-1) where masking is 50% of max
 
                 for(let i=0; i<len; i++) {
                     const L = luma[i]; 
@@ -759,14 +761,19 @@
                     // HVS is most sensitive at mid-grey (0.5). Sensitivity drops in deep shadows (0.0) and highlights (1.0).
                     // We increase threshold (tolerance) at the extremes.
                     // Curve: 1.0 at 0.5, rising to 2.0 at 0.0 and 1.0.
-                    const maskL = 1.0 + Math.pow((L - 0.5) * 2.0, 2.0); 
+                    // STRENGTH REDUCTION: Math.pow -> Multiplication
+                    const v = (L - 0.5) * 2.0;
+                    const maskL = 1.0 + v * v;
 
-                    // 4. Texture & Geometric Masking (Psychovisual)
-                    // High Entropy (Texture) -> Higher Tolerance (Masking effect).
-                    // High Coherence (Edges) -> Lower Tolerance (Phase sensitivity).
-                    // We dampen the error visibility in busy textures, but sharpen it on edges.
-                    // Normalized H allows consistent scaling regardless of dynamic range.
-                    const maskT = (1.0 + H * 3.0) / (1.0 + C * 2.0);
+                    // 4. Texture & Geometric Masking (Psychovisual Saturation)
+                    // SUPERIOR UPGRADE: Michaelis-Menten Kinetics
+                    // Instead of linear growth (1 + H*3), we saturate.
+                    // This prevents "Texture Blindness" where high entropy hides forensic artifacts.
+                    const entropyMask = (MASK_CEILING * H) / (H + MASK_KNEE);
+                    
+                    // Coherence Penalty: Clean edges (High C) reduce masking (Higher Sensitivity).
+                    // We dampen the entropy mask by the coherence factor.
+                    const maskT = 1.0 + (entropyMask * (1.0 - C * 0.8));
 
                     // Composite Threshold: The "Just Noticeable Difference" at this pixel.
                     const threshold = baseSensitivity * maskL * maskT;
@@ -778,7 +785,9 @@
                     if (ratio > 1.0) violations++; 
                     
                     // L4 Norm Pooling (emphasizes severe artifacts over low-level noise)
-                    sum += ratio * ratio * ratio * ratio;
+                    // sum += ratio * ratio * ratio * ratio;
+                    const r2 = ratio * ratio;
+                    sum += r2 * r2;
                 }
                 
                 // Final Metrics
@@ -801,7 +810,7 @@
             if(!isOpen || !scoreData || !physics) return null;
             const { nps, peak, visible_pct } = scoreData;
             const { snr, ebd, noise } = tensor.source_metrics;
-            const grade = nps<0.5 ? {t:'S (Lab)', c:'text-emerald-400'} : nps<1.0 ? {t:'A (Pro)', c:'text-cyan-400'} : {t:'C (Fail)', c:'text-rose-400'};
+            const grade = nps<0.5 ? {t:'Grade I (Optimal)', c:'text-emerald-400'} : nps<1.0 ? {t:'Grade II (Nominal)', c:'text-cyan-400'} : {t:'Grade III (Critical)', c:'text-rose-400'};
             const copy = () => {
                 const report = `[ 100-DPS FORENSIC AUDIT REPORT ]
 ----------------------------------------
@@ -827,11 +836,11 @@ Visible:     ${visible_pct.toFixed(2)}%
                 <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
                     <div className="glass-panel border border-slate-700/50 rounded-xl p-6 w-full max-w-md shadow-2xl relative overflow-hidden">
                         <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-slate-800 via-cyan-500/50 to-slate-800"></div>
-                        <div className="flex justify-between items-center mb-6"><h2 className="text-xl font-bold text-white flex items-center gap-2"><ClipboardCheck className="w-5 h-5 text-cyan-400"/> Audit Report</h2><button onClick={onClose}><X className="text-slate-500 hover:text-white transition-colors"/></button></div>
+                        <div className="flex justify-between items-center mb-6"><h2 className="text-xl font-bold text-white flex items-center gap-2"><ClipboardCheck className="w-5 h-5 text-cyan-400"/> Forensic Report</h2><button onClick={onClose}><X className="text-slate-500 hover:text-white transition-colors"/></button></div>
                         <div className="text-center mb-8 relative">
                             <div className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2">Normalized Perceptual Score</div>
                             <div className={`text-7xl font-black font-mono tracking-tighter ${grade.c} drop-shadow-[0_0_15px_rgba(0,0,0,0.5)]`}>{nps.toFixed(3)}</div>
-                            <div className={`inline-block px-4 py-1 mt-2 rounded-full border border-slate-700 bg-slate-800/50 text-xs font-bold uppercase tracking-widest ${grade.c}`}>{grade.t} GRADE</div>
+                            <div className={`inline-block px-4 py-1 mt-2 rounded-full border border-slate-700 bg-slate-800/50 text-xs font-bold uppercase tracking-widest ${grade.c}`}>{grade.t}</div>
                         </div>
                         <div className="grid grid-cols-2 gap-4 mb-6">
                             <div className="bg-slate-800/40 p-4 rounded-lg border border-slate-700/30 text-center"><div className="text-[10px] uppercase text-slate-500 font-bold mb-1">Peak Error</div><div className="text-xl font-mono text-white tracking-tight">{peak.toFixed(3)}</div></div>
@@ -871,7 +880,7 @@ Visible:     ${visible_pct.toFixed(2)}%
             <div className="bg-slate-900/30 border border-slate-800/60 p-2 rounded-lg space-y-2 hover:border-slate-700/60 transition-colors group">
                 <div className="flex justify-between items-baseline"><div className="flex items-center gap-2"><span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest group-hover:text-slate-400 transition-colors">{label}</span>{value.fine !== 0 && <span className="text-[8px] font-mono text-cyan-500/70 animate-pulse">•</span>}</div><span className="text-xs font-mono font-bold text-cyan-400 bg-cyan-950/20 px-1.5 py-0.5 rounded border border-cyan-900/30">{displayValue}</span></div>
                 <div className="relative h-5 flex items-center"><input type="range" min={minCoarse} max={maxCoarse} step={stepCoarse} value={value.coarse} onChange={(e)=>onChange({...value, coarse: Number(e.target.value)})} className="absolute inset-0 w-full h-1.5 bg-slate-800 rounded-full appearance-none accent-cyan-500 cursor-pointer hover:bg-slate-700 transition-all range-slider"/></div>
-                <div className="flex items-center gap-2 pl-1"><span className="text-[8px] font-mono text-slate-600 uppercase tracking-tight w-4">Trim</span><div className="relative flex-1 h-4 flex items-center"><div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-px h-2 bg-slate-700 pointer-events-none"></div><input type="range" min={minFine} max={maxFine} step={stepFine} value={value.fine} onChange={(e)=>onChange({...value, fine: Number(e.target.value)})} className="w-full h-0.5 bg-slate-800 rounded appearance-none accent-slate-500 hover:accent-cyan-300/80 cursor-col-resize transition-all range-fine"/></div><button onClick={()=>onChange({...value, fine: 0})} className={`p-1 rounded hover:bg-rose-950/30 hover:text-rose-400 transition-colors ${value.fine !== 0 ? 'text-slate-500' : 'text-slate-800 pointer-events-none'}`}><RotateCcw className="w-3 h-3"/></button></div>
+                <div className="flex items-center gap-2 pl-1"><span className="text-[8px] font-mono text-slate-600 uppercase tracking-tight w-4">Fine</span><div className="relative flex-1 h-4 flex items-center"><div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-px h-2 bg-slate-700 pointer-events-none"></div><input type="range" min={minFine} max={maxFine} step={stepFine} value={value.fine} onChange={(e)=>onChange({...value, fine: Number(e.target.value)})} className="w-full h-0.5 bg-slate-800 rounded appearance-none accent-slate-500 hover:accent-cyan-300/80 cursor-col-resize transition-all range-fine"/></div><button onClick={()=>onChange({...value, fine: 0})} className={`p-1 rounded hover:bg-rose-950/30 hover:text-rose-400 transition-colors ${value.fine !== 0 ? 'text-slate-500' : 'text-slate-800 pointer-events-none'}`}><RotateCcw className="w-3 h-3"/></button></div>
             </div>
         );
 
@@ -1000,6 +1009,37 @@ Visible:     ${visible_pct.toFixed(2)}%
                 if(tensor?.meta?.bitDepth === 16) return Math.round(raw * 257); // Scale 255 -> 65535
                 return raw.toFixed(2);
             }, [physics.threshold, tensor]);
+
+            // SUPERIOR SLIDER CONFIGURATION
+            // Context-aware ranges for maximum control authority per tensor field.
+            const getSliderConfig = (layer) => {
+                const base = {
+                    gain: { min: 0, max: 100, step: 1 },
+                    gamma: { min: 0.1, max: 3.0, step: 0.1 },
+                    gate: { min: 0, max: 255, step: 0.1 },
+                    soft: { min: 0, max: 100, step: 1 }
+                };
+
+                // Mathematical Bias per Layer
+                if (layer === 'ssim') {
+                    // SSIM requires massive gain to see subtle structural defects
+                    // Gate should be very low (precision floor)
+                    base.gain.max = 120; // Allow higher gain
+                    base.gate.max = 50;  // Cap threshold to lower range for finer control
+                    base.gate.step = 0.01;
+                } else if (layer === 'entropy') {
+                    // Entropy is high-energy; requires less gain, higher gate
+                    base.gain.max = 80;
+                    base.gate.max = 255;
+                } else if (layer === 'grad') {
+                    // Gradients benefit from Gamma tuning
+                    base.gamma.step = 0.05;
+                }
+                
+                return base;
+            };
+
+            const sliderConfig = useMemo(() => getSliderConfig(activeLayer), [activeLayer]);
 
             // KEYBOARD LISTENER FOR 'P'
             useEffect(() => {
@@ -1293,14 +1333,19 @@ Visible:     ${visible_pct.toFixed(2)}%
                                 <div className="space-y-1"><ChannelRow label="Composite" active={activeLayer==='heuristic'} onClick={()=>setActiveLayer('heuristic')} icon={BrainCircuit} special={true}/><ChannelRow label="Structure" active={activeLayer==='grad'} onClick={()=>setActiveLayer('grad')} icon={ScanLine}/><ChannelRow label="Delta-E" active={activeLayer==='perceptual'} onClick={()=>setActiveLayer('perceptual')} icon={Sun}/><ChannelRow label="SSIM" active={activeLayer==='ssim'} onClick={()=>setActiveLayer('ssim')} icon={Binary}/><ChannelRow label="Entropy" active={activeLayer==='entropy'} onClick={()=>setActiveLayer('entropy')} icon={Waves}/><ChannelRow label="Geometric" active={activeLayer==='coherence'} onClick={()=>setActiveLayer('coherence')} icon={Compass}/></div>
                                 <button onClick={runAutoTune} className="w-full py-2 bg-indigo-900/30 border border-indigo-500/30 text-indigo-300 text-[10px] font-bold rounded flex items-center justify-center gap-2 hover:bg-indigo-900/50 transition-all"><Target className="w-3 h-3"/> Auto-Optimize Parameters</button>
                                 <div className="p-3 bg-slate-800/50 rounded border border-slate-700"><div className="flex justify-between mb-2 items-center"><span className="text-[10px] font-bold text-slate-500 uppercase flex items-center gap-1"><ShieldCheck className="w-3 h-3"/> Forensics</span><div className="flex bg-slate-950 rounded p-0.5 border border-slate-800"><button onClick={()=>setViewMode('raw')} className={`px-2 py-0.5 text-[10px] rounded font-bold ${viewMode==='raw'?'bg-slate-700 text-white':'text-slate-500'}`}>RAW</button><button onClick={()=>setViewMode('clean')} className={`px-2 py-0.5 text-[10px] rounded font-bold ${viewMode==='clean'?'bg-emerald-600 text-white shadow-lg':'text-slate-500'}`}>FILTER</button></div></div><div className="grid grid-cols-3 gap-1"><button onClick={()=>setRepairSettings(p=>({...p, chroma:!p.chroma}))} className={`py-1.5 text-[9px] font-bold rounded border transition-all ${repairSettings.chroma?'bg-cyan-900/40 border-cyan-500 text-cyan-400':'bg-slate-900 border-slate-800 text-slate-500 hover:border-slate-600'}`}>Tukey</button><button onClick={()=>setRepairSettings(p=>({...p, ringing:!p.ringing}))} className={`py-1.5 text-[9px] font-bold rounded border transition-all ${repairSettings.ringing?'bg-cyan-900/40 border-cyan-500 text-cyan-400':'bg-slate-900 border-slate-800 text-slate-500 hover:border-slate-600'}`}>NLM</button><button onClick={()=>setRepairSettings(p=>({...p, geodesic:!p.geodesic}))} className={`py-1.5 text-[9px] font-bold rounded border transition-all ${repairSettings.geodesic?'bg-rose-900/40 border-rose-500 text-rose-400':'bg-slate-900 border-slate-800 text-slate-500 hover:border-slate-600'}`}>Geo</button></div></div>
-                                <div className="space-y-2"><DualSlider label="Gain" displayValue={`${physics.gain.toFixed(0)}x`} value={gainState} onChange={setGainState} minCoarse={1} maxCoarse={100} stepCoarse={1} minFine={-1.0} maxFine={1.0} stepFine={0.001}/><DualSlider label="Gamma" displayValue={physics.gamma.toFixed(2)} value={gammaState} onChange={setGammaState} minCoarse={0.1} maxCoarse={3} stepCoarse={0.1} minFine={-0.2} maxFine={0.2} stepFine={0.001}/><DualSlider label="Threshold" displayValue={gateDisplayVal} value={gateState} onChange={setGateState} minCoarse={0} maxCoarse={255} stepCoarse={tensor?.meta?.bitDepth===16 ? 0.001 : 0.1} minFine={-10} maxFine={10} stepFine={tensor?.meta?.bitDepth===16 ? 0.001 : 0.01}/><DualSlider label="Falloff" displayValue={physics.softness.toFixed(0)} value={softState} onChange={setSoftState} minCoarse={0} maxCoarse={100} stepCoarse={1} minFine={-5} maxFine={5} stepFine={0.1}/></div>
+                                <div className="space-y-2">
+                                    <DualSlider label="Gain" displayValue={`${physics.gain.toFixed(0)}x`} value={gainState} onChange={setGainState} minCoarse={sliderConfig.gain.min} maxCoarse={sliderConfig.gain.max} stepCoarse={sliderConfig.gain.step} minFine={-1.0} maxFine={1.0} stepFine={0.001}/>
+                                    <DualSlider label="Gamma" displayValue={physics.gamma.toFixed(2)} value={gammaState} onChange={setGammaState} minCoarse={sliderConfig.gamma.min} maxCoarse={sliderConfig.gamma.max} stepCoarse={sliderConfig.gamma.step} minFine={-0.2} maxFine={0.2} stepFine={0.001}/>
+                                    <DualSlider label="Threshold" displayValue={gateDisplayVal} value={gateState} onChange={setGateState} minCoarse={sliderConfig.gate.min} maxCoarse={sliderConfig.gate.max} stepCoarse={tensor?.meta?.bitDepth===16 ? 0.001 : sliderConfig.gate.step} minFine={-10} maxFine={10} stepFine={tensor?.meta?.bitDepth===16 ? 0.001 : 0.01}/>
+                                    <DualSlider label="Falloff" displayValue={physics.softness.toFixed(0)} value={softState} onChange={setSoftState} minCoarse={sliderConfig.soft.min} maxCoarse={sliderConfig.soft.max} stepCoarse={sliderConfig.soft.step} minFine={-5} maxFine={5} stepFine={0.1}/>
+                                </div>
                                 {stats && (<div className="pt-4 border-t border-slate-800 space-y-3"><Histogram data={stats.hist} cutoff={physics.threshold/255.0}/><Legend physics={physics} type={activeLayer}/></div>)}
                                 <button onClick={()=>setShowAudit(true)} className="w-full py-3 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded uppercase tracking-wider flex items-center justify-center gap-2 shadow-lg shadow-emerald-900/20 transition-all"><ClipboardCheck className="w-4 h-4"/> View Forensic Report</button></div>)}
                         </div>
                     </div>
                     <div className="flex-1 bg-black relative overflow-hidden flex items-center justify-center cursor-crosshair order-1 md:order-2 h-1/2 md:h-full" 
                          ref={viewRef} 
-                         style={{ touchAction: 'none' }} // MOBILE SUPERIORITY: Prevent browser gestures (refresh/back)
+                         style={{ touchAction: 'none' }} 
                          onWheel={handleCanvasWheel} 
                          onMouseDown={handleCanvasDown} 
                          onMouseMove={handleCanvasMove} 
