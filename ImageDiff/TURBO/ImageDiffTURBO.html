@@ -465,18 +465,23 @@
                             const sx = x + searchMargin + dx; if(sx<0 || sx>=largeCrop-1) continue;
                             const ix=sx|0, iy=sy|0, fx=sx-ix, fy=sy-iy;
                             const idx = iy*largeCrop + ix;
+                            // Bilinear Interpolation
                             const val = map2Large[idx]*(1-fx)*(1-fy) + map2Large[idx+1]*fx*(1-fy) + map2Large[idx+largeCrop]*(1-fx)*fy + map2Large[idx+largeCrop+1]*fx*fy;
-                            const d = map1[y*crop+x] - val; err += d*d;
+                            
+                            // QUALITY UPGRADE: SAD (Sum of Absolute Differences)
+                            // More robust to outliers (artifacts/cursors) than SSD (d*d)
+                            err += Math.abs(map1[y*crop+x] - val); 
                         }
                     }
                     return err;
                 };
                 let curX = 0, curY = 0, step = 4.0; let minErr = getError(0,0);
-                for(let iter=0; iter<30; iter++) {
+                for(let iter=0; iter<40; iter++) { // Increased iterations
                     let bestE = minErr, bestX = curX, bestY = curY;
                     [[0,-1],[0,1],[-1,0],[1,0]].forEach(d => { const nx = curX + d[0]*step, ny = curY + d[1]*step; const e = getError(nx, ny); if(e < bestE) { bestE = e; bestX = nx; bestY = ny; } });
                     if(bestE < minErr) { minErr = bestE; curX = bestX; curY = bestY; } else { step *= 0.5; }
-                    if(step < 0.005) break; if(cb) cb(0.5 + (iter/30)*0.5); await new Promise(r => setTimeout(r,0));
+                    if(step < 0.001) break; // Tighter convergence threshold (was 0.005)
+                    if(cb) cb(0.5 + (iter/40)*0.5); await new Promise(r => setTimeout(r,0));
                 }
                 let finalX = ox + curX, finalY = oy + curY;
                 if (Math.abs(finalX) < 0.15) finalX = 0.0; if (Math.abs(finalY) < 0.15) finalY = 0.0;
@@ -883,8 +888,20 @@ Visible:     ${visible_pct.toFixed(2)}%
                         let maskWeight = 1.0;
                         if (HVS_MASK) {
                            const structureRef = st1.l1[i]; // Reference Structure Intensity
-                           const lutIdx = Math.min(HVS_LEN, Math.max(0, Math.floor(structureRef * HVS_LEN)));
-                           maskWeight = HVS_MASK[lutIdx];
+                           
+                           // 100-DPS PRECISION: Use Linear Interpolation for LUT lookup
+                           // Avoids quantization steps in the sensitivity mask
+                           const rawIdx = Math.max(0, structureRef * HVS_LEN);
+                           const idxLo = Math.floor(rawIdx);
+                           const idxHi = Math.min(HVS_LEN, idxLo + 1);
+                           const t = rawIdx - idxLo;
+                           
+                           // Boundary safe lookup (clamped to LUT size)
+                           // If rawIdx exceeds LUT, we clamp to the last value (max masking)
+                           const valLo = HVS_MASK[Math.min(HVS_LEN, idxLo)];
+                           const valHi = HVS_MASK[idxHi]; // idxHi is already clamped via min above
+                           
+                           maskWeight = valLo * (1.0 - t) + valHi * t;
                         }
                         
                         layers.heuristic.raw[i] = Math.sqrt((termPercep * flatWeight)**2 + (termStruct * edgeWeight)**2 + (termSSIM * edgeWeight)**2 + (termEnt * flatWeight * 0.5)**2 + (cDiff * 0.25)**2) * maskWeight;
