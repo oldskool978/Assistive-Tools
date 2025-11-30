@@ -499,13 +499,22 @@
                 const qStep = 1.0 / (Math.pow(2, bitDepth) - 1);
                 
                 // 2. Sensitivity Baseline (Nyquist-Shannon + Weber Floor)
-                // We use a tighter baseline for 16-bit to respect its precision, 
-                // but clamp to a physiological minimum (0.0001 for 16-bit, 0.002 for 8-bit approx).
-                // qStep * 2.0 is the signal processing floor.
-                const baseSensitivity = Math.max(qStep * 2.0, 1e-4); 
+                // We strictly bind to the derived quantization step.
+                // 100-DPS PHILOSOPHY: The noise floor is physical, not arbitrary.
+                const physicsFloor = PrecisionCore.PHYSICS ? PrecisionCore.PHYSICS[4] : (1.0/255.0);
+                
+                // For high bit depths (16-bit), we respect the precision but enforce a biological floor
+                // (Visual cortex cannot detect 1/65535 luminance delta in isolation).
+                // We use the greater of the format limit (qStep) or the biological limit (~1/1000).
+                const baseSensitivity = Math.max(qStep, physicsFloor * 0.25); 
                 
                 const maxEnt = PrecisionCore.PHYSICS ? PrecisionCore.PHYSICS[5] : 4.64;
                 const invMaxEnt = 1.0 / (maxEnt || 4.64);
+
+                // MASKING SATURATION CONSTANTS (Michaelis-Menten)
+                // Prevents infinite masking in high-texture areas.
+                const MASK_CEILING = 4.0; // Max masking factor (4x tolerance)
+                const MASK_KNEE = 0.3;    // Entropy level (0-1) where masking is 50% of max
 
                 for(let i=0; i<len; i++) {
                     const L = luma[i]; 
@@ -519,12 +528,15 @@
                     // Curve: 1.0 at 0.5, rising to 2.0 at 0.0 and 1.0.
                     const maskL = 1.0 + Math.pow((L - 0.5) * 2.0, 2.0); 
 
-                    // 4. Texture & Geometric Masking (Psychovisual)
-                    // High Entropy (Texture) -> Higher Tolerance (Masking effect).
-                    // High Coherence (Edges) -> Lower Tolerance (Phase sensitivity).
-                    // We dampen the error visibility in busy textures, but sharpen it on edges.
-                    // Normalized H allows consistent scaling regardless of dynamic range.
-                    const maskT = (1.0 + H * 3.0) / (1.0 + C * 2.0);
+                    // 4. Texture & Geometric Masking (Psychovisual Saturation)
+                    // SUPERIOR UPGRADE: Michaelis-Menten Kinetics
+                    // Instead of linear growth (1 + H*3), we saturate.
+                    // This prevents "Texture Blindness" where high entropy hides forensic artifacts.
+                    const entropyMask = (MASK_CEILING * H) / (H + MASK_KNEE);
+                    
+                    // Coherence Penalty: Clean edges (High C) reduce masking (Higher Sensitivity).
+                    // We dampen the entropy mask by the coherence factor.
+                    const maskT = 1.0 + (entropyMask * (1.0 - C * 0.8));
 
                     // Composite Threshold: The "Just Noticeable Difference" at this pixel.
                     const threshold = baseSensitivity * maskL * maskT;
