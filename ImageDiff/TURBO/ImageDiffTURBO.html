@@ -165,28 +165,28 @@
 
         // --- 4. ANALYSIS ENGINE ---
         const AnalysisEngine = (() => {
-            const convolveSeparable = (input, width, height, kH, kV) => {
+            // FREE COMPUTE: 'outBuffer' argument enables Zero-Allocation convolution
+            const convolveSeparable = (input, width, height, kH, kV, outBuffer = null) => {
                 if (!kH || !kV) return new Float64Array(input.length);
-                const len = width * height; const temp = MemoryVanguard.request(0, len); 
-                // HIGH PRECISION UPGRADE: Output is Float64
-                const out = new Float64Array(len);
+                const len = width * height; 
+                const temp = MemoryVanguard.request(0, len); 
+                // Use provided buffer or allocate if null (legacy support)
+                const out = outBuffer || new Float64Array(len);
                 
                 // FREE COMPUTE: Optimization Kernel Dispatch
-                // We detect kernel properties to use specialized loops that reduce FLOPs by ~50%.
-                // This increases speed and reduces accumulated floating point error.
+                // ... (Kernels remain identical, just writing to 'out') ...
                 
                 const runPass = (src, dst, w, h, k, isVert) => {
                     const kSz = k.length;
                     const half = (kSz - 1) >> 1;
                     
-                    // CASE 1: Symmetric 13-Tap (KAISER_13) -> 46% Reduction in Mults
+                    // CASE 1: Symmetric 13-Tap (KAISER_13)
                     if (kSz === 13) { 
                         const k0=k[0], k1=k[1], k2=k[2], k3=k[3], k4=k[4], k5=k[5], k6=k[6]; // Center is k6
                         if (isVert) {
                             for(let x=0; x<w; x++) {
                                 for(let y=0; y<h; y++) {
                                     let sum = src[Math.imul(y, w) + x] * k6; // Center
-                                    // Mirror pairs: (y-1, y+1), (y-2, y+2)...
                                     for(let d=1; d<=6; d++) {
                                         let yN = y-d; if(yN<0) yN=-yN; else if(yN>=h) yN=h-1-(yN-h);
                                         let yP = y+d; if(yP<0) yP=-yP; else if(yP>=h) yP=h-1-(yP-h);
@@ -212,19 +212,16 @@
                         return;
                     }
                     
-                    // CASE 2: Anti-Symmetric 5-Tap (FARID_D) -> 60% Reduction in Mults
-                    // Pattern: [a, b, 0, -b, -a]
+                    // CASE 2: Anti-Symmetric 5-Tap (FARID_D)
                     if (kSz === 5 && k[2] === 0 && Math.abs(k[0] + k[4]) < 1e-15) {
-                        const k0 = k[0], k1 = k[1]; // k2 is 0
+                        const k0 = k[0], k1 = k[1];
                         if (isVert) {
                             for(let x=0; x<w; x++) {
                                 for(let y=0; y<h; y++) {
-                                    // (src[y-2] - src[y+2])*k0 + (src[y-1] - src[y+1])*k1
                                     let yN2=y-2; if(yN2<0) yN2=-yN2; else if(yN2>=h) yN2=h-1-(yN2-h);
                                     let yP2=y+2; if(yP2<0) yP2=-yP2; else if(yP2>=h) yP2=h-1-(yP2-h);
                                     let yN1=y-1; if(yN1<0) yN1=-yN1; else if(yN1>=h) yN1=h-1-(yN1-h);
                                     let yP1=y+1; if(yP1<0) yP1=-yP1; else if(yP1>=h) yP1=h-1-(yP1-h);
-                                    
                                     dst[Math.imul(y, w) + x] = (src[Math.imul(yN2, w) + x] - src[Math.imul(yP2, w) + x]) * k0 + 
                                                                (src[Math.imul(yN1, w) + x] - src[Math.imul(yP1, w) + x]) * k1;
                                 }
@@ -237,7 +234,6 @@
                                     let xP2=x+2; if(xP2<0) xP2=-xP2; else if(xP2>=w) xP2=w-1-(xP2-w);
                                     let xN1=x-1; if(xN1<0) xN1=-xN1; else if(xN1>=w) xN1=w-1-(xN1-w);
                                     let xP1=x+1; if(xP1<0) xP1=-xP1; else if(xP1>=w) xP1=w-1-(xP1-w);
-                                    
                                     dst[r+x] = (src[r+xN2] - src[r+xP2]) * k0 + (src[r+xN1] - src[r+xP1]) * k1;
                                 }
                             }
@@ -245,7 +241,7 @@
                         return;
                     }
 
-                    // CASE 3: Symmetric 5-Tap (FARID_P) -> 40% Reduction in Mults
+                    // CASE 3: Symmetric 5-Tap (FARID_P)
                     if (kSz === 5 && Math.abs(k[0] - k[4]) < 1e-15) {
                         const k0 = k[0], k1 = k[1], k2 = k[2];
                         if (isVert) {
@@ -275,8 +271,8 @@
                         return;
                     }
 
-                    // Fallback: Generic Convolution
-                    for(let i=0; i<w*h; i++) dst[i] = src[i]; // Placeholder if no generic logic needed, but we rely on specialized kernels.
+                    // Fallback
+                    for(let i=0; i<w*h; i++) dst[i] = src[i];
                 };
 
                 runPass(input, temp, width, height, kH, false);
@@ -288,18 +284,39 @@
             const getStructureTensor = (oklab, w, h) => {
                 const { FARID_P, FARID_D, KAISER_13 } = PrecisionCore; const len = w * h;
                 const Ixx = MemoryVanguard.request(1, len).fill(0), Iyy = MemoryVanguard.request(2, len).fill(0), Ixy = MemoryVanguard.request(3, len).fill(0);
-                ['l','a','b'].forEach(c => {
-                    const Ix = convolveSeparable(oklab[c], w, h, FARID_D, FARID_P); const Iy = convolveSeparable(oklab[c], w, h, FARID_P, FARID_D);
-                    for(let i=0; i<len; i++) { Ixx[i] += Ix[i] * Ix[i]; Iyy[i] += Iy[i] * Iy[i]; Ixy[i] += Ix[i] * Iy[i]; }
-                });
-                const Sxx = convolveSeparable(Ixx, w, h, KAISER_13, KAISER_13); const Syy = convolveSeparable(Iyy, w, h, KAISER_13, KAISER_13); const Sxy = convolveSeparable(Ixy, w, h, KAISER_13, KAISER_13);
+                // FREE COMPUTE: Reuse slots 4 & 5 for gradients, avoiding 6 large allocations
+                const bufIx = MemoryVanguard.request(4, len);
+                const bufIy = MemoryVanguard.request(5, len);
                 
-                // HIGH PRECISION UPGRADE: Float64 for Eigenvalues
+                ['l','a','b'].forEach(c => {
+                    convolveSeparable(oklab[c], w, h, FARID_D, FARID_P, bufIx); // Write to bufIx
+                    convolveSeparable(oklab[c], w, h, FARID_P, FARID_D, bufIy); // Write to bufIy
+                    for(let i=0; i<len; i++) { 
+                        Ixx[i] += bufIx[i] * bufIx[i]; 
+                        Iyy[i] += bufIy[i] * bufIy[i]; 
+                        Ixy[i] += bufIx[i] * bufIy[i]; 
+                    }
+                });
+                // Convolve sums (in-place or to new buffer? We need return values)
+                // We allocate new for results as they are persistent in the tensor
+                const Sxx = convolveSeparable(Ixx, w, h, KAISER_13, KAISER_13); 
+                const Syy = convolveSeparable(Iyy, w, h, KAISER_13, KAISER_13); 
+                const Sxy = convolveSeparable(Ixy, w, h, KAISER_13, KAISER_13);
+                
                 const l1 = new Float64Array(len), l2 = new Float64Array(len), coh = new Float64Array(len);
                 for(let i=0; i<len; i++) {
-                    const tr = Sxx[i] + Syy[i]; const det = Sxx[i]*Syy[i] - Sxy[i]*Sxy[i]; const term = Math.sqrt(Math.max(0, (tr * 0.5)**2 - det));
-                    l1[i] = Math.sqrt(Math.max(0, tr * 0.5 + term)); l2[i] = Math.sqrt(Math.max(0, tr * 0.5 - term));
-                    const sum = l1[i] + l2[i]; coh[i] = (sum > 1e-12) ? ((l1[i] - l2[i]) / sum) ** 2 : 0;
+                    const tr = Sxx[i] + Syy[i]; const det = Sxx[i]*Syy[i] - Sxy[i]*Sxy[i]; 
+                    // STRENGTH REDUCTION: (tr*0.5)**2 -> tHalf*tHalf
+                    const tHalf = tr * 0.5;
+                    const term = Math.sqrt(Math.max(0, tHalf*tHalf - det));
+                    l1[i] = Math.sqrt(Math.max(0, tHalf + term)); l2[i] = Math.sqrt(Math.max(0, tHalf - term));
+                    const sum = l1[i] + l2[i]; 
+                    if (sum > 1e-12) {
+                        const d = (l1[i] - l2[i]) / sum;
+                        coh[i] = d * d; // STRENGTH REDUCTION: **2 -> *
+                    } else {
+                        coh[i] = 0;
+                    }
                 }
                 return { l1, l2, coherence: coh };
             };
@@ -324,17 +341,37 @@
                 const { KAISER_13, PHYSICS } = PrecisionCore;
                 const C1 = PHYSICS ? PHYSICS[1] : 0.0001, C2 = PHYSICS ? PHYSICS[2] : 0.0009;
                 const len = w*h;
-                // HIGH PRECISION UPGRADE: Float64
                 const ssim = new Float64Array(len);
+                
+                // FREE COMPUTE: Reuse Vanguard slots for SSIM intermediates
+                // Slots 1,2,3 are typically free after Structure Tensor is done
+                const t1 = MemoryVanguard.request(1, len); 
+                const t2 = MemoryVanguard.request(2, len); 
+                const t3 = MemoryVanguard.request(3, len);
+                const mu1 = MemoryVanguard.request(4, len); // Reuse
+                const mu2 = MemoryVanguard.request(5, len); // Reuse
+                
+                // We need temp buffers for the sig_sq outputs. 
+                // We can't overwrite t1/t2/t3 before convolution is done.
+                // We allocate new results for sigmas temporarily or reuse complexly?
+                // For safety and "superior order", we let convolve return new for sigmas, or use more slots.
+                // Let's rely on standard GC for the sigmas (3 allocations) vs the previous 5.
+                
                 ['l', 'a', 'b'].forEach(key => {
                     const buf1 = ok1[key]; const buf2 = ok2[key];
-                    const mu1 = convolveSeparable(buf1, w, h, KAISER_13, KAISER_13);
-                    const mu2 = convolveSeparable(buf2, w, h, KAISER_13, KAISER_13);
-                    const t1 = MemoryVanguard.request(1, len); const t2 = MemoryVanguard.request(2, len); const t3 = MemoryVanguard.request(3, len);
+                    convolveSeparable(buf1, w, h, KAISER_13, KAISER_13, mu1);
+                    convolveSeparable(buf2, w, h, KAISER_13, KAISER_13, mu2);
+                    
                     for(let i=0; i<len; i++) { t1[i] = buf1[i] * buf1[i]; t2[i] = buf2[i] * buf2[i]; t3[i] = buf1[i] * buf2[i]; }
+                    
+                    // We can reuse t1, t2, t3 containers for the convolution OUTPUTS if we are careful?
+                    // convolveSeparable reads src, writes dst. If src === dst, it fails (inplace).
+                    // So we must output to new buffers or other slots. 
+                    // Let's just create variables for clarity/safety but use convolveSeparable's internal optimization.
                     const sig1_sq_raw = convolveSeparable(t1, w, h, KAISER_13, KAISER_13);
                     const sig2_sq_raw = convolveSeparable(t2, w, h, KAISER_13, KAISER_13);
                     const sig12_raw = convolveSeparable(t3, w, h, KAISER_13, KAISER_13);
+                    
                     for(let i=0; i<len; i++) {
                         const m1 = mu1[i], m2 = mu2[i];
                         const sig1_sq = sig1_sq_raw[i] - m1*m1;
@@ -351,7 +388,13 @@
 
             const getPerceptualDelta = (o1, o2, w, h) => {
                 const len = w*h; const d = new Float64Array(len);
-                for(let i=0; i<len; i++) d[i] = Math.sqrt((o1.l[i]-o2.l[i])**2 + (o1.a[i]-o2.a[i])**2 + (o1.b[i]-o2.b[i])**2);
+                for(let i=0; i<len; i++) {
+                    // STRENGTH REDUCTION: **2 -> *
+                    const dl = o1.l[i]-o2.l[i];
+                    const da = o1.a[i]-o2.a[i];
+                    const db = o1.b[i]-o2.b[i];
+                    d[i] = Math.sqrt(dl*dl + da*da + db*db);
+                }
                 return d;
             };
             return { getStructureTensor, getEntropy, getSSIM, getPerceptualDelta };
@@ -360,27 +403,32 @@
         // --- 5. FORENSIC FILTER ---
         const ForensicFilter = (() => {
             const tasks = {
-                geodesic: (mask, width, height, stats, tuning) => {
-                    // HIGH PRECISION UPGRADE: Float64 for erosion stability
-                    const len = mask.length; const marker = new Float64Array(len);
+                // FREE COMPUTE: Tasks now accept explicit input/output buffers (Ping-Pong compatible)
+                geodesic: (src, dst, width, height, stats, tuning) => {
+                    const len = src.length; 
                     const floor = stats ? Math.max(1e-6, stats.statFloor * tuning.geoScale) : 0.005;
-                    for(let i=0; i<len; i++) marker[i] = Math.max(0, mask[i] - floor);
+                    // Initialize marker in dst
+                    for(let i=0; i<len; i++) dst[i] = Math.max(0, src[i] - floor);
+                    
+                    // Reconstruction loop (inplace on dst is fine for morph)
                     for(let k=0; k<5; k++) {
                         for(let i=0; i<len; i++) {
-                            let m = marker[i];
-                            if(i>=width) m = Math.max(m, marker[i-width]); if(i%width) m = Math.max(m, marker[i-1]);
-                            marker[i] = Math.min(m, mask[i]);
+                            let m = dst[i];
+                            if(i>=width) m = Math.max(m, dst[i-width]); if(i%width) m = Math.max(m, dst[i-1]);
+                            dst[i] = Math.min(m, src[i]); // constrain to mask (src)
                         }
                         for(let i=len-1; i>=0; i--) {
-                            let m = marker[i];
-                            if(i<len-width) m = Math.max(m, marker[i+width]); if((i+1)%width) m = Math.max(m, marker[i+1]);
-                            marker[i] = Math.min(m, mask[i]);
+                            let m = dst[i];
+                            if(i<len-width) m = Math.max(m, dst[i+width]); if((i+1)%width) m = Math.max(m, dst[i+1]);
+                            dst[i] = Math.min(m, src[i]);
                         }
                     }
-                    return marker;
                 },
-                nlm: (input, width, height, stats, tuning) => {
-                    const len = input.length; const output = new Float64Array(input); // EDGE PRESERVATION
+                nlm: (src, dst, width, height, stats, tuning) => {
+                    const len = src.length; 
+                    // Copy edges first
+                    dst.set(src);
+                    
                     const sigma = stats ? stats.robustSigma : 0.01; 
                     const h2 = (sigma * sigma) * tuning.nlmDecay;
                     for(let y=3; y<height-3; y++) {
@@ -390,43 +438,81 @@
                             for(let dy=-2; dy<=2; dy++) for(let dx=-2; dx<=2; dx++) {
                                 let dist = 0.0; const sIdx = idx + Math.imul(dy, width) + dx;
                                 for(let py=-1; py<=1; py++) for(let px=-1; px<=1; px++) {
-                                    const d = input[idx + Math.imul(py, width) + px] - input[sIdx + Math.imul(py, width) + px]; dist += d*d;
+                                    const d = src[idx + Math.imul(py, width) + px] - src[sIdx + Math.imul(py, width) + px]; 
+                                    dist += d*d; // Strength Reduction
                                 }
-                                const w = Math.exp(-Math.max(0, dist - 2*h2) / (h2 + 1e-9)); vSum += input[sIdx] * w; wSum += w;
+                                const w = Math.exp(-Math.max(0, dist - 2*h2) / (h2 + 1e-9)); vSum += src[sIdx] * w; wSum += w;
                             }
-                            output[idx] = vSum / (wSum + 1e-9);
+                            dst[idx] = vSum / (wSum + 1e-9);
                         }
                     }
-                    return output;
                 },
-                tukey: (input, width, height, stats, tuning) => {
-                    const len = input.length; const u = new Float64Array(input); const u_next = new Float64Array(len);
+                tukey: (src, dst, width, height, stats, tuning) => {
+                    const len = src.length;
                     const sigma = stats ? stats.robustSigma : 0.01; 
                     const K = sigma * tuning.tukeyK; const K2 = K * K;
-                    u_next.set(u); // EDGE PRESERVATION
+                    
+                    // Copy edges
+                    dst.set(src);
+                    
+                    // We need a temporary buffer for the iterative Tukey if we do 3 passes?
+                    // The original code did: u_next from u, then u = u_next.
+                    // Here we are doing 1 pass of the filter per 'task' call? 
+                    // Original code: "for(let iter=0; iter<3; iter++)".
+                    // If we do this in-place or ping-pong inside, we need 2 buffers.
+                    // Ideally, we treat 'src' as read-only and 'dst' as write.
+                    // But Tukey iterates. 
+                    // For Free Compute, we can just do 1 high-quality pass per manifold step to fit the Ping-Pong model,
+                    // OR we use the src/dst as the ping/pong buffers for the internal loop.
+                    // Let's use internal ping-pong if iter > 1.
+                    
+                    // Actually, simpler: Use dst as temp. 
+                    // Pass 1: src -> dst. Pass 2: dst -> src? No, src is input.
+                    // We will do a single robust pass to avoid extra allocs, or use a small stack temp?
+                    // Given the manifold loop runs 8 permutations, 1 iter is likely sufficient, 
+                    // but to maintain "Superior" logic, let's keep the iterations but operate in-place 
+                    // carefully or allocate 1 temp (still better than 8 allocs).
+                    // Actually, we can use MemoryVanguard 0 (temp) as the swap buffer!
+                    const temp = MemoryVanguard.request(0, len);
+                    temp.set(src); // Init temp with src
+                    
+                    // Iter 1: temp -> dst
+                    // Iter 2: dst -> temp
+                    // Iter 3: temp -> dst
+                    
                     for(let iter=0; iter<3; iter++) {
+                        const s = (iter % 2 === 0) ? temp : dst;
+                        const d = (iter % 2 === 0) ? dst : temp;
+                        
                         for(let y=1; y<height-1; y++) {
                             const row = Math.imul(y, width);
                             for(let x=1; x<width-1; x++) {
-                                const idx = row + x; const v = u[idx];
-                                const n=u[idx-width]-v, s=u[idx+width]-v, e=u[idx+1]-v, w=u[idx-1]-v;
-                                const c = (d) => { const d2 = d*d; return (d2 <= K2) ? 0.5 * ((1.0 - d2/K2)**2) : 0.0; };
-                                u_next[idx] = v + 0.25 * (c(n)*n + c(s)*s + c(e)*e + c(w)*w);
+                                const idx = row + x; const v = s[idx];
+                                const n=s[idx-width]-v, south=s[idx+width]-v, e=s[idx+1]-v, w=s[idx-1]-v;
+                                const c = (dist) => { const d2 = dist*dist; return (d2 <= K2) ? 0.5 * ((1.0 - d2/K2)**2) : 0.0; };
+                                d[idx] = v + 0.25 * (c(n)*n + c(south)*south + c(e)*e + c(w)*w);
                             }
                         }
-                        u.set(u_next);
                     }
-                    return u;
+                    // If odd iterations (3), result is in dst. Correct.
                 }
             };
             const generateManifold = async (base, w, h, layerKey, cb) => {
                 const manifolds = new Array(8);
                 const isSSIM = layerKey === 'ssim';
-                // HIGH PRECISION UPGRADE: Float64
-                const working = new Float64Array(base.length);
-                if (isSSIM) { for(let i=0; i<base.length; i++) working[i] = Math.max(0, 1.0 - base[i]); } 
-                else { working.set(base); }
-                const robustSigma = PrecisionCore.estimateRobustSigma(working, w, h);
+                
+                // FREE COMPUTE: Ping-Pong Buffers
+                // Allocating 2 buffers once, instead of new buffers every step.
+                // Reusing MemoryVanguard slots if possible? No, we need persistence for the result.
+                // But we can reuse the intermediate buffers.
+                
+                const bufferA = new Float64Array(base.length);
+                const bufferB = new Float64Array(base.length);
+                
+                if (isSSIM) { for(let i=0; i<base.length; i++) bufferA[i] = Math.max(0, 1.0 - base[i]); } 
+                else { bufferA.set(base); }
+                
+                const robustSigma = PrecisionCore.estimateRobustSigma(bufferA, w, h);
                 let floorOverride = 1.0/65535.0;
                 if (layerKey === 'entropy') floorOverride = 0.01; if (layerKey === 'coherence') floorOverride = 0.005;
                 const stats = { robustSigma: Math.max(robustSigma, floorOverride), statFloor: Math.max(robustSigma, floorOverride) };
@@ -435,12 +521,24 @@
                 else if (layerKey === 'grad') { tuning.tukeyK = 4.0; tuning.geoScale = 2.0; } 
                 else if (layerKey === 'entropy') { tuning.geoScale = 3.0; tuning.nlmDecay = 1.0; } 
                 else if (layerKey === 'coherence') { tuning.tukeyK = 6.0; tuning.nlmDecay = 3.0; } 
+                
                 for(let m=0; m<8; m++) {
-                    let curr = new Float64Array(working);
-                    if(m & 1) curr = tasks.tukey(curr, w, h, stats, tuning);
-                    if(m & 2) curr = tasks.nlm(curr, w, h, stats, tuning);
-                    if(m & 4) curr = tasks.geodesic(curr, w, h, stats, tuning);
-                    manifolds[m] = curr;
+                    // Reset inputs for this permutation
+                    // We copy base to A to start fresh
+                    if (isSSIM) { for(let i=0; i<base.length; i++) bufferA[i] = Math.max(0, 1.0 - base[i]); }
+                    else { bufferA.set(base); }
+                    
+                    let current = bufferA;
+                    let next = bufferB;
+                    
+                    // Pipeline: A -> B -> A -> B
+                    if(m & 1) { tasks.tukey(current, next, w, h, stats, tuning); [current, next] = [next, current]; }
+                    if(m & 2) { tasks.nlm(current, next, w, h, stats, tuning); [current, next] = [next, current]; }
+                    if(m & 4) { tasks.geodesic(current, next, w, h, stats, tuning); [current, next] = [next, current]; }
+                    
+                    // Save result
+                    manifolds[m] = new Float64Array(current); // Must clone to persist
+                    
                     if(cb) cb(m/8.0); await new Promise(r => setTimeout(r, 0));
                 }
                 return manifolds;
