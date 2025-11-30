@@ -154,6 +154,9 @@ def ensure_math():
         for i in range(4096): 
             v = i * inv_max
             lin.append(v/12.92 if v<=0.04045 else ((v+a)/1.055)**g)
+        
+        # FREE COMPUTE: Padding for Interpolation safety (no bounds checks)
+        lin.append(lin[-1]) 
         register_injection("LINEAR_LUT_HQ", lin)
 
     if "FARID_P" in missing:
@@ -187,7 +190,9 @@ def ensure_math():
                 w = 1 / denom
             
             mask_curve.append(w)
-            
+        
+        # FREE COMPUTE: Padding for Interpolation safety
+        mask_curve.append(mask_curve[-1])
         register_injection("HVS_MASK_LUT", mask_curve)
 
     if "TURBO" in missing:
