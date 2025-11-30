@@ -137,7 +137,6 @@
                 const normScale = is16Bit ? 1.0/65535.0 : 1.0/255.0;
 
                 // LUT is padded. Safe to access idx+1 unconditionally.
-                // Scale factor maps 0.0-1.0 to 0-4095.
                 const scaleFactor = 4095.0;
                 
                 // FREE COMPUTE: Hoisted 'lookup' with BOUNDARY CHECK ELIMINATION
@@ -1246,7 +1245,10 @@ Visible:     ${visible_pct.toFixed(2)}%
                 const s = OptimizationEngine.solve(tensor, activeLayer, mask, viewMode);
                 if(s) {
                     const logG = Math.log10(s.gain); const cG = Math.max(0, Math.min(100, ((logG+4)/10)*100));
-                    setGainState({coarse: cG, fine: 0}); setGateState({coarse: s.threshold, fine: 0}); setGammaState({coarse: s.gamma, fine: 0}); setSoftState({coarse: s.softness/255*100, fine: 0}); setStatus(`Optimized: ${s.gain.toFixed(1)}x`);
+                    setGainState({coarse: cG, fine: 0}); setGateState({coarse: s.threshold, fine: 0}); setGammaState({coarse: s.gamma, fine: 0}); 
+                    // FIXED: Use raw softness value clamped to slider range (0-100) instead of scaling 255->100
+                    setSoftState({coarse: Math.min(100, s.softness), fine: 0}); 
+                    setStatus(`Optimized: ${s.gain.toFixed(1)}x`);
                 }
             }, [tensor, activeLayer, viewMode, repairSettings]);
 
