@@ -81,6 +81,9 @@
             // <INJECT_M2>
             const M2 = null;
             // </INJECT_M2>
+            // <INJECT_HVS_MASK_LUT>
+            const HVS_MASK_LUT = null;
+            // </INJECT_HVS_MASK_LUT>
 
             const estimateRobustSigma = (buffer, width, height) => {
                 if (!buffer) return 1e-9;
@@ -104,10 +107,10 @@
                 return Math.max(1e-13, median * scale);
             };
 
-            const isReady = () => (PHYSICS && KAISER_13 && KURTOSIS_LUT && SIGMA_LUT && BAYER_LATTICE && LUMA_COEFFS);
+            const isReady = () => (PHYSICS && KAISER_13 && KURTOSIS_LUT && SIGMA_LUT && BAYER_LATTICE && LUMA_COEFFS && HVS_MASK_LUT);
 
             return {
-                M1, M2, KURTOSIS_LUT, SIGMA_LUT, ENTROPY_LUT, LINEAR_LUT_HQ, LANCZOS_LUT, TURBO, INFERNO, BAYER_LATTICE, LUMA_COEFFS,
+                M1, M2, KURTOSIS_LUT, SIGMA_LUT, ENTROPY_LUT, LINEAR_LUT_HQ, LANCZOS_LUT, TURBO, INFERNO, BAYER_LATTICE, LUMA_COEFFS, HVS_MASK_LUT,
                 KAISER_13, FARID_P, FARID_D, PHYSICS,
                 estimateRobustSigma, isReady
             };
@@ -867,12 +870,24 @@ Visible:     ${visible_pct.toFixed(2)}%
                     const ent1 = AnalysisEngine.getEntropy(t1.oklab.l, w, h); const ent2 = AnalysisEngine.getEntropy(t2.oklab.l, w, h); setProgress(60);
                     const layers = { perceptual: {raw: deltaE}, ssim: {raw: ssim}, grad: {raw: new Float64Array(size)}, coherence: {raw: new Float64Array(size)}, entropy: {raw: new Float64Array(size)}, heuristic: {raw: new Float64Array(size)}, latent: {} };
                     const INV_LOG_25 = 1.0 / 4.64;
+                    const HVS_MASK = PrecisionCore.HVS_MASK_LUT; const HVS_LEN = HVS_MASK ? HVS_MASK.length - 1 : 0;
                     for(let i=0; i<size; i++) {
                         const gDiff = Math.abs(st1.l1[i] - st2.l1[i]); const cDiff = Math.abs(st1.coherence[i] - st2.coherence[i]); const eDiff = Math.abs(ent1[i] - ent2[i]);
                         layers.grad.raw[i] = gDiff; layers.coherence.raw[i] = cDiff; layers.entropy.raw[i] = eDiff;
                         const localCoh = Math.max(st1.coherence[i], st2.coherence[i]); const flatWeight = 1.0 - (localCoh * 0.5); const edgeWeight = 0.5 + (localCoh * 2.0);
                         const termPercep = deltaE[i]; const termStruct = Math.log1p(gDiff) * 2.0; const termSSIM = Math.max(0, 1.0 - ssim[i]); const termEnt = eDiff * INV_LOG_25;
-                        layers.heuristic.raw[i] = Math.sqrt((termPercep * flatWeight)**2 + (termStruct * edgeWeight)**2 + (termSSIM * edgeWeight)**2 + (termEnt * flatWeight * 0.5)**2 + (cDiff * 0.25)**2);
+                        
+                        // FORENSIC UPGRADE: HVS STRUCTURAL MASKING
+                        // If gradient is low (flat), weight -> 1.0 (Preserve Banding/Subtle Splicing)
+                        // If gradient is high (texture/edge), weight -> 0.0 (Suppress Ringing/Quantization)
+                        let maskWeight = 1.0;
+                        if (HVS_MASK) {
+                           const structureRef = st1.l1[i]; // Reference Structure Intensity
+                           const lutIdx = Math.min(HVS_LEN, Math.max(0, Math.floor(structureRef * HVS_LEN)));
+                           maskWeight = HVS_MASK[lutIdx];
+                        }
+                        
+                        layers.heuristic.raw[i] = Math.sqrt((termPercep * flatWeight)**2 + (termStruct * edgeWeight)**2 + (termSSIM * edgeWeight)**2 + (termEnt * flatWeight * 0.5)**2 + (cDiff * 0.25)**2) * maskWeight;
                     }
                     const keys = ['heuristic', 'perceptual', 'grad', 'ssim', 'entropy', 'coherence']; let d = 0;
                     for(const key of keys) { layers.latent[key] = await ForensicFilter.generateManifold(layers[key].raw, w, h, key, (p) => setProgress(70 + (d/6 + p/6)*30)); d++; }
