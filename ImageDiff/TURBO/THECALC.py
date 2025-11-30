@@ -67,7 +67,7 @@ def format_js_array(name, entry):
 def safe_findroot(func, low, high):
     try:
         f_low = func(low); f_high = func(high)
-        # FREE COMPUTE: If signs differ immediately, skip expansion loop (Heuristic Warm-start)
+        # FREE COMPUTE: Heuristic Warm-start
         if f_low * f_high > 0:
             found = False
             for i in range(1, 20):
@@ -87,10 +87,10 @@ def ensure_math():
     if "PHYSICS" in missing:
         sigma_scale = 1.0 / (mp.sqrt(2) * mp.erfinv(0.5))
         ssim_c1 = mp.mpf('0.0001'); ssim_c2 = mp.mpf('0.0009')
-        lanczos_scale = mp.mpf(2000) / mp.mpf(3.0)
+        # REMOVED VESTIGE: lanczos_scale
         quant_step = mp.mpf(1) / mp.mpf(255)
         max_entropy = mp.log(25) / mp.log(2)
-        register_injection("PHYSICS", [sigma_scale, ssim_c1, ssim_c2, lanczos_scale, quant_step, max_entropy])
+        register_injection("PHYSICS", [sigma_scale, ssim_c1, ssim_c2, quant_step, max_entropy])
 
     if "LUMA_COEFFS" in missing:
         register_injection("LUMA_COEFFS", [mp.mpf(0.2126390059), mp.mpf(0.7151686788), mp.mpf(0.0721923154)])
@@ -117,19 +117,16 @@ def ensure_math():
         std_mad_gauss = mp.sqrt(2) * mp.erfinv(0.5)
         ggd_k = lambda b: (mp.gamma(5/b)*mp.gamma(1/b))/(mp.gamma(3/b)**2)
         
-        last_beta = mp.mpf('50.0') # Initial high bracket
+        last_beta = mp.mpf('50.0') 
         
         for i in range(256):
             tk = k_min + (mp.mpf(i)/255)*(k_max-k_min)
             if abs(tk - 3.0) < 0.01: beta = mp.mpf(2.0)
             else:
-                # FREE COMPUTE: Warm-start search range using monotonicity of Beta
-                # As Kurtosis increases, Beta decreases. Previous Beta is a safe upper bound.
-                # This skips the exponential bracket search in safe_findroot.
                 upper_bound = max(last_beta + 0.1, mp.mpf('5.0')) if i == 0 else last_beta + 0.1
                 beta = safe_findroot(lambda b: mp.re(ggd_k(b)) - tk, mp.mpf('0.02'), upper_bound)
             
-            last_beta = beta # Track for next iteration
+            last_beta = beta 
             kurt_lut.append(beta)
             shape = 1/beta
             med_pow = safe_findroot(lambda t: mp.gammainc(shape, 0, t, regularized=True) - 0.5, shape*mp.mpf('0.0001'), shape*mp.mpf('10.0'))
@@ -140,23 +137,17 @@ def ensure_math():
 
     if "KAISER_13" in missing:
         beta=mp.mpf(4.0); center=6.0; den=mp.besseli(0,beta)
-        # FREE COMPUTE: Exploiting Symmetry of the Kaiser Window
-        # We calculate the first 7 points (0 to center) and mirror the rest.
-        # Reduces expensive integration operations by ~46% (13 -> 7 ops).
         half_k = [mp.quad(lambda x: mp.besseli(0,beta*mp.sqrt(1-((x-center)/6)**2))/den if abs((x-center)/6)<=1 else 0,[i-0.5,i+0.5]) for i in range(7)]
-        k_data = half_k + half_k[-2::-1] # Mirror: [0,1,2,3,4,5,6] + [5,4,3,2,1,0]
+        k_data = half_k + half_k[-2::-1]
         tot=sum(k_data); register_injection("KAISER_13", [x/tot for x in k_data])
 
     if "LINEAR_LUT_HQ" in missing:
         lin=[]; a=mp.mpf(0.055); g=mp.mpf(2.4)
-        # FREE COMPUTE: Precompute inverse for multiplication
         inv_max = mp.mpf(1) / 4095
         for i in range(4096): 
             v = i * inv_max
             lin.append(v/12.92 if v<=0.04045 else ((v+a)/1.055)**g)
-        
-        # FREE COMPUTE: Padding for Interpolation safety (no bounds checks)
-        lin.append(lin[-1]) 
+        lin.append(lin[-1]) # Padding
         register_injection("LINEAR_LUT_HQ", lin)
 
     if "FARID_P" in missing:
@@ -170,35 +161,25 @@ def ensure_math():
 
     if "HVS_MASK_LUT" in missing:
         print("   ... Deriving HVS Masking Curve (Naka-Rushton)")
-        
         q_step = mp.mpf(1) / mp.mpf(255)
         sigma_hvs = q_step * 10.0
         n_hvs = mp.mpf(2.2) 
-        
         lut_size = 4096
         mask_curve = []
-        
-        # FREE COMPUTE: Precompute inverse
         inv_lut_max = mp.mpf(1) / (lut_size - 1)
-        
         for i in range(lut_size):
             g = i * inv_lut_max
-            if g == 0:
-                w = mp.mpf(1.0)
+            if g == 0: w = mp.mpf(1.0)
             else:
                 denom = 1 + (g / sigma_hvs) ** n_hvs
                 w = 1 / denom
-            
             mask_curve.append(w)
-        
-        # FREE COMPUTE: Padding for Interpolation safety
-        mask_curve.append(mask_curve[-1])
+        mask_curve.append(mask_curve[-1]) # Padding
         register_injection("HVS_MASK_LUT", mask_curve)
 
     if "TURBO" in missing:
         C=[[0.13572138,4.61539260,-42.66032258,132.13108234,-152.94239396,59.28637943],[0.09140261,2.19418839,4.84296658,-14.18503333,4.27729857,2.82956604],[0.10667330,12.64194608,-60.58204836,110.36276771,-89.90360919,27.34824973]]
         t_d=[]
-        # FREE COMPUTE: Precompute inverse
         inv_max = mp.mpf(1) / 4095
         for i in range(4096):
             x = i * inv_max
@@ -213,10 +194,8 @@ def ensure_math():
     if "INFERNO" in missing:
         ctrl=[[0.001462,0.000466,0.013866],[0.039608,0.031090,0.133515],[0.106368,0.028426,0.275762],[0.216423,0.031167,0.392770],[0.340087,0.060082,0.446213],[0.477040,0.115871,0.429507],[0.612902,0.202487,0.355196],[0.738931,0.314778,0.241356],[0.850714,0.457647,0.106581],[0.938815,0.637251,0.048689],[0.987053,0.834970,0.168624],[0.988362,0.998364,0.644924]]
         i_d=[]
-        # FREE COMPUTE: Precompute inverse
         inv_max = mp.mpf(1) / 4095
         for i in range(4096):
-            # PRECISION FIX: Ensure t is mpf via multiplication, avoiding float division degradation
             t = i * inv_max 
             idx=t*(len(ctrl)-1); i0=int(idx); i1=min(i0+1,len(ctrl)-1); f=(1-mp.cos((idx-i0)*mp.pi))/2
             i_d.extend([ctrl[i0][j]+(ctrl[i1][j]-ctrl[i0][j])*f for j in range(3)])
