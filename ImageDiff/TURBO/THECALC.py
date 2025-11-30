@@ -14,7 +14,7 @@ DATA_MAP = {}
 
 TARGET_MANIFEST = {
     "KAISER_13", "FARID_P", "FARID_D", "ENTROPY_LUT", "LINEAR_LUT_HQ",
-    "KURTOSIS_LUT", "SIGMA_LUT", "LANCZOS_LUT", "TURBO", "INFERNO",
+    "KURTOSIS_LUT", "SIGMA_LUT", "TURBO", "INFERNO",
     "BAYER_LATTICE", "M1", "M2", "PHYSICS", "LUMA_COEFFS", 
     "HVS_MASK_LUT"
 }
@@ -136,12 +136,6 @@ def ensure_math():
         lin=[]; a=mp.mpf(0.055); g=mp.mpf(2.4)
         for i in range(4096): v=mp.mpf(i)/4095; lin.append(v/12.92 if v<=0.04045 else ((v+a)/1.055)**g)
         register_injection("LINEAR_LUT_HQ", lin)
-
-    if "LANCZOS_LUT" in missing:
-        l_d=[]; lobes=3.0
-        for i in range(2000):
-            x=(mp.mpf(i)/2000)*lobes; l_d.append(1.0 if x==0 else (mp.sin(mp.pi*x)/(mp.pi*x))*(mp.sin(mp.pi*x/lobes)/(mp.pi*x/lobes)) if x<lobes else 0.0)
-        register_injection("LANCZOS_LUT", l_d)
 
     if "FARID_P" in missing:
         p=[mp.mpf(x) for x in ["0.0376592045236901","0.249153396177344","0.426374798597931"]]
