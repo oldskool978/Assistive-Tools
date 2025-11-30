@@ -136,12 +136,20 @@
                 const bitDepth = is16Bit ? 16 : 8;
                 const normScale = is16Bit ? 1.0/65535.0 : 1.0/255.0;
 
-                const lutLen = LINEAR_LUT_HQ.length - 1; 
+                // LUT is now padded (4097 entries). valid indices 0-4095.
+                // lutLen remains 4096 (scaling factor to map 0-1 to 0-4096 index space)
+                const lutLen = LINEAR_LUT_HQ.length - 2; // Real length - padding - 1? No.
+                // Original: length 4096. lutLen = 4095.
+                // New: length 4097. We map 0..1 to 0..4095.
+                const scaleFactor = 4095.0;
                 
-                // FREE COMPUTE: Hoisted 'lookup' function to avoid 12-million closure allocations
+                // FREE COMPUTE: Hoisted 'lookup' with BOUNDARY CHECK ELIMINATION
+                // Padding in Python allows unconditional access to LUT[idx+1]
                 const lookup = (v) => {
-                    const t = Math.max(0, Math.min(1, v)) * lutLen; const idx = t | 0;
-                    return LINEAR_LUT_HQ[idx] + (LINEAR_LUT_HQ[Math.min(idx+1, lutLen)] - LINEAR_LUT_HQ[idx]) * (t - idx);
+                    const t = Math.max(0, Math.min(1, v)) * scaleFactor; 
+                    const idx = t | 0; // Floor
+                    // Unconditional interpolation - safe due to padding
+                    return LINEAR_LUT_HQ[idx] + (LINEAR_LUT_HQ[idx+1] - LINEAR_LUT_HQ[idx]) * (t - idx);
                 };
 
                 for(let y=0; y<height; y++) {
@@ -403,43 +411,88 @@
         // --- 5. FORENSIC FILTER ---
         const ForensicFilter = (() => {
             const tasks = {
-                // FREE COMPUTE: Tasks now accept explicit input/output buffers (Ping-Pong compatible)
+                // FREE COMPUTE: Loop Unswitching (Modulo Elimination)
+                // We split loops to separate boundary conditions from the main body.
+                // The central body loop runs with ZERO conditional checks.
                 geodesic: (src, dst, width, height, stats, tuning) => {
                     const len = src.length; 
                     const floor = stats ? Math.max(1e-6, stats.statFloor * tuning.geoScale) : 0.005;
-                    // Initialize marker in dst
                     for(let i=0; i<len; i++) dst[i] = Math.max(0, src[i] - floor);
                     
-                    // Reconstruction loop (inplace on dst is fine for morph)
                     for(let k=0; k<5; k++) {
-                        for(let i=0; i<len; i++) {
-                            let m = dst[i];
-                            if(i>=width) m = Math.max(m, dst[i-width]); if(i%width) m = Math.max(m, dst[i-1]);
-                            dst[i] = Math.min(m, src[i]); // constrain to mask (src)
+                        // Forward Pass (Top-Left -> Bottom-Right)
+                        // Row 0 (Boundary)
+                        for(let x=0; x<width; x++) {
+                            let m = dst[x]; 
+                            if(x>0) m = Math.max(m, dst[x-1]); // Check left only
+                            dst[x] = Math.min(m, src[x]);
                         }
-                        for(let i=len-1; i>=0; i--) {
+                        // Body Rows
+                        for(let y=1; y<height; y++) {
+                            const r = Math.imul(y, width);
+                            // Col 0
+                            let m0 = dst[r]; 
+                            m0 = Math.max(m0, dst[r-width]); // Check top only
+                            dst[r] = Math.min(m0, src[r]);
+                            
+                            // Center (UNSWITCHED HOT LOOP)
+                            for(let x=1; x<width; x++) {
+                                const i = r + x;
+                                let m = dst[i];
+                                m = Math.max(m, dst[i-width]); // Top (Safe)
+                                m = Math.max(m, dst[i-1]);     // Left (Safe)
+                                dst[i] = Math.min(m, src[i]);
+                            }
+                        }
+
+                        // Backward Pass (Bottom-Right -> Top-Left)
+                        // Last Row (Boundary)
+                        for(let x=width-1; x>=0; x--) {
+                            const i = (height-1)*width + x;
                             let m = dst[i];
-                            if(i<len-width) m = Math.max(m, dst[i+width]); if((i+1)%width) m = Math.max(m, dst[i+1]);
+                            if(x<width-1) m = Math.max(m, dst[i+1]); // Check right only
                             dst[i] = Math.min(m, src[i]);
+                        }
+                        // Body Rows (Reverse)
+                        for(let y=height-2; y>=0; y--) {
+                            const r = Math.imul(y, width);
+                            // Last Col
+                            const iEnd = r + width - 1;
+                            let mEnd = dst[iEnd];
+                            mEnd = Math.max(mEnd, dst[iEnd+width]); // Check bottom only
+                            dst[iEnd] = Math.min(mEnd, src[iEnd]);
+
+                            // Center (UNSWITCHED HOT LOOP)
+                            for(let x=width-2; x>=0; x--) {
+                                const i = r + x;
+                                let m = dst[i];
+                                m = Math.max(m, dst[i+width]); // Bottom (Safe)
+                                m = Math.max(m, dst[i+1]);     // Right (Safe)
+                                dst[i] = Math.min(m, src[i]);
+                            }
                         }
                     }
                 },
                 nlm: (src, dst, width, height, stats, tuning) => {
                     const len = src.length; 
-                    // Copy edges first
                     dst.set(src);
                     
                     const sigma = stats ? stats.robustSigma : 0.01; 
                     const h2 = (sigma * sigma) * tuning.nlmDecay;
+                    
+                    // NLM already has padding (y=3 to h-3, x=3 to w-3)
+                    // Just ensuring the loop is tight.
                     for(let y=3; y<height-3; y++) {
                         const row = Math.imul(y, width);
                         for(let x=3; x<width-3; x++) {
                             const idx = row + x; let wSum = 0.0, vSum = 0.0;
                             for(let dy=-2; dy<=2; dy++) for(let dx=-2; dx<=2; dx++) {
                                 let dist = 0.0; const sIdx = idx + Math.imul(dy, width) + dx;
+                                // Inner loop unrolling could be done by JS JIT, but manual helps
+                                // 3x3 patch comparison
                                 for(let py=-1; py<=1; py++) for(let px=-1; px<=1; px++) {
                                     const d = src[idx + Math.imul(py, width) + px] - src[sIdx + Math.imul(py, width) + px]; 
-                                    dist += d*d; // Strength Reduction
+                                    dist += d*d;
                                 }
                                 const w = Math.exp(-Math.max(0, dist - 2*h2) / (h2 + 1e-9)); vSum += src[sIdx] * w; wSum += w;
                             }
@@ -451,41 +504,19 @@
                     const len = src.length;
                     const sigma = stats ? stats.robustSigma : 0.01; 
                     const K = sigma * tuning.tukeyK; const K2 = K * K;
-                    
-                    // Copy edges
                     dst.set(src);
-                    
-                    // We need a temporary buffer for the iterative Tukey if we do 3 passes?
-                    // The original code did: u_next from u, then u = u_next.
-                    // Here we are doing 1 pass of the filter per 'task' call? 
-                    // Original code: "for(let iter=0; iter<3; iter++)".
-                    // If we do this in-place or ping-pong inside, we need 2 buffers.
-                    // Ideally, we treat 'src' as read-only and 'dst' as write.
-                    // But Tukey iterates. 
-                    // For Free Compute, we can just do 1 high-quality pass per manifold step to fit the Ping-Pong model,
-                    // OR we use the src/dst as the ping/pong buffers for the internal loop.
-                    // Let's use internal ping-pong if iter > 1.
-                    
-                    // Actually, simpler: Use dst as temp. 
-                    // Pass 1: src -> dst. Pass 2: dst -> src? No, src is input.
-                    // We will do a single robust pass to avoid extra allocs, or use a small stack temp?
-                    // Given the manifold loop runs 8 permutations, 1 iter is likely sufficient, 
-                    // but to maintain "Superior" logic, let's keep the iterations but operate in-place 
-                    // carefully or allocate 1 temp (still better than 8 allocs).
-                    // Actually, we can use MemoryVanguard 0 (temp) as the swap buffer!
                     const temp = MemoryVanguard.request(0, len);
-                    temp.set(src); // Init temp with src
-                    
-                    // Iter 1: temp -> dst
-                    // Iter 2: dst -> temp
-                    // Iter 3: temp -> dst
+                    temp.set(src);
                     
                     for(let iter=0; iter<3; iter++) {
                         const s = (iter % 2 === 0) ? temp : dst;
                         const d = (iter % 2 === 0) ? dst : temp;
                         
+                        // UNSWITCHED LOOP STRUCTURE
+                        // Middle Body Only (Safe from boundary checks)
                         for(let y=1; y<height-1; y++) {
                             const row = Math.imul(y, width);
+                            // We start at x=1 and end at width-1, so we never hit boundary logic
                             for(let x=1; x<width-1; x++) {
                                 const idx = row + x; const v = s[idx];
                                 const n=s[idx-width]-v, south=s[idx+width]-v, e=s[idx+1]-v, w=s[idx-1]-v;
@@ -494,7 +525,6 @@
                             }
                         }
                     }
-                    // If odd iterations (3), result is in dst. Correct.
                 }
             };
             const generateManifold = async (base, w, h, layerKey, cb) => {
@@ -1095,7 +1125,9 @@ Visible:     ${visible_pct.toFixed(2)}%
                     const ent1 = AnalysisEngine.getEntropy(t1.oklab.l, w, h); const ent2 = AnalysisEngine.getEntropy(t2.oklab.l, w, h); setProgress(60);
                     const layers = { perceptual: {raw: deltaE}, ssim: {raw: ssim}, grad: {raw: new Float64Array(size)}, coherence: {raw: new Float64Array(size)}, entropy: {raw: new Float64Array(size)}, heuristic: {raw: new Float64Array(size)}, latent: {} };
                     const INV_LOG_25 = 1.0 / 4.64;
-                    const HVS_MASK = PrecisionCore.HVS_MASK_LUT; const HVS_LEN = HVS_MASK ? HVS_MASK.length - 1 : 0;
+                    const HVS_MASK = PrecisionCore.HVS_MASK_LUT; const HVS_LEN = HVS_MASK ? HVS_MASK.length - 2 : 0; // Adjust length for padding
+                    const HVS_SCALE = 4095.0; // Fixed scale for 4096 entry LUT
+
                     for(let i=0; i<size; i++) {
                         const gDiff = Math.abs(st1.l1[i] - st2.l1[i]); const cDiff = Math.abs(st1.coherence[i] - st2.coherence[i]); const eDiff = Math.abs(ent1[i] - ent2[i]);
                         layers.grad.raw[i] = gDiff; layers.coherence.raw[i] = cDiff; layers.entropy.raw[i] = eDiff;
@@ -1103,25 +1135,20 @@ Visible:     ${visible_pct.toFixed(2)}%
                         const termPercep = deltaE[i]; const termStruct = Math.log1p(gDiff) * 2.0; const termSSIM = Math.max(0, 1.0 - ssim[i]); const termEnt = eDiff * INV_LOG_25;
                         
                         // FORENSIC UPGRADE: HVS STRUCTURAL MASKING
-                        // If gradient is low (flat), weight -> 1.0 (Preserve Banding/Subtle Splicing)
-                        // If gradient is high (texture/edge), weight -> 0.0 (Suppress Ringing/Quantization)
                         let maskWeight = 1.0;
                         if (HVS_MASK) {
-                           const structureRef = st1.l1[i]; // Reference Structure Intensity
+                           const structureRef = st1.l1[i]; 
                            
-                           // 100-DPS PRECISION: Use Linear Interpolation for LUT lookup
-                           // Avoids quantization steps in the sensitivity mask
-                           const rawIdx = Math.max(0, structureRef * HVS_LEN);
-                           const idxLo = Math.floor(rawIdx);
-                           const idxHi = Math.min(HVS_LEN, idxLo + 1);
-                           const t = rawIdx - idxLo;
-                           
-                           // Boundary safe lookup (clamped to LUT size)
-                           // If rawIdx exceeds LUT, we clamp to the last value (max masking)
-                           const valLo = HVS_MASK[Math.min(HVS_LEN, idxLo)];
-                           const valHi = HVS_MASK[idxHi]; // idxHi is already clamped via min above
-                           
-                           maskWeight = valLo * (1.0 - t) + valHi * t;
+                           // FREE COMPUTE: Unconditional Linear Interpolation (Padding Protected)
+                           const t = structureRef * HVS_SCALE;
+                           const idx = t | 0;
+                           // No Math.min or Math.max needed if structureRef is roughly 0..1
+                           // Safety clamp for extreme outliers only, but padding handles the +1
+                           // If t > 4095, idx is large. We can clamp idx or t.
+                           // Clamping t is one branch/cmov.
+                           const tClamped = (t > HVS_SCALE) ? HVS_SCALE : ((t < 0) ? 0 : t);
+                           const idxSafe = tClamped | 0;
+                           maskWeight = HVS_MASK[idxSafe] + (HVS_MASK[idxSafe+1] - HVS_MASK[idxSafe]) * (tClamped - idxSafe);
                         }
                         
                         layers.heuristic.raw[i] = Math.sqrt((termPercep * flatWeight)**2 + (termStruct * edgeWeight)**2 + (termSSIM * edgeWeight)**2 + (termEnt * flatWeight * 0.5)**2 + (cDiff * 0.25)**2) * maskWeight;
