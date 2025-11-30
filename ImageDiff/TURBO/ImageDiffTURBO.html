@@ -137,6 +137,7 @@
                 const normScale = is16Bit ? 1.0/65535.0 : 1.0/255.0;
 
                 // LUT is padded. Safe to access idx+1 unconditionally.
+                // Scale factor maps 0.0-1.0 to 0-4095.
                 const scaleFactor = 4095.0;
                 
                 // FREE COMPUTE: Hoisted 'lookup' with BOUNDARY CHECK ELIMINATION
@@ -215,6 +216,7 @@
                     if (kSz === 5 && k[2] === 0 && Math.abs(k[0] + k[4]) < 1e-15) {
                         const k0 = k[0], k1 = k[1];
                         if (isVert) {
+                            // Row-Major Swap
                             for(let y=0; y<h; y++) {
                                 const r = Math.imul(y, w);
                                 for(let x=0; x<w; x++) {
@@ -246,6 +248,7 @@
                     if (kSz === 5 && Math.abs(k[0] - k[4]) < 1e-15) {
                         const k0 = k[0], k1 = k[1], k2 = k[2];
                         if (isVert) {
+                            // Row-Major Swap
                             for(let y=0; y<h; y++) {
                                 const r = Math.imul(y, w);
                                 for(let x=0; x<w; x++) {
@@ -736,14 +739,16 @@
                 // 2. Sensitivity Baseline (Nyquist-Shannon + Weber Floor)
                 // We strictly bind to the derived quantization step.
                 // 100-DPS PHILOSOPHY: The noise floor is physical, not arbitrary.
-                const physicsFloor = PrecisionCore.PHYSICS ? PrecisionCore.PHYSICS[4] : (1.0/255.0);
+                // UPDATED INDEX: quant_step is now at index 3 after removing lanczos_scale
+                const physicsFloor = PrecisionCore.PHYSICS ? PrecisionCore.PHYSICS[3] : (1.0/255.0);
                 
                 // For high bit depths (16-bit), we respect the precision but enforce a biological floor
                 // (Visual cortex cannot detect 1/65535 luminance delta in isolation).
                 // We use the greater of the format limit (qStep) or the biological limit (~1/1000).
                 const baseSensitivity = Math.max(qStep, physicsFloor * 0.25); 
                 
-                const maxEnt = PrecisionCore.PHYSICS ? PrecisionCore.PHYSICS[5] : 4.64;
+                // UPDATED INDEX: max_entropy is now at index 4
+                const maxEnt = PrecisionCore.PHYSICS ? PrecisionCore.PHYSICS[4] : 4.64;
                 const invMaxEnt = 1.0 / (maxEnt || 4.64);
 
                 // MASKING SATURATION CONSTANTS (Michaelis-Menten)
@@ -1345,7 +1350,7 @@ Visible:     ${visible_pct.toFixed(2)}%
                     </div>
                     <div className="flex-1 bg-black relative overflow-hidden flex items-center justify-center cursor-crosshair order-1 md:order-2 h-1/2 md:h-full" 
                          ref={viewRef} 
-                         style={{ touchAction: 'none' }} 
+                         style={{ touchAction: 'none' }} // MOBILE SUPERIORITY: Prevent browser gestures (refresh/back)
                          onWheel={handleCanvasWheel} 
                          onMouseDown={handleCanvasDown} 
                          onMouseMove={handleCanvasMove} 
