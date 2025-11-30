@@ -63,9 +63,6 @@
             // <INJECT_SIGMA_LUT>
             const SIGMA_LUT = null;
             // </INJECT_SIGMA_LUT>
-            // <INJECT_LANCZOS_LUT>
-            const LANCZOS_LUT = null;
-            // </INJECT_LANCZOS_LUT>
             // <INJECT_BAYER_LATTICE>
             const BAYER_LATTICE = null;
             // </INJECT_BAYER_LATTICE>
@@ -110,7 +107,7 @@
             const isReady = () => (PHYSICS && KAISER_13 && KURTOSIS_LUT && SIGMA_LUT && BAYER_LATTICE && LUMA_COEFFS && HVS_MASK_LUT);
 
             return {
-                M1, M2, KURTOSIS_LUT, SIGMA_LUT, ENTROPY_LUT, LINEAR_LUT_HQ, LANCZOS_LUT, TURBO, INFERNO, BAYER_LATTICE, LUMA_COEFFS, HVS_MASK_LUT,
+                M1, M2, KURTOSIS_LUT, SIGMA_LUT, ENTROPY_LUT, LINEAR_LUT_HQ, TURBO, INFERNO, BAYER_LATTICE, LUMA_COEFFS, HVS_MASK_LUT,
                 KAISER_13, FARID_P, FARID_D, PHYSICS,
                 estimateRobustSigma, isReady
             };
@@ -400,7 +397,7 @@
 
         // --- 7. REGISTRATION ENGINE ---
         const RegistrationEngine = (() => {
-            const { FARID_D, FARID_P, LANCZOS_LUT } = PrecisionCore;
+            const { FARID_D, FARID_P } = PrecisionCore;
             const convolve1D = (inp, w, h, k) => {
                 // HIGH PRECISION UPGRADE
                 const out = new Float64Array(inp.length);
