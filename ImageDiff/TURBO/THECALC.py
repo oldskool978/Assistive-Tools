@@ -67,6 +67,7 @@ def format_js_array(name, entry):
 def safe_findroot(func, low, high):
     try:
         f_low = func(low); f_high = func(high)
+        # FREE COMPUTE: If signs differ immediately, skip expansion loop (Heuristic Warm-start)
         if f_low * f_high > 0:
             found = False
             for i in range(1, 20):
@@ -115,10 +116,20 @@ def ensure_math():
         k_min = mp.mpf('1.805'); k_max = mp.mpf('10.0'); kurt_lut = []; sigma_lut = []
         std_mad_gauss = mp.sqrt(2) * mp.erfinv(0.5)
         ggd_k = lambda b: (mp.gamma(5/b)*mp.gamma(1/b))/(mp.gamma(3/b)**2)
+        
+        last_beta = mp.mpf('50.0') # Initial high bracket
+        
         for i in range(256):
             tk = k_min + (mp.mpf(i)/255)*(k_max-k_min)
             if abs(tk - 3.0) < 0.01: beta = mp.mpf(2.0)
-            else: beta = safe_findroot(lambda b: mp.re(ggd_k(b)) - tk, mp.mpf('0.02'), mp.mpf('50.0'))
+            else:
+                # FREE COMPUTE: Warm-start search range using monotonicity of Beta
+                # As Kurtosis increases, Beta decreases. Previous Beta is a safe upper bound.
+                # This skips the exponential bracket search in safe_findroot.
+                upper_bound = max(last_beta + 0.1, mp.mpf('5.0')) if i == 0 else last_beta + 0.1
+                beta = safe_findroot(lambda b: mp.re(ggd_k(b)) - tk, mp.mpf('0.02'), upper_bound)
+            
+            last_beta = beta # Track for next iteration
             kurt_lut.append(beta)
             shape = 1/beta
             med_pow = safe_findroot(lambda t: mp.gammainc(shape, 0, t, regularized=True) - 0.5, shape*mp.mpf('0.0001'), shape*mp.mpf('10.0'))
@@ -129,12 +140,20 @@ def ensure_math():
 
     if "KAISER_13" in missing:
         beta=mp.mpf(4.0); center=6.0; den=mp.besseli(0,beta)
-        k_data=[mp.quad(lambda x: mp.besseli(0,beta*mp.sqrt(1-((x-center)/6)**2))/den if abs((x-center)/6)<=1 else 0,[i-0.5,i+0.5]) for i in range(13)]
+        # FREE COMPUTE: Exploiting Symmetry of the Kaiser Window
+        # We calculate the first 7 points (0 to center) and mirror the rest.
+        # Reduces expensive integration operations by ~46% (13 -> 7 ops).
+        half_k = [mp.quad(lambda x: mp.besseli(0,beta*mp.sqrt(1-((x-center)/6)**2))/den if abs((x-center)/6)<=1 else 0,[i-0.5,i+0.5]) for i in range(7)]
+        k_data = half_k + half_k[-2::-1] # Mirror: [0,1,2,3,4,5,6] + [5,4,3,2,1,0]
         tot=sum(k_data); register_injection("KAISER_13", [x/tot for x in k_data])
 
     if "LINEAR_LUT_HQ" in missing:
         lin=[]; a=mp.mpf(0.055); g=mp.mpf(2.4)
-        for i in range(4096): v=mp.mpf(i)/4095; lin.append(v/12.92 if v<=0.04045 else ((v+a)/1.055)**g)
+        # FREE COMPUTE: Precompute inverse for multiplication
+        inv_max = mp.mpf(1) / 4095
+        for i in range(4096): 
+            v = i * inv_max
+            lin.append(v/12.92 if v<=0.04045 else ((v+a)/1.055)**g)
         register_injection("LINEAR_LUT_HQ", lin)
 
     if "FARID_P" in missing:
@@ -148,37 +167,19 @@ def ensure_math():
 
     if "HVS_MASK_LUT" in missing:
         print("   ... Deriving HVS Masking Curve (Naka-Rushton)")
-        # We model the Human Visual System's contrast sensitivity roll-off (Masking)
-        # Function: M(g) = 1 / (1 + (g / sigma)^n)
-        # This preserves low-gradient detail (banding) but suppresses high-gradient noise (ringing/texture).
         
-        # 1. Establish the semi-saturation constant (sigma) based on 8-bit quantization noise floor
-        # Typical quantization noise std dev for uniform dist is 1/sqrt(12) LSB.
-        # We want the knee to be slightly above the "texture" threshold.
-        # 1 LSB in 0-1 float is approx 0.0039.
-        # Texture threshold is often cited around 0.02 - 0.05 in normalized gradient magnitude.
-        
-        # Using 100-DPS derivation:
-        # q = 1/255
         q_step = mp.mpf(1) / mp.mpf(255)
-        # We set the half-response point (sigma) at approx 10 LSBs of gradient energy.
-        # This is where structural edges begin to dominate over subtle texture.
         sigma_hvs = q_step * 10.0
-        
-        # 2. Exponent (n) determines the sharpness of the transition.
-        # HVS studies often use exponents between 2.0 and 3.0 for masking.
         n_hvs = mp.mpf(2.2) 
         
         lut_size = 4096
         mask_curve = []
+        
+        # FREE COMPUTE: Precompute inverse
+        inv_lut_max = mp.mpf(1) / (lut_size - 1)
+        
         for i in range(lut_size):
-            # Normalized Gradient Input [0.0, 1.0]
-            g = mp.mpf(i) / (lut_size - 1)
-            
-            # Naka-Rushton / Michaelis-Menten Adaptation
-            # We want Weight = 1.0 when g is low, Weight -> 0.0 when g is high.
-            # W = 1.0 / (1 + (g/sigma)^n)
-            
+            g = i * inv_lut_max
             if g == 0:
                 w = mp.mpf(1.0)
             else:
@@ -192,8 +193,11 @@ def ensure_math():
     if "TURBO" in missing:
         C=[[0.13572138,4.61539260,-42.66032258,132.13108234,-152.94239396,59.28637943],[0.09140261,2.19418839,4.84296658,-14.18503333,4.27729857,2.82956604],[0.10667330,12.64194608,-60.58204836,110.36276771,-89.90360919,27.34824973]]
         t_d=[]
+        # FREE COMPUTE: Precompute inverse
+        inv_max = mp.mpf(1) / 4095
         for i in range(4096):
-            x=mp.mpf(i)/4095.0; rgb=[]
+            x = i * inv_max
+            rgb=[]
             for k in C:
                 r=mp.mpf(k[-1])
                 for c in reversed(k[:-1]): r=r*x+c
@@ -204,8 +208,12 @@ def ensure_math():
     if "INFERNO" in missing:
         ctrl=[[0.001462,0.000466,0.013866],[0.039608,0.031090,0.133515],[0.106368,0.028426,0.275762],[0.216423,0.031167,0.392770],[0.340087,0.060082,0.446213],[0.477040,0.115871,0.429507],[0.612902,0.202487,0.355196],[0.738931,0.314778,0.241356],[0.850714,0.457647,0.106581],[0.938815,0.637251,0.048689],[0.987053,0.834970,0.168624],[0.988362,0.998364,0.644924]]
         i_d=[]
+        # FREE COMPUTE: Precompute inverse
+        inv_max = mp.mpf(1) / 4095
         for i in range(4096):
-            t=i/4095.0; idx=t*(len(ctrl)-1); i0=int(idx); i1=min(i0+1,len(ctrl)-1); f=(1-mp.cos((idx-i0)*mp.pi))/2
+            # PRECISION FIX: Ensure t is mpf via multiplication, avoiding float division degradation
+            t = i * inv_max 
+            idx=t*(len(ctrl)-1); i0=int(idx); i1=min(i0+1,len(ctrl)-1); f=(1-mp.cos((idx-i0)*mp.pi))/2
             i_d.extend([ctrl[i0][j]+(ctrl[i1][j]-ctrl[i0][j])*f for j in range(3)])
         register_injection("INFERNO", i_d)
 
