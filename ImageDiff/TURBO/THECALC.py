@@ -15,7 +15,7 @@ DATA_MAP = {}
 TARGET_MANIFEST = {
     "KAISER_13", "FARID_P", "FARID_D", "ENTROPY_LUT", "LINEAR_LUT_HQ",
     "KURTOSIS_LUT", "SIGMA_LUT", "TURBO", "INFERNO",
-    "BAYER_LATTICE", "M1", "M2", "PHYSICS", "LUMA_COEFFS", 
+    "BAYER_LATTICE", "M1", "M2", "PHYSICS", "LUMA_COEFFS",
     "HVS_MASK_LUT"
 }
 
@@ -23,7 +23,7 @@ def get_cache_filename(): return f"{datetime.date.today().isoformat()}_manifold.
 
 def clean_cache():
     for f in glob.glob("*_manifold.IGD"):
-        try: os.remove(f); print(f"[Clean] Purged cache: {f}")
+        try: os.remove(f); print(f"[System] Cache purged: {f}")
         except: pass
 
 def clean_target(filename):
@@ -34,7 +34,7 @@ def clean_target(filename):
     new_content = pattern.sub(reset_block, content)
     if new_content != content:
         with open(filename, 'w', encoding='utf-8') as f: f.write(new_content)
-        print(f"[Clean] Reset {filename}")
+        print(f"[System] Target reset: {filename}")
 
 def load_cache():
     files = glob.glob("*_manifold.IGD")
@@ -42,7 +42,7 @@ def load_cache():
     files.sort(key=os.path.getmtime, reverse=True)
     try:
         with open(files[0], 'r', encoding='utf-8') as f: DATA_MAP.update(json.load(f))
-        print(f"[State] Hydrated from {files[0]}")
+        print(f"[System] Data loaded from {files[0]}")
     except: pass
 
 def prune_cache():
@@ -52,12 +52,12 @@ def prune_cache():
 def save_cache():
     try:
         with open(get_cache_filename(), 'w', encoding='utf-8') as f: json.dump(DATA_MAP, f, indent=0)
-        print("[State] Manifold Preserved.")
+        print("[System] Data serialized.")
     except: pass
 
 def register_injection(name, data):
     DATA_MAP[name] = {'data': [mp.nstr(x, 30) for x in data]}
-    print(f"   [+] Derived {name} ({len(data)} elements)")
+    print(f"   [+] Computed {name} ({len(data)} elements)")
 
 def format_js_array(name, entry):
     data = entry['data']
@@ -81,7 +81,7 @@ def safe_findroot(func, low, high):
 def ensure_math():
     missing = [k for k in TARGET_MANIFEST if k not in DATA_MAP]
     if not missing: return
-    print(f"\n[Math] Computing: {missing}")
+    print(f"\n[Kernel] Calculating: {missing}")
     
     if "PHYSICS" in missing:
         sigma_scale = 1.0 / (mp.sqrt(2) * mp.erfinv(0.5))
