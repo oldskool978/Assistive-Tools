@@ -517,48 +517,117 @@
             const solve = (tensor, layerKey, activeMask, viewMode) => {
                 const raw = tensor[layerKey].raw; if (!raw) return null; 
                 let buf;
+                
+                // SSIM inversion for analysis (we want error, not similarity)
                 if (layerKey === 'ssim') { 
                     buf = new Float64Array(raw.length); 
                     for(let i=0; i<raw.length; i++) buf[i] = Math.max(0, 1.0 - raw[i]); 
                 } else { buf = raw; }
+
                 const len = buf.length; const stride = Math.floor(len / 10000) || 1;
                 let n = 0, m1 = 0, m2 = 0, m4 = 0;
+                
+                // 1. Compute Moments (Mean, Variance, Kurtosis)
                 for(let i=0; i<len; i+=stride) { m1 += buf[i]; n++; } const mu = m1 / n;
                 const sampleValues = new Float32Array(n); let sIdx = 0;
                 for(let i=0; i<len; i+=stride) { const d = buf[i] - mu; m2 += d*d; m4 += d*d*d*d; sampleValues[sIdx++] = buf[i]; }
-                const variance = m2 / n; const kurtosis = (variance < 1e-20) ? 3.0 : (m4 / n) / (variance * variance);
-                const { KURTOSIS_LUT, SIGMA_LUT } = PrecisionCore; let sigmaCorrection = 1.0;
-                if (KURTOSIS_LUT && SIGMA_LUT) { const kClamped = Math.max(1.8, Math.min(10.0, kurtosis)); sigmaCorrection = SIGMA_LUT[Math.floor(((kClamped - 1.8) / 8.2) * 255)]; }
-                let estSigma = PrecisionCore.estimateRobustSigma(buf, tensor.meta.w, tensor.meta.h);
-                if (layerKey === 'entropy') estSigma = Math.max(estSigma, 0.01);
                 
+                const variance = m2 / n; 
+                const stdDev = Math.sqrt(variance);
+                const kurtosis = (variance < 1e-20) ? 3.0 : (m4 / n) / (variance * variance);
+                
+                // 2. Bit-Depth & Physics Floor
                 const bitDepth = tensor.meta.bitDepth || 8;
                 const qStep = 1.0 / (Math.pow(2, bitDepth) - 1);
-                let sigmaMult = 3.0; let gainBoost = 1.0; let gammaTarget = 1.0;
-                switch(layerKey) {
-                    case 'entropy': sigmaMult = 5.0; break;
-                    case 'ssim': sigmaMult = 2.0; gainBoost = 2.0; break;
-                    case 'grad': gammaTarget = 0.8; break;
-                    case 'coherence': sigmaMult = 3.5; break;
-                    case 'heuristic': gammaTarget = 1.2; sigmaMult = 2.5; break;
-                    case 'perceptual': gammaTarget = 1.0; sigmaMult = 2.8; gainBoost = 1.5; break;
+                
+                let gain = 1.0; 
+                let threshold = 0.0;
+                let gamma = 1.0;
+                let softness = 0.0;
+
+                // 3. LAYER-SPECIFIC STATISTICAL PRIORS (The Superior Method)
+                
+                if (layerKey === 'ssim') {
+                    // SSIM ERROR MODEL (Beta-Like Distribution)
+                    // SSIM errors are often clustered near 0. We don't want to over-boost background noise.
+                    // We target the 99th percentile of the error, but dampen gain if variance is low.
+                    sampleValues.sort();
+                    const p99 = sampleValues[Math.floor(n * 0.99)];
+                    const signalFloor = Math.max(qStep, 1e-5);
+                    
+                    // Gain targets visibility of the P99 error peak
+                    const targetVis = 0.8; // Target 80% brightness for peak error
+                    gain = Math.min(100000, Math.max(1, targetVis / Math.max(p99, signalFloor)));
+                    
+                    // Hard gate for SSIM to remove floating point drift noise
+                    // SSIM is [0,1], tiny errors < 1e-6 are irrelevant.
+                    const gateLevel = Math.max(stdDev * 2.0, qStep * 4.0); 
+                    threshold = Math.min(255, gateLevel * gain * 255.0);
+                    gamma = 1.0; // Linear response for structural error
+                    softness = threshold * 0.5;
+
+                } else if (layerKey === 'perceptual') {
+                    // PERCEPTUAL MODEL (Log-Normal / Weber Law)
+                    // Errors follow Weber-Fechner. We should allow gamma correction to compress dynamic range.
+                    // High variance = huge errors = lower gain needed.
+                    // Low variance = subtle errors = high gain needed.
+                    
+                    const estSigma = PrecisionCore.estimateRobustSigma(buf, tensor.meta.w, tensor.meta.h);
+                    
+                    // We use Robust Sigma (MAD) instead of StdDev to ignore outliers
+                    const trueNoise = Math.max(estSigma, qStep);
+                    gain = Math.min(100000, Math.max(1, 0.5 / trueNoise)); // Target mid-grey for noise floor
+                    
+                    threshold = Math.min(255, trueNoise * gain * 3.0 * 255.0); // 3-sigma gate
+                    gamma = 1.0; // Perceptual (Oklab) is already perceptually uniform, so Linear Gamma is correct.
+                    softness = threshold * 0.8; // Softer falloff for color
+
+                } else {
+                    // GENERALIZED GAUSSIAN MODEL (Gradient, Entropy, Coherence, Heuristic)
+                    // These are heavy-tailed distributions. We use Kurtosis to correct the Sigma estimate.
+                    
+                    const { KURTOSIS_LUT, SIGMA_LUT } = PrecisionCore; 
+                    let sigmaCorrection = 1.0;
+                    if (KURTOSIS_LUT && SIGMA_LUT) { 
+                        const kClamped = Math.max(1.8, Math.min(10.0, kurtosis)); 
+                        // Map kurtosis 1.8..10.0 to 0..255 index
+                        const idx = Math.floor(((kClamped - 1.8) / 8.2) * 255);
+                        sigmaCorrection = SIGMA_LUT[idx]; 
+                    }
+                    
+                    let estSigma = PrecisionCore.estimateRobustSigma(buf, tensor.meta.w, tensor.meta.h);
+                    
+                    // Entropy is special; it has a high DC component. 
+                    if (layerKey === 'entropy') estSigma = Math.max(estSigma, 0.01);
+
+                    const trueNoiseFloor = Math.max(estSigma * sigmaCorrection, qStep); 
+                    
+                    sampleValues.sort(); 
+                    const p99 = sampleValues[Math.floor(n * 0.99)];
+                    
+                    // Quality Bias: Detect "Signal" vs "Noise"
+                    const signalHeadroom = p99 - trueNoiseFloor;
+                    const isPureNoise = signalHeadroom < trueNoiseFloor;
+                    
+                    const targetLevel = isPureNoise ? trueNoiseFloor * 10.0 : p99; 
+                    const safeTarget = Math.max(targetLevel, qStep * 10.0); 
+                    
+                    // Dynamic Range Target: 90%
+                    gain = Math.min(100000, Math.max(1, (0.90 / safeTarget)));
+                    
+                    // Gate Tuning per Layer Type
+                    let sigmaMult = 3.0; 
+                    if (layerKey === 'entropy') sigmaMult = 5.0;
+                    if (layerKey === 'grad') { gamma = 0.8; } // Compress gradients to see weak edges
+                    if (layerKey === 'coherence') sigmaMult = 3.5;
+                    if (layerKey === 'heuristic') { gamma = 1.2; sigmaMult = 2.5; } // Contrast boost for composite
+
+                    const gate = trueNoiseFloor * gain * (sigmaMult * 0.8); 
+                    threshold = Math.min(255, gate * 255);
+                    softness = threshold * 0.5;
                 }
 
-                // SUPERIOR REFINEMENT: Explicit quantization floor check
-                const trueNoiseFloor = Math.max(estSigma * sigmaCorrection, qStep); 
-                sampleValues.sort(); const p99 = sampleValues[Math.floor(n * 0.99)];
-                
-                // QUALITY BIAS: Distinguish between "Pure Noise" and "Signal"
-                const signalHeadroom = p99 - trueNoiseFloor;
-                const isPureNoise = signalHeadroom < trueNoiseFloor;
-                
-                const targetLevel = isPureNoise ? trueNoiseFloor * 10.0 : p99; 
-                const safeTarget = Math.max(targetLevel, qStep * 10.0); 
-                const gain = Math.min(100000, Math.max(1, (0.90 / safeTarget) * gainBoost));
-                const gate = trueNoiseFloor * gain * (sigmaMult * 0.8); 
-                const threshold = Math.min(255, gate * 255);
-
-                return { gain, threshold, gamma: gammaTarget, softness: threshold * 0.5 };
+                return { gain, threshold, gamma, softness };
             };
             return { solve };
         })();
@@ -642,17 +711,18 @@
                             const val = top + fy * (bot - top);
                             
                             // QUALITY UPGRADE: SAD (Sum of Absolute Differences)
+                            // More robust to outliers (artifacts/cursors) than SSD (d*d)
                             err += Math.abs(map1[y*crop+x] - val); 
                         }
                     }
                     return err;
                 };
                 let curX = 0, curY = 0, step = 4.0; let minErr = getError(0,0);
-                for(let iter=0; iter<40; iter++) { 
+                for(let iter=0; iter<40; iter++) { // Increased iterations
                     let bestE = minErr, bestX = curX, bestY = curY;
                     [[0,-1],[0,1],[-1,0],[1,0]].forEach(d => { const nx = curX + d[0]*step, ny = curY + d[1]*step; const e = getError(nx, ny); if(e < bestE) { bestE = e; bestX = nx; bestY = ny; } });
                     if(bestE < minErr) { minErr = bestE; curX = bestX; curY = bestY; } else { step *= 0.5; }
-                    if(step < 0.001) break; 
+                    if(step < 0.001) break; // Tighter convergence threshold (was 0.005)
                     if(cb) cb(0.5 + (iter/40)*0.5); await new Promise(r => setTimeout(r,0));
                 }
                 let finalX = ox + curX, finalY = oy + curY;
@@ -666,41 +736,59 @@
         const QualityMetricEngine = (() => {
             const computeNPS_Quant = (heuristic, luma, refEntropy, refCoherence, w, h, bitDepth) => {
                 const len = w * h; let sum = 0.0, peak = 0.0, violations = 0;
+                
+                // 1. Bit-Depth Physics (The Hard Deck)
                 const qStep = 1.0 / (Math.pow(2, bitDepth) - 1);
-                const physicsFloor = PrecisionCore.PHYSICS ? PrecisionCore.PHYSICS[4] : (1.0/255.0);
-                const baseSensitivity = Math.max(qStep, physicsFloor * 0.25); 
+                
+                // 2. Sensitivity Baseline (Nyquist-Shannon + Weber Floor)
+                // We use a tighter baseline for 16-bit to respect its precision, 
+                // but clamp to a physiological minimum (0.0001 for 16-bit, 0.002 for 8-bit approx).
+                // qStep * 2.0 is the signal processing floor.
+                const baseSensitivity = Math.max(qStep * 2.0, 1e-4); 
+                
                 const maxEnt = PrecisionCore.PHYSICS ? PrecisionCore.PHYSICS[5] : 4.64;
                 const invMaxEnt = 1.0 / (maxEnt || 4.64);
-                const MASK_CEILING = 4.0; const MASK_KNEE = 0.3;    
 
                 for(let i=0; i<len; i++) {
                     const L = luma[i]; 
-                    const H = refEntropy[i] * invMaxEnt; 
-                    const C = refCoherence[i];           
+                    // MAVERICK UPGRADE: Use Reference Content for Masking
+                    const H = refEntropy[i] * invMaxEnt; // Normalize to 0-1
+                    const C = refCoherence[i];           // Already 0-1
 
-                    // STRENGTH REDUCTION: Math.pow -> Multiplication
-                    const v = (L - 0.5) * 2.0;
-                    const maskL = 1.0 + v * v;
+                    // 3. Luminance Masking (Parabolic CSF)
+                    // HVS is most sensitive at mid-grey (0.5). Sensitivity drops in deep shadows (0.0) and highlights (1.0).
+                    // We increase threshold (tolerance) at the extremes.
+                    // Curve: 1.0 at 0.5, rising to 2.0 at 0.0 and 1.0.
+                    const maskL = 1.0 + Math.pow((L - 0.5) * 2.0, 2.0); 
 
-                    const entropyMask = (MASK_CEILING * H) / (H + MASK_KNEE);
-                    const maskT = 1.0 + (entropyMask * (1.0 - C * 0.8));
+                    // 4. Texture & Geometric Masking (Psychovisual)
+                    // High Entropy (Texture) -> Higher Tolerance (Masking effect).
+                    // High Coherence (Edges) -> Lower Tolerance (Phase sensitivity).
+                    // We dampen the error visibility in busy textures, but sharpen it on edges.
+                    // Normalized H allows consistent scaling regardless of dynamic range.
+                    const maskT = (1.0 + H * 3.0) / (1.0 + C * 2.0);
+
+                    // Composite Threshold: The "Just Noticeable Difference" at this pixel.
                     const threshold = baseSensitivity * maskL * maskT;
+
+                    // 5. Normalized Error Ratio
                     const ratio = heuristic[i] / (threshold + 1e-12);
                     
                     if (ratio > peak) peak = ratio; 
                     if (ratio > 1.0) violations++; 
                     
-                    // L4 Norm Pooling: ratio^4
-                    const r2 = ratio * ratio;
-                    sum += r2 * r2;
+                    // L4 Norm Pooling (emphasizes severe artifacts over low-level noise)
+                    sum += ratio * ratio * ratio * ratio;
                 }
+                
+                // Final Metrics
                 const nps = Math.pow(sum / len, 0.25);
                 return { nps, peak, mean: nps, visible_pct: (violations/len)*100 };
             };
             const computeSignalMetrics = (buf, w, h, bitDepth) => {
                 const sig = PrecisionCore.estimateRobustSigma(buf, w, h);
                 const qStep = 1.0 / (Math.pow(2, bitDepth) - 1);
-                const minNoise = qStep * 0.5; 
+                const minNoise = qStep * 0.5; // Physics Floor: 0.5 LSB
                 const effectiveNoise = Math.max(sig, minNoise);
                 const snr = (effectiveNoise > 0) ? Math.min(140, 20 * Math.log10(1.0 / effectiveNoise)) : 0;
                 return { snr, ebd: Math.max(0, (snr - 1.76) / 6.02), noise: effectiveNoise };
@@ -713,7 +801,7 @@
             if(!isOpen || !scoreData || !physics) return null;
             const { nps, peak, visible_pct } = scoreData;
             const { snr, ebd, noise } = tensor.source_metrics;
-            const grade = nps<0.5 ? {t:'Grade I (Optimal)', c:'text-emerald-400'} : nps<1.0 ? {t:'Grade II (Nominal)', c:'text-cyan-400'} : {t:'Grade III (Critical)', c:'text-rose-400'};
+            const grade = nps<0.5 ? {t:'S (Lab)', c:'text-emerald-400'} : nps<1.0 ? {t:'A (Pro)', c:'text-cyan-400'} : {t:'C (Fail)', c:'text-rose-400'};
             const copy = () => {
                 const report = `[ 100-DPS FORENSIC AUDIT REPORT ]
 ----------------------------------------
@@ -739,11 +827,11 @@ Visible:     ${visible_pct.toFixed(2)}%
                 <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
                     <div className="glass-panel border border-slate-700/50 rounded-xl p-6 w-full max-w-md shadow-2xl relative overflow-hidden">
                         <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-slate-800 via-cyan-500/50 to-slate-800"></div>
-                        <div className="flex justify-between items-center mb-6"><h2 className="text-xl font-bold text-white flex items-center gap-2"><ClipboardCheck className="w-5 h-5 text-cyan-400"/> Forensic Report</h2><button onClick={onClose}><X className="text-slate-500 hover:text-white transition-colors"/></button></div>
+                        <div className="flex justify-between items-center mb-6"><h2 className="text-xl font-bold text-white flex items-center gap-2"><ClipboardCheck className="w-5 h-5 text-cyan-400"/> Audit Report</h2><button onClick={onClose}><X className="text-slate-500 hover:text-white transition-colors"/></button></div>
                         <div className="text-center mb-8 relative">
                             <div className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2">Normalized Perceptual Score</div>
                             <div className={`text-7xl font-black font-mono tracking-tighter ${grade.c} drop-shadow-[0_0_15px_rgba(0,0,0,0.5)]`}>{nps.toFixed(3)}</div>
-                            <div className={`inline-block px-4 py-1 mt-2 rounded-full border border-slate-700 bg-slate-800/50 text-xs font-bold uppercase tracking-widest ${grade.c}`}>{grade.t}</div>
+                            <div className={`inline-block px-4 py-1 mt-2 rounded-full border border-slate-700 bg-slate-800/50 text-xs font-bold uppercase tracking-widest ${grade.c}`}>{grade.t} GRADE</div>
                         </div>
                         <div className="grid grid-cols-2 gap-4 mb-6">
                             <div className="bg-slate-800/40 p-4 rounded-lg border border-slate-700/30 text-center"><div className="text-[10px] uppercase text-slate-500 font-bold mb-1">Peak Error</div><div className="text-xl font-mono text-white tracking-tight">{peak.toFixed(3)}</div></div>
@@ -783,7 +871,7 @@ Visible:     ${visible_pct.toFixed(2)}%
             <div className="bg-slate-900/30 border border-slate-800/60 p-2 rounded-lg space-y-2 hover:border-slate-700/60 transition-colors group">
                 <div className="flex justify-between items-baseline"><div className="flex items-center gap-2"><span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest group-hover:text-slate-400 transition-colors">{label}</span>{value.fine !== 0 && <span className="text-[8px] font-mono text-cyan-500/70 animate-pulse">•</span>}</div><span className="text-xs font-mono font-bold text-cyan-400 bg-cyan-950/20 px-1.5 py-0.5 rounded border border-cyan-900/30">{displayValue}</span></div>
                 <div className="relative h-5 flex items-center"><input type="range" min={minCoarse} max={maxCoarse} step={stepCoarse} value={value.coarse} onChange={(e)=>onChange({...value, coarse: Number(e.target.value)})} className="absolute inset-0 w-full h-1.5 bg-slate-800 rounded-full appearance-none accent-cyan-500 cursor-pointer hover:bg-slate-700 transition-all range-slider"/></div>
-                <div className="flex items-center gap-2 pl-1"><span className="text-[8px] font-mono text-slate-600 uppercase tracking-tight w-4">Fine</span><div className="relative flex-1 h-4 flex items-center"><div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-px h-2 bg-slate-700 pointer-events-none"></div><input type="range" min={minFine} max={maxFine} step={stepFine} value={value.fine} onChange={(e)=>onChange({...value, fine: Number(e.target.value)})} className="w-full h-0.5 bg-slate-800 rounded appearance-none accent-slate-500 hover:accent-cyan-300/80 cursor-col-resize transition-all range-fine"/></div><button onClick={()=>onChange({...value, fine: 0})} className={`p-1 rounded hover:bg-rose-950/30 hover:text-rose-400 transition-colors ${value.fine !== 0 ? 'text-slate-500' : 'text-slate-800 pointer-events-none'}`}><RotateCcw className="w-3 h-3"/></button></div>
+                <div className="flex items-center gap-2 pl-1"><span className="text-[8px] font-mono text-slate-600 uppercase tracking-tight w-4">Trim</span><div className="relative flex-1 h-4 flex items-center"><div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-px h-2 bg-slate-700 pointer-events-none"></div><input type="range" min={minFine} max={maxFine} step={stepFine} value={value.fine} onChange={(e)=>onChange({...value, fine: Number(e.target.value)})} className="w-full h-0.5 bg-slate-800 rounded appearance-none accent-slate-500 hover:accent-cyan-300/80 cursor-col-resize transition-all range-fine"/></div><button onClick={()=>onChange({...value, fine: 0})} className={`p-1 rounded hover:bg-rose-950/30 hover:text-rose-400 transition-colors ${value.fine !== 0 ? 'text-slate-500' : 'text-slate-800 pointer-events-none'}`}><RotateCcw className="w-3 h-3"/></button></div>
             </div>
         );
 
@@ -919,7 +1007,7 @@ Visible:     ${visible_pct.toFixed(2)}%
                 window.addEventListener('keydown', handler); return () => window.removeEventListener('keydown', handler);
             }, [tensor]); 
 
-            const updateHUD = (clientX, clientY) => {
+            const updateHUD = (clientX, clientY, inputType = 'mouse') => {
                 if(!img1 || !viewRef.current || !hudRef.current) return;
                 const rect = viewRef.current.getBoundingClientRect();
                 const x = (clientX - rect.left - transform.x) / transform.k;
@@ -928,8 +1016,21 @@ Visible:     ${visible_pct.toFixed(2)}%
                 if(x >= 0 && x < img1.width && y >= 0 && y < img1.height) {
                     const ix = x | 0, iy = y | 0;
                     hudRef.current.style.display = "block"; 
-                    hudRef.current.style.left = `${clientX + 15}px`; 
-                    hudRef.current.style.top = `${clientY + 15}px`;
+                    
+                    // MOBILE SUPERIORITY: Adaptive HUD Offset
+                    // If Touch: Offset Y by -60px (Above Finger) to prevent occlusion
+                    // If Mouse: Offset Y by +15px (Below Cursor) for standard visibility
+                    const yOffset = inputType === 'touch' ? -60 : 15;
+                    
+                    // Clamp to screen edges to prevent HUD clipping
+                    const screenW = window.innerWidth;
+                    const hudW = 200; // Approx
+                    let left = clientX + 15;
+                    if (left + hudW > screenW) left = clientX - hudW - 10;
+
+                    hudRef.current.style.left = `${left}px`; 
+                    hudRef.current.style.top = `${clientY + yOffset}px`;
+                    
                     if(tensor) {
                         const idx = iy * tensor.meta.w + ix; 
                         const v = (k) => tensor[k]?.raw ? tensor[k].raw[idx] : 0;
@@ -949,20 +1050,41 @@ Visible:     ${visible_pct.toFixed(2)}%
             const lastTapRef = useRef(0);
             const handleTouchStart = (e) => {
                 const now = Date.now();
-                if (now - lastTapRef.current < 300) { probeModeRef.current = !probeModeRef.current; if(e.touches[0]) updateHUD(e.touches[0].clientX, e.touches[0].clientY); }
+                // Double tap detection
+                if (now - lastTapRef.current < 300) { 
+                    probeModeRef.current = !probeModeRef.current; 
+                    if(e.touches[0]) updateHUD(e.touches[0].clientX, e.touches[0].clientY, 'touch'); 
+                }
                 lastTapRef.current = now;
-                if(e.touches.length === 1) { touchRef.current = { x: e.touches[0].clientX, y: e.touches[0].clientY, dist: 0, active: true }; dragRef.current.active = true; } 
-                else if (e.touches.length === 2) { const t1 = e.touches[0], t2 = e.touches[1]; const dist = Math.hypot(t1.clientX - t2.clientX, t1.clientY - t2.clientY); touchRef.current = { ...touchRef.current, dist, active: true }; dragRef.current.active = false; }
+                
+                if(e.touches.length === 1) { 
+                    touchRef.current = { x: e.touches[0].clientX, y: e.touches[0].clientY, dist: 0, active: true }; 
+                    dragRef.current.active = true; 
+                    // Show HUD on touch start
+                    updateHUD(e.touches[0].clientX, e.touches[0].clientY, 'touch');
+                } 
+                else if (e.touches.length === 2) { 
+                    const t1 = e.touches[0], t2 = e.touches[1]; 
+                    const dist = Math.hypot(t1.clientX - t2.clientX, t1.clientY - t2.clientY); 
+                    touchRef.current = { ...touchRef.current, dist, active: true }; 
+                    dragRef.current.active = false; 
+                }
             };
             
             const handleTouchMove = (e) => {
                 if (!touchRef.current.active) return;
+                
+                // Prevent browser gestures (pull-to-refresh, back swipe)
+                if (e.cancelable) e.preventDefault(); 
+
                 if (e.touches.length === 1 && dragRef.current.active) {
                     const dx = e.touches[0].clientX - touchRef.current.x; const dy = e.touches[0].clientY - touchRef.current.y;
                     setTransform(p => ({ ...p, x: p.x + dx, y: p.y + dy })); 
                     touchRef.current.x = e.touches[0].clientX; touchRef.current.y = e.touches[0].clientY;
                     lastMouseRef.current = {x: e.touches[0].clientX, y: e.touches[0].clientY};
-                    updateHUD(e.touches[0].clientX, e.touches[0].clientY);
+                    
+                    // Update HUD with 'touch' mode to keep it visible above finger
+                    updateHUD(e.touches[0].clientX, e.touches[0].clientY, 'touch');
                 } 
                 else if (e.touches.length === 2) {
                     const t1 = e.touches[0], t2 = e.touches[1]; 
@@ -983,7 +1105,11 @@ Visible:     ${visible_pct.toFixed(2)}%
                 }
             };
 
-            const handleTouchEnd = () => { touchRef.current.active = false; dragRef.current.active = false; if(hudRef.current) hudRef.current.style.display="none"; };
+            const handleTouchEnd = () => { 
+                touchRef.current.active = false; 
+                dragRef.current.active = false; 
+                if(hudRef.current) hudRef.current.style.display="none"; 
+            };
             
             const handleCanvasWheel = (e) => {
                 e.preventDefault(); e.stopPropagation();
@@ -1172,7 +1298,18 @@ Visible:     ${visible_pct.toFixed(2)}%
                                 <button onClick={()=>setShowAudit(true)} className="w-full py-3 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded uppercase tracking-wider flex items-center justify-center gap-2 shadow-lg shadow-emerald-900/20 transition-all"><ClipboardCheck className="w-4 h-4"/> View Forensic Report</button></div>)}
                         </div>
                     </div>
-                    <div className="flex-1 bg-black relative overflow-hidden flex items-center justify-center cursor-crosshair order-1 md:order-2 h-1/2 md:h-full" ref={viewRef} onWheel={handleCanvasWheel} onMouseDown={handleCanvasDown} onMouseMove={handleCanvasMove} onMouseUp={handleCanvasUp} onTouchStart={handleTouchStart} onTouchMove={handleTouchMove} onTouchEnd={handleTouchEnd} onDoubleClick={handleDoubleClick} onMouseLeave={() => { if(hudRef.current) hudRef.current.style.display="none"; }}>
+                    <div className="flex-1 bg-black relative overflow-hidden flex items-center justify-center cursor-crosshair order-1 md:order-2 h-1/2 md:h-full" 
+                         ref={viewRef} 
+                         style={{ touchAction: 'none' }} // MOBILE SUPERIORITY: Prevent browser gestures (refresh/back)
+                         onWheel={handleCanvasWheel} 
+                         onMouseDown={handleCanvasDown} 
+                         onMouseMove={handleCanvasMove} 
+                         onMouseUp={handleCanvasUp} 
+                         onTouchStart={handleTouchStart} 
+                         onTouchMove={handleTouchMove} 
+                         onTouchEnd={handleTouchEnd} 
+                         onDoubleClick={handleDoubleClick} 
+                         onMouseLeave={() => { if(hudRef.current) hudRef.current.style.display="none"; }}>
                         <div ref={hudRef} className="fixed z-50 bg-slate-900/90 border border-slate-700 p-2 rounded shadow-xl pointer-events-none hidden backdrop-blur-sm hud-enter text-left"></div>
                         {isProcessing && <div className="absolute inset-0 bg-black/80 z-50 flex items-center justify-center flex-col backdrop-blur-sm"><Loader className="w-10 h-10 text-cyan-400 animate-spin mb-4"/><span className="text-cyan-400 text-xs font-mono tracking-widest uppercase">{status}</span><div className="w-64 h-1 bg-slate-800 rounded mt-4 overflow-hidden"><div className="h-full bg-cyan-500 transition-all duration-100 ease-out" style={{width: `${progress}%`}}></div></div></div>}
                         <div ref={containerRef} className="absolute top-0 left-0 origin-top-left" style={{transform:`translate(${transform.x}px,${transform.y}px) scale(${transform.k})`, imageRendering:'pixelated'}}><canvas ref={canvasRef}/></div>
