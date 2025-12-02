@@ -17,11 +17,30 @@
         canvas { image-rendering: pixelated; } 
         .hud-enter { animation: hud-in 0.2s ease-out forwards; }
         @keyframes hud-in { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
-        .range-slider { -webkit-appearance: none; appearance: none; background: transparent; cursor: pointer; }
+        
+        /* --- GUI ENGINEERING: PRECISION CONTROLS --- */
+        .range-slider, .range-fine { -webkit-appearance: none; appearance: none; background: transparent; cursor: pointer; width: 100%; }
+        
         .range-slider::-webkit-slider-runnable-track { background: #1e293b; height: 4px; border-radius: 2px; }
         .range-slider::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; margin-top: -6px; background-color: #38bdf8; height: 16px; width: 4px; border-radius: 2px; transition: background-color 0.2s; }
+        
         .range-fine::-webkit-slider-runnable-track { background: #1e293b; height: 2px; }
-        .range-fine::-webkit-slider-thumb { background-color: #94a3b8; height: 12px; width: 2px; margin-top: -5px; }
+        /* FIX: 8px Width for Usability + Shadow for Visibility */
+        .range-fine::-webkit-slider-thumb { 
+            -webkit-appearance: none; appearance: none; 
+            background-color: #94a3b8; height: 12px; width: 8px; 
+            border-radius: 2px; margin-top: -5px; cursor: col-resize; box-shadow: 0 0 0 1px rgba(0,0,0,0.5); 
+        }
+        
+        /* Firefox Polyfills */
+        .range-slider::-moz-range-track { background: #1e293b; height: 4px; border-radius: 2px; }
+        .range-slider::-moz-range-thumb { background-color: #38bdf8; height: 16px; width: 4px; border-radius: 2px; border: none; }
+        .range-fine::-moz-range-track { background: #1e293b; height: 2px; }
+        .range-fine::-moz-range-thumb { background-color: #94a3b8; height: 12px; width: 8px; border-radius: 2px; border: none; cursor: col-resize; }
+
+        .range-fine:active::-webkit-slider-thumb { background-color: #cbd5e1; transform: scale(1.1); }
+        .range-fine:active::-moz-range-thumb { background-color: #cbd5e1; transform: scale(1.1); }
+        
         .cursor-crosshair { cursor: crosshair; }
         .scrubbing { cursor: none; background-color: rgba(56, 189, 248, 0.1); border-color: rgba(56, 189, 248, 0.5); }
         .glass-panel { background: rgba(15, 23, 42, 0.95); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); }
@@ -177,95 +196,24 @@
                 const len = width * height; 
                 const temp = MemoryVanguard.request(0, len); 
                 const out = outBuffer || new Float64Array(len);
-                
                 const runPass = (src, dst, w, h, k, isVert) => {
                     const kSz = k.length;
                     if (kSz === 13) { 
                         const k6=k[6]; 
-                        if (isVert) {
-                            for(let y=0; y<h; y++) {
-                                const r = Math.imul(y, w);
-                                for(let x=0; x<w; x++) {
-                                    let sum = src[r + x] * k6; 
-                                    for(let d=1; d<=6; d++) {
-                                        let yN = y-d; if(yN<0) yN=-yN; else if(yN>=h) yN=h-1-(yN-h);
-                                        let yP = y+d; if(yP<0) yP=-yP; else if(yP>=h) yP=h-1-(yP-h);
-                                        sum += (src[Math.imul(yN, w) + x] + src[Math.imul(yP, w) + x]) * k[6-d];
-                                    }
-                                    dst[r + x] = sum;
-                                }
-                            }
-                        } else {
-                            for(let y=0; y<h; y++) {
-                                const r = Math.imul(y, w);
-                                for(let x=0; x<w; x++) {
-                                    let sum = src[r + x] * k6; 
-                                    for(let d=1; d<=6; d++) {
-                                        let xN = x-d; if(xN<0) xN=-xN; else if(xN>=w) xN=w-1-(xN-w);
-                                        let xP = x+d; if(xP<0) xP=-xP; else if(xP>=w) xP=w-1-(xP-w);
-                                        sum += (src[r + xN] + src[r + xP]) * k[6-d];
-                                    }
-                                    dst[r + x] = sum;
-                                }
-                            }
-                        }
+                        if (isVert) { for(let y=0; y<h; y++) { const r = Math.imul(y, w); for(let x=0; x<w; x++) { let sum = src[r + x] * k6; for(let d=1; d<=6; d++) { let yN = y-d; if(yN<0) yN=-yN; else if(yN>=h) yN=h-1-(yN-h); let yP = y+d; if(yP<0) yP=-yP; else if(yP>=h) yP=h-1-(yP-h); sum += (src[Math.imul(yN, w) + x] + src[Math.imul(yP, w) + x]) * k[6-d]; } dst[r + x] = sum; } } } 
+                        else { for(let y=0; y<h; y++) { const r = Math.imul(y, w); for(let x=0; x<w; x++) { let sum = src[r + x] * k6; for(let d=1; d<=6; d++) { let xN = x-d; if(xN<0) xN=-xN; else if(xN>=w) xN=w-1-(xN-w); let xP = x+d; if(xP<0) xP=-xP; else if(xP>=w) xP=w-1-(xP-w); sum += (src[r + xN] + src[r + xP]) * k[6-d]; } dst[r + x] = sum; } } }
                         return;
                     }
-                    if (kSz === 5 && k[2] === 0 && Math.abs(k[0] + k[4]) < 1e-15) {
+                    if (kSz === 5 && k[2] === 0 && Math.abs(k[0] + k[4]) < 1e-15) { // FARID_D
                         const k0 = k[0], k1 = k[1];
-                        if (isVert) {
-                            for(let y=0; y<h; y++) {
-                                const r = Math.imul(y, w);
-                                for(let x=0; x<w; x++) {
-                                    let yN2=y-2; if(yN2<0) yN2=-yN2; else if(yN2>=h) yN2=h-1-(yN2-h);
-                                    let yP2=y+2; if(yP2<0) yP2=-yP2; else if(yP2>=h) yP2=h-1-(yP2-h);
-                                    let yN1=y-1; if(yN1<0) yN1=-yN1; else if(yN1>=h) yN1=h-1-(yN1-h);
-                                    let yP1=y+1; if(yP1<0) yP1=-yP1; else if(yP1>=h) yP1=h-1-(yP1-h);
-                                    dst[r + x] = (src[Math.imul(yN2, w) + x] - src[Math.imul(yP2, w) + x]) * k0 + 
-                                                 (src[Math.imul(yN1, w) + x] - src[Math.imul(yP1, w) + x]) * k1;
-                                }
-                            }
-                        } else {
-                            for(let y=0; y<h; y++) {
-                                const r = Math.imul(y, w);
-                                for(let x=0; x<w; x++) {
-                                    let xN2=x-2; if(xN2<0) xN2=-xN2; else if(xN2>=w) xN2=w-1-(xN2-w);
-                                    let xP2=x+2; if(xP2<0) xP2=-xP2; else if(xP2>=w) xP2=w-1-(xP2-w);
-                                    let xN1=x-1; if(xN1<0) xN1=-xN1; else if(xN1>=w) xN1=w-1-(xN1-w);
-                                    let xP1=x+1; if(xP1<0) xP1=-xP1; else if(xP1>=w) xP1=w-1-(xP1-w);
-                                    dst[r+x] = (src[r+xN2] - src[r+xP2]) * k0 + (src[r+xN1] - src[r+xP1]) * k1;
-                                }
-                            }
-                        }
+                        if (isVert) { for(let y=0; y<h; y++) { const r = Math.imul(y, w); for(let x=0; x<w; x++) { let yN2=y-2; if(yN2<0) yN2=-yN2; else if(yN2>=h) yN2=h-1-(yN2-h); let yP2=y+2; if(yP2<0) yP2=-yP2; else if(yP2>=h) yP2=h-1-(yP2-h); let yN1=y-1; if(yN1<0) yN1=-yN1; else if(yN1>=h) yN1=h-1-(yN1-h); let yP1=y+1; if(yP1<0) yP1=-yP1; else if(yP1>=h) yP1=h-1-(yP1-h); dst[r + x] = (src[Math.imul(yN2, w) + x] - src[Math.imul(yP2, w) + x]) * k0 + (src[Math.imul(yN1, w) + x] - src[Math.imul(yP1, w) + x]) * k1; } } } 
+                        else { for(let y=0; y<h; y++) { const r = Math.imul(y, w); for(let x=0; x<w; x++) { let xN2=x-2; if(xN2<0) xN2=-xN2; else if(xN2>=w) xN2=w-1-(xN2-w); let xP2=x+2; if(xP2<0) xP2=-xP2; else if(xP2>=w) xP2=w-1-(xP2-w); let xN1=x-1; if(xN1<0) xN1=-xN1; else if(xN1>=w) xN1=w-1-(xN1-w); let xP1=x+1; if(xP1<0) xP1=-xP1; else if(xP1>=w) xP1=w-1-(xP1-w); dst[r+x] = (src[r+xN2] - src[r+xP2]) * k0 + (src[r+xN1] - src[r+xP1]) * k1; } } }
                         return;
                     }
-                    if (kSz === 5 && Math.abs(k[0] - k[4]) < 1e-15) {
+                    if (kSz === 5 && Math.abs(k[0] - k[4]) < 1e-15) { // FARID_P
                         const k0 = k[0], k1 = k[1], k2 = k[2];
-                        if (isVert) {
-                            for(let y=0; y<h; y++) {
-                                const r = Math.imul(y, w);
-                                for(let x=0; x<w; x++) {
-                                    let yN2=y-2; if(yN2<0) yN2=-yN2; else if(yN2>=h) yN2=h-1-(yN2-h);
-                                    let yP2=y+2; if(yP2<0) yP2=-yP2; else if(yP2>=h) yP2=h-1-(yP2-h);
-                                    let yN1=y-1; if(yN1<0) yN1=-yN1; else if(yN1>=h) yN1=h-1-(yN1-h);
-                                    let yP1=y+1; if(yP1<0) yP1=-yP1; else if(yP1>=h) yP1=h-1-(yP1-h);
-                                    dst[r + x] = (src[Math.imul(yN2, w) + x] + src[Math.imul(yP2, w) + x]) * k0 + 
-                                                 (src[Math.imul(yN1, w) + x] + src[Math.imul(yP1, w) + x]) * k1 +
-                                                 src[r + x] * k2;
-                                }
-                            }
-                        } else {
-                            for(let y=0; y<h; y++) {
-                                const r = Math.imul(y, w);
-                                for(let x=0; x<w; x++) {
-                                    let xN2=x-2; if(xN2<0) xN2=-xN2; else if(xN2>=w) xN2=w-1-(xN2-w);
-                                    let xP2=x+2; if(xP2<0) xP2=-xP2; else if(xP2>=w) xP2=w-1-(xP2-w);
-                                    let xN1=x-1; if(xN1<0) xN1=-xN1; else if(xN1>=w) xN1=w-1-(xN1-w);
-                                    let xP1=x+1; if(xP1<0) xP1=-xP1; else if(xP1>=w) xP1=w-1-(xP1-w);
-                                    dst[r+x] = (src[r+xN2] + src[r+xP2]) * k0 + (src[r+xN1] + src[r+xP1]) * k1 + src[r+x] * k2;
-                                }
-                            }
-                        }
+                        if (isVert) { for(let y=0; y<h; y++) { const r = Math.imul(y, w); for(let x=0; x<w; x++) { let yN2=y-2; if(yN2<0) yN2=-yN2; else if(yN2>=h) yN2=h-1-(yN2-h); let yP2=y+2; if(yP2<0) yP2=-yP2; else if(yP2>=h) yP2=h-1-(yP2-h); let yN1=y-1; if(yN1<0) yN1=-yN1; else if(yN1>=h) yN1=h-1-(yN1-h); let yP1=y+1; if(yP1<0) yP1=-yP1; else if(yP1>=h) yP1=h-1-(yP1-h); dst[r + x] = (src[Math.imul(yN2, w) + x] + src[Math.imul(yP2, w) + x]) * k0 + (src[Math.imul(yN1, w) + x] + src[Math.imul(yP1, w) + x]) * k1 + src[r + x] * k2; } } } 
+                        else { for(let y=0; y<h; y++) { const r = Math.imul(y, w); for(let x=0; x<w; x++) { let xN2=x-2; if(xN2<0) xN2=-xN2; else if(xN2>=w) xN2=w-1-(xN2-w); let xP2=x+2; if(xP2<0) xP2=-xP2; else if(xP2>=w) xP2=w-1-(xP2-w); let xN1=x-1; if(xN1<0) xN1=-xN1; else if(xN1>=w) xN1=w-1-(xN1-w); let xP1=x+1; if(xP1<0) xP1=-xP1; else if(xP1>=w) xP1=w-1-(xP1-w); dst[r+x] = (src[r+xN2] + src[r+xP2]) * k0 + (src[r+xN1] + src[r+xP1]) * k1 + src[r+x] * k2; } } }
                         return;
                     }
                     for(let i=0; i<w*h; i++) dst[i] = src[i];
@@ -291,8 +239,7 @@
                     }
                 });
                 
-                // MAVERICK UPDATE: Explicitly export Gradients for SWD
-                // We MUST copy them because bufIx (Slot 4) will be overwritten by getSSIM later.
+                // EXPORT GRADIENTS (Safely Copied)
                 const gx = new Float64Array(bufIx);
                 const gy = new Float64Array(bufIy);
 
@@ -343,7 +290,6 @@
                 const t3 = MemoryVanguard.request(3, len);
                 const mu1 = MemoryVanguard.request(4, len); 
                 const mu2 = MemoryVanguard.request(5, len); 
-                
                 ['l', 'a', 'b'].forEach(key => {
                     const buf1 = ok1[key]; const buf2 = ok2[key];
                     convolveSeparable(buf1, w, h, KAISER_13, KAISER_13, mu1);
@@ -369,9 +315,7 @@
             const getPerceptualDelta = (o1, o2, w, h) => {
                 const len = w*h; const d = new Float64Array(len);
                 for(let i=0; i<len; i++) {
-                    const dl = o1.l[i]-o2.l[i];
-                    const da = o1.a[i]-o2.a[i];
-                    const db = o1.b[i]-o2.b[i];
+                    const dl = o1.l[i]-o2.l[i]; const da = o1.a[i]-o2.a[i]; const db = o1.b[i]-o2.b[i];
                     d[i] = Math.sqrt(dl*dl + da*da + db*db);
                 }
                 return d;
@@ -383,7 +327,6 @@
                 const w2 = Math.floor(w / 2), h2 = Math.floor(h / 2);
                 const dest = new Float64Array(w2 * h2);
                 const temp = MemoryVanguard.request(6, w * h2);
-                
                 for (let y = 0; y < h2; y++) {
                     const srcRow = (y * 2) * w; const dstRow = y * w;
                     for (let x = 0; x < w; x++) {
@@ -424,7 +367,6 @@
                 const sampleCount = sw * sh;
                 const p1 = new Float32Array(sampleCount), p2 = new Float32Array(sampleCount);
                 let totalWD = 0.0; const sliceCount = 64;
-                
                 for (let k = 0; k < sliceCount; k++) {
                     const cosT = SWD_PROJECTIONS[k*2], sinT = SWD_PROJECTIONS[k*2+1];
                     let idx = 0;
@@ -445,7 +387,109 @@
                 return totalWD / sliceCount;
             };
 
-            return { getStructureTensor, getEntropy, getSSIM, getPerceptualDelta, downsample, getGradientSWD };
+            // SUPERIOR: Dynamic Energy-Gated Texture Field
+            const getTextureMap = (gx1, gy1, gx2, gy2, w, h, bitDepth) => {
+                const { SWD_PROJECTIONS } = PrecisionCore;
+                if (!SWD_PROJECTIONS) return new Float64Array(w*h);
+                const dest = new Float64Array(w*h);
+                const blk = 8; const step = 4;
+                const qStep = 1.0 / (Math.pow(2, bitDepth) - 1);
+                const NOISE_GATE = qStep * 1.5; 
+                const sliceStride = 4; const sliceCount = 16;
+                const p1 = MemoryVanguard.request(7, blk*blk);
+                const p2 = MemoryVanguard.request(8, blk*blk);
+                for(let y=0; y<h-blk; y+=step) {
+                    for(let x=0; x<w-blk; x+=step) {
+                        let energy1 = 0.0, energy2 = 0.0;
+                        for(let by=0; by<blk; by++) {
+                            const r = Math.imul(y+by, w) + x;
+                            for(let bx=0; bx<blk; bx++) {
+                                const i = r + bx;
+                                energy1 += Math.abs(gx1[i]) + Math.abs(gy1[i]);
+                                energy2 += Math.abs(gx2[i]) + Math.abs(gy2[i]);
+                            }
+                        }
+                        const area = blk * blk;
+                        if ((energy1 / area) < NOISE_GATE && (energy2 / area) < NOISE_GATE) continue;
+                        let blockWD = 0.0;
+                        for(let k=0; k<sliceCount; k++) {
+                            const pIdx = k * sliceStride;
+                            const cosT = SWD_PROJECTIONS[pIdx*2];
+                            const sinT = SWD_PROJECTIONS[pIdx*2+1];
+                            let bIdx = 0;
+                            for(let by=0; by<blk; by++) {
+                                const r = Math.imul(y+by, w) + x;
+                                for(let bx=0; bx<blk; bx++) {
+                                    const i = r + bx;
+                                    p1[bIdx] = gx1[i] * cosT + gy1[i] * sinT;
+                                    p2[bIdx] = gx2[i] * cosT + gy2[i] * sinT;
+                                    bIdx++;
+                                }
+                            }
+                            p1.sort(); p2.sort();
+                            let sliceDist = 0.0;
+                            for(let i=0; i<64; i++) sliceDist += Math.abs(p1[i] - p2[i]);
+                            blockWD += sliceDist;
+                        }
+                        const score = blockWD / (sliceCount * 64);
+                        for(let by=0; by<blk; by++) {
+                            const r = Math.imul(y+by, w) + x;
+                            for(let bx=0; bx<blk; bx++) {
+                                const i = r + bx;
+                                if (score > dest[i]) dest[i] = score; 
+                            }
+                        }
+                    }
+                }
+                return dest;
+            };
+
+            const getMSSSIM = (l1, l2, w, h) => {
+                const { MS_SSIM_WEIGHTS, KAISER_13, PHYSICS } = PrecisionCore;
+                if (!MS_SSIM_WEIGHTS || !l1 || !l2) return 0;
+                const C1 = PHYSICS ? PHYSICS[1] : 0.0001;
+                const C2 = PHYSICS ? PHYSICS[2] : 0.0009;
+                const getStats = (b1, b2, width, height) => {
+                    const len = width*height;
+                    const mu1 = MemoryVanguard.request(1, len);
+                    const mu2 = MemoryVanguard.request(2, len);
+                    const t1 = MemoryVanguard.request(3, len);
+                    const t2 = MemoryVanguard.request(4, len);
+                    const t3 = MemoryVanguard.request(5, len);
+                    convolveSeparable(b1, width, height, KAISER_13, KAISER_13, mu1);
+                    convolveSeparable(b2, width, height, KAISER_13, KAISER_13, mu2);
+                    for(let i=0; i<len; i++) { t1[i]=b1[i]*b1[i]; t2[i]=b2[i]*b2[i]; t3[i]=b1[i]*b2[i]; }
+                    const sig1Sq = convolveSeparable(t1, width, height, KAISER_13, KAISER_13);
+                    const sig2Sq = convolveSeparable(t2, width, height, KAISER_13, KAISER_13);
+                    const sig12 = convolveSeparable(t3, width, height, KAISER_13, KAISER_13);
+                    let cSum = 0, sSum = 0, lSum = 0;
+                    for(let i=0; i<len; i++) {
+                        const m1=mu1[i], m2=mu2[i];
+                        const s1=sig1Sq[i]-m1*m1, s2=sig2Sq[i]-m2*m2, s12=sig12[i]-m1*m2;
+                        lSum += (2*m1*m2 + C1) / (m1*m1 + m2*m2 + C1);
+                        const sd1=Math.sqrt(Math.max(0, s1)), sd2=Math.sqrt(Math.max(0, s2));
+                        cSum += (2*sd1*sd2 + C2) / (s1 + s2 + C2);
+                        sSum += (s12 + C2/2) / (sd1*sd2 + C2/2);
+                    }
+                    return { l: lSum/len, c: cSum/len, s: sSum/len };
+                };
+                let cur1 = l1, cur2 = l2, curW = w, curH = h;
+                let msssim = 1.0;
+                for(let i=0; i<5; i++) {
+                    const stats = getStats(cur1, cur2, curW, curH);
+                    const weight = MS_SSIM_WEIGHTS[i];
+                    if (i < 4) {
+                        msssim *= Math.pow(stats.c * stats.s, weight);
+                        const d1 = downsample(cur1, curW, curH); const d2 = downsample(cur2, curW, curH);
+                        cur1 = d1.data; cur2 = d2.data; curW = d1.w; curH = d1.h;
+                    } else {
+                        msssim *= Math.pow(stats.l * stats.c * stats.s, weight);
+                    }
+                }
+                return msssim;
+            };
+
+            return { getStructureTensor, getEntropy, getSSIM, getPerceptualDelta, downsample, getGradientSWD, getTextureMap, getMSSSIM };
         })();
 
         // --- 5. FORENSIC FILTER ---
@@ -453,7 +497,7 @@
             const tasks = {
                 geodesic: (src, dst, width, height, stats, tuning) => {
                     const len = src.length; 
-                    const floor = stats ? Math.max(1e-6, stats.statFloor * tuning.geoScale) : 0.005;
+                    const floor = Math.max(stats.qStep, stats.statFloor * tuning.geoScale);
                     for(let i=0; i<len; i++) dst[i] = Math.max(0, src[i] - floor);
                     for(let k=0; k<5; k++) {
                         for(let x=0; x<width; x++) { let m=dst[x]; if(x>0) m=Math.max(m, dst[x-1]); dst[x]=Math.min(m, src[x]); }
@@ -480,7 +524,7 @@
                 },
                 nlm: (src, dst, width, height, stats, tuning) => {
                     const len = src.length; dst.set(src);
-                    const sigma = stats ? stats.robustSigma : 0.01; 
+                    const sigma = stats.robustSigma; 
                     const h2 = (sigma * sigma) * tuning.nlmDecay;
                     for(let y=3; y<height-3; y++) {
                         const row = Math.imul(y, width);
@@ -500,7 +544,7 @@
                 },
                 tukey: (src, dst, width, height, stats, tuning) => {
                     const len = src.length;
-                    const sigma = stats ? stats.robustSigma : 0.01; 
+                    const sigma = stats.robustSigma; 
                     const K = sigma * tuning.tukeyK; const K2 = K * K;
                     dst.set(src);
                     const temp = MemoryVanguard.request(0, len); temp.set(src);
@@ -519,33 +563,33 @@
                     }
                 }
             };
-            const generateManifold = async (base, w, h, layerKey, cb) => {
+            const generateManifold = async (base, w, h, layerKey, bitDepth, cb) => {
                 const manifolds = new Array(8);
                 const isSSIM = layerKey === 'ssim';
                 const bufferA = new Float64Array(base.length);
                 const bufferB = new Float64Array(base.length);
                 if (isSSIM) { for(let i=0; i<base.length; i++) bufferA[i] = Math.max(0, 1.0 - base[i]); } 
                 else { bufferA.set(base); }
-                
-                const robustSigma = PrecisionCore.estimateRobustSigma(bufferA, w, h);
-                let floorOverride = 1.0/65535.0;
-                if (layerKey === 'entropy') floorOverride = 0.01; if (layerKey === 'coherence') floorOverride = 0.005;
-                const stats = { robustSigma: Math.max(robustSigma, floorOverride), statFloor: Math.max(robustSigma, floorOverride) };
+                const qStep = 1.0 / (Math.pow(2, bitDepth) - 1);
+                let robustSigma = PrecisionCore.estimateRobustSigma(bufferA, w, h);
+                let floorLimit = qStep; 
+                if (layerKey === 'entropy') floorLimit = 0.01; 
+                if (layerKey === 'coherence') floorLimit = 0.005;
+                robustSigma = Math.max(robustSigma, floorLimit);
+                const stats = { robustSigma, statFloor: robustSigma, qStep };
                 const tuning = { geoScale: 1.5, nlmDecay: 1.5, tukeyK: 3.0 };
                 if (layerKey === 'ssim') { tuning.nlmDecay = 0.8; tuning.tukeyK = 2.0; } 
                 else if (layerKey === 'grad') { tuning.tukeyK = 4.0; tuning.geoScale = 2.0; } 
                 else if (layerKey === 'entropy') { tuning.geoScale = 3.0; tuning.nlmDecay = 1.0; } 
                 else if (layerKey === 'coherence') { tuning.tukeyK = 6.0; tuning.nlmDecay = 3.0; } 
-                
+                else if (layerKey === 'texture') { tuning.tukeyK = 4.0; tuning.nlmDecay = 2.0; } 
                 for(let m=0; m<8; m++) {
                     if (isSSIM) { for(let i=0; i<base.length; i++) bufferA[i] = Math.max(0, 1.0 - base[i]); }
                     else { bufferA.set(base); }
                     let current = bufferA; let next = bufferB;
-                    
                     if(m & 1) { tasks.tukey(current, next, w, h, stats, tuning); [current, next] = [next, current]; }
                     if(m & 2) { tasks.nlm(current, next, w, h, stats, tuning); [current, next] = [next, current]; }
                     if(m & 4) { tasks.geodesic(current, next, w, h, stats, tuning); [current, next] = [next, current]; }
-                    
                     manifolds[m] = new Float64Array(current); 
                     if(cb) cb(m/8.0); await new Promise(r => setTimeout(r, 0));
                 }
@@ -586,9 +630,9 @@
                     const signalFloor = Math.max(qStep, 1e-5);
                     const targetVis = 0.8; 
                     gain = Math.min(100000, Math.max(1, targetVis / Math.max(p99, signalFloor)));
-                    const gateLevel = Math.max(stdDev * 2.0, qStep * 4.0); 
+                    const gateLevel = Math.max(stdDev * 1.5, qStep * 1.5); 
                     threshold = Math.min(255, gateLevel * gain * 255.0);
-                    gamma = 1.0; softness = threshold * 0.5;
+                    gamma = 0.85; softness = threshold * 0.5;
 
                 } else if (layerKey === 'perceptual') {
                     const estSigma = PrecisionCore.estimateRobustSigma(buf, tensor.meta.w, tensor.meta.h);
@@ -596,6 +640,31 @@
                     gain = Math.min(100000, Math.max(1, 0.5 / trueNoise)); 
                     threshold = Math.min(255, trueNoise * gain * 3.0 * 255.0); 
                     gamma = 1.0; softness = threshold * 0.8; 
+
+                } else if (layerKey === 'texture') {
+                     sampleValues.sort();
+                     const idx995 = Math.min(n - 1, Math.floor(n * 0.995));
+                     const p995 = sampleValues[idx995];
+                     const estSigma = PrecisionCore.estimateRobustSigma(buf, tensor.meta.w, tensor.meta.h);
+                     const floor = Math.max(estSigma, qStep);
+                     const targetSignal = Math.max(p995, floor * 4.0);
+                     gain = Math.min(150000, Math.max(1, 0.75 / targetSignal));
+                     threshold = Math.min(255, floor * gain * 3.0 * 255.0);
+                     gamma = 0.6; 
+                     softness = threshold * 1.5;
+
+                } else if (layerKey === 'grad') {
+                    const estSigma = PrecisionCore.estimateRobustSigma(buf, tensor.meta.w, tensor.meta.h);
+                    const trueNoise = Math.max(estSigma, qStep);
+                    sampleValues.sort(); const p99 = sampleValues[Math.floor(n * 0.99)];
+                    const targetLevel = p99; 
+                    const safeTarget = Math.max(targetLevel, qStep * 10.0); 
+                    gain = Math.min(100000, Math.max(1, (0.90 / safeTarget)));
+                    const gate = trueNoise * gain * 2.0; 
+                    threshold = Math.min(255, gate * 255);
+                    softness = threshold * 0.5;
+                    gamma = 0.7;
+
                 } else {
                     const { KURTOSIS_LUT, SIGMA_LUT } = PrecisionCore; 
                     let sigmaCorrection = 1.0;
@@ -615,8 +684,7 @@
                     gain = Math.min(100000, Math.max(1, (0.90 / safeTarget)));
                     let sigmaMult = 3.0; 
                     if (layerKey === 'entropy') sigmaMult = 5.0;
-                    if (layerKey === 'grad') { gamma = 0.8; } 
-                    if (layerKey === 'coherence') sigmaMult = 3.5;
+                    if (layerKey === 'coherence') { sigmaMult = 3.5; gamma = 0.6; }
                     if (layerKey === 'heuristic') { gamma = 1.2; sigmaMult = 2.5; } 
                     const gate = trueNoiseFloor * gain * (sigmaMult * 0.8); 
                     threshold = Math.min(255, gate * 255);
@@ -651,30 +719,73 @@
             };
             const computeCoarse = async (buff1, buff2, width, height, cb) => {
                 const map1 = getGradientMap(buff1, width, height); const map2 = getGradientMap(buff2, width, height);
+                const minDim = Math.min(width, height);
+                const search = Math.max(40, Math.min(120, Math.floor(minDim * 0.1)));
+                const pSz = 64; 
+                const hSz = pSz >> 1;
+                
+                const patchBuf1 = new Float64Array(pSz * pSz);
+                const patchBuf2 = new Float64Array(pSz * pSz);
+                
                 const anchors = []; for(let y=1; y<=3; y++) for(let x=1; x<=3; x++) anchors.push({x: (width*x)/4|0, y: (height*y)/4|0});
-                const pSz = 64, hSz = 32, search = 40, step = 2; const votes = [];
-                const getPatchStats = (buf, cx, cy, out) => {
-                    let sum = 0; for(let y=0; y<pSz; y++) { const r = Math.imul(cy-hSz+y, width); for(let x=0; x<pSz; x++) { const v = buf[r + cx-hSz+x]; out.push(v); sum += v; } }
-                    const mean = sum/(pSz*pSz); let sqSum = 0; for(let i=0; i<out.length; i++) { out[i] -= mean; sqSum += out[i]*out[i]; }
+                const step = 2; 
+                const votes = [];
+                
+                const fillPatchAndGetStats = (srcMap, cx, cy, w, dstBuf) => {
+                    let sum = 0; let idx = 0;
+                    const rStart = cy - hSz; const cStart = cx - hSz;
+                    for(let y=0; y<pSz; y++) {
+                        const r = Math.imul(rStart + y, w); 
+                        for(let x=0; x<pSz; x++) { 
+                            const v = srcMap[r + cStart + x]; 
+                            dstBuf[idx++] = v; 
+                            sum += v; 
+                        } 
+                    }
+                    const mean = sum / (pSz*pSz); 
+                    let sqSum = 0; 
+                    for(let i=0; i<dstBuf.length; i++) { 
+                        const d = dstBuf[i] - mean; 
+                        dstBuf[i] = d; 
+                        sqSum += d*d; 
+                    }
                     return Math.sqrt(sqSum);
                 };
+                
                 for(let i=0; i<anchors.length; i++) {
-                    const anc = anchors[i]; const p1=[]; const s1 = getPatchStats(map1, anc.x, anc.y, p1); if(s1 < 1e-5) continue;
+                    const anc = anchors[i]; 
+                    const s1 = fillPatchAndGetStats(map1, anc.x, anc.y, width, patchBuf1); 
+                    if(s1 < 1e-5) continue; 
                     let localBest = -1, lDx = 0, lDy = 0;
-                    for(let dy=-search; dy<=search; dy+=step) for(let dx=-search; dx<=search; dx+=step) {
-                        const p2=[]; const s2 = getPatchStats(map2, anc.x-dx, anc.y-dy, p2); if(s2 < 1e-5) continue;
-                        let dot = 0; for(let k=0; k<p1.length; k+=2) dot += p1[k]*p2[k];
-                        const score = dot / (s1 * s2); if(score > localBest) { localBest = score; lDx = dx; lDy = dy; }
+                    for(let dy=-search; dy<=search; dy+=step) {
+                        if (anc.y-dy-hSz < 0 || anc.y-dy+hSz >= height) continue;
+                        for(let dx=-search; dx<=search; dx+=step) {
+                            if (anc.x-dx-hSz < 0 || anc.x-dx+hSz >= width) continue;
+                            const s2 = fillPatchAndGetStats(map2, anc.x-dx, anc.y-dy, width, patchBuf2); 
+                            if(s2 < 1e-5) continue;
+                            let dot = 0; 
+                            const len = patchBuf1.length;
+                            for(let k=0; k<len; k+=4) {
+                                dot += patchBuf1[k] * patchBuf2[k];
+                                dot += patchBuf1[k+1] * patchBuf2[k+1];
+                                dot += patchBuf1[k+2] * patchBuf2[k+2];
+                                dot += patchBuf1[k+3] * patchBuf2[k+3];
+                            }
+                            const score = dot / (s1 * s2); 
+                            if(score > localBest) { localBest = score; lDx = dx; lDy = dy; }
+                        }
                     }
                     if (localBest > 0.4) votes.push({dx:lDx, dy:lDy, score: localBest});
                     if(cb) cb(i/anchors.length * 0.5); await new Promise(r => setTimeout(r,0));
                 }
                 const bins = {}; let maxScore=0, consensus={dx:0, dy:0};
-                votes.forEach(v => { const k = `${Math.round(v.dx/2)*2},${Math.round(v.dy/2)*2}`; bins[k] = (bins[k]||0) + v.score; if(bins[k]>maxScore) { maxScore=bins[k]; consensus=v; } });
+                const binSize = step; 
+                votes.forEach(v => { const k = `${Math.round(v.dx/binSize)*binSize},${Math.round(v.dy/binSize)*binSize}`; bins[k] = (bins[k]||0) + v.score; if(bins[k]>maxScore) { maxScore=bins[k]; consensus=v; } });
                 return maxScore > 0 ? consensus : null;
             };
             const computeFine = async (buff1, buff2, width, height, coarse, cb) => {
-                const crop = 256, cx = width >> 1, cy = height >> 1; const ox = coarse.dx, oy = coarse.dy;
+                const crop = Math.min(256, Math.min(width, height) - 32); 
+                const cx = width >> 1, cy = height >> 1; const ox = coarse.dx, oy = coarse.dy;
                 const roi1 = new Float64Array(crop*crop);
                 for(let y=0; y<crop; y++) { const r=Math.imul(cy-(crop>>1)+y, width), r2=Math.imul(y, crop); for(let x=0; x<crop; x++) roi1[r2+x]=buff1[r+cx-(crop>>1)+x]; }
                 const map1 = getGradientMap(roi1, crop, crop); 
@@ -693,12 +804,9 @@
                             const sx = x + searchMargin + dx; if(sx<0 || sx>=largeCrop-1) continue;
                             const ix=sx|0, iy=sy|0, fx=sx-ix, fy=sy-iy;
                             const idx = iy*largeCrop + ix;
-                            const p00 = map2Large[idx];
-                            const p10 = map2Large[idx+1];
-                            const p01 = map2Large[idx+largeCrop];
-                            const p11 = map2Large[idx+largeCrop+1];
-                            const top = p00 + fx * (p10 - p00);
-                            const bot = p01 + fx * (p11 - p01);
+                            const p00 = map2Large[idx]; const p10 = map2Large[idx+1];
+                            const p01 = map2Large[idx+largeCrop]; const p11 = map2Large[idx+largeCrop+1];
+                            const top = p00 + fx * (p10 - p00); const bot = p01 + fx * (p11 - p01);
                             const val = top + fy * (bot - top);
                             err += Math.abs(map1[y*crop+x] - val); 
                         }
@@ -748,7 +856,6 @@
                 return { nps, peak, mean: nps, visible_pct: (violations/len)*100 };
             };
             
-            // SUPERIOR TRI-FOLD METRIC
             const getRobustNPS = (heuristic, luma, refEntropy, refCoherence, gradX1, gradY1, gradX2, gradY2, w, h, bitDepth) => {
                 const { nps: pixelNPS, peak, visible_pct } = computeNPS_Quant(heuristic, luma, refEntropy, refCoherence, w, h, bitDepth);
                 const swdScore = AnalysisEngine.getGradientSWD(gradX1, gradY1, gradX2, gradY2, w, h);
@@ -772,7 +879,7 @@
         // --- UI COMPONENTS ---
         const AuditModal = ({ isOpen, onClose, tensor, scoreData, metaNames, physics }) => {
             if(!isOpen || !scoreData || !physics) return null;
-            const { nps, peak, visible_pct } = scoreData;
+            const { nps, peak, visible_pct, ms_ssim } = scoreData;
             const { snr, ebd, noise } = tensor.source_metrics;
             const grade = nps<0.5 ? {t:'Grade I (Optimal)', c:'text-emerald-400'} : nps<1.0 ? {t:'Grade II (Nominal)', c:'text-cyan-400'} : {t:'Grade III (Critical)', c:'text-rose-400'};
             const copy = () => {
@@ -790,6 +897,7 @@ Noise: ${noise.toExponential(4)} (σ)
 
 [ INTEGRITY METRICS ]
 NPS Score:   ${nps.toFixed(4)} [${grade.t}]
+MS-SSIM:     ${ms_ssim ? ms_ssim.toFixed(5) : "N/A"}
 SWD Factor:  ${scoreData.swd ? scoreData.swd.toFixed(4) : "N/A"}
 Peak Dev:    ${peak.toFixed(4)}
 Visible:     ${visible_pct.toFixed(2)}%
@@ -973,7 +1081,7 @@ Visible:     ${visible_pct.toFixed(2)}%
                 const is16 = bitDepth > 8;
                 const base = {
                     gain: { min: 0, max: 100, step: 1, minFine: -1.0, maxFine: 1.0, stepFine: 0.001 },
-                    gamma: { min: 0.1, max: 3.0, step: 0.1, minFine: -0.2, maxFine: 0.2, stepFine: 0.001 },
+                    gamma: { min: 0.1, max: 3.0, step: 0.1, minFine: -0.2, maxFine: 0.2, stepFine: 0.001 }, 
                     gate: { 
                         min: 0, max: 255, 
                         step: is16 ? 0.01 : 0.1, 
@@ -1134,6 +1242,18 @@ Visible:     ${visible_pct.toFixed(2)}%
                     const ent1 = AnalysisEngine.getEntropy(t1.oklab.l, w, h); const ent2 = AnalysisEngine.getEntropy(t2.oklab.l, w, h); setProgress(60);
                     
                     const layers = { perceptual: {raw: deltaE}, ssim: {raw: ssim}, grad: {raw: new Float64Array(size)}, coherence: {raw: new Float64Array(size)}, entropy: {raw: new Float64Array(size)}, heuristic: {raw: new Float64Array(size)}, latent: {} };
+                    
+                    // SUPERIOR ADDITION: Dense Texture Anomaly Map (Dense SWD)
+                    // NOW PASSING: t1.meta.bitDepth to ensure correct noise gating
+                    const textureMap = AnalysisEngine.getTextureMap(st1.gx, st1.gy, st2.gx, st2.gy, w, h, t1.meta.bitDepth);
+                    
+                    // NORMALIZE: Convert SWD Gradient Units to "Bits of Deviation" (LSB)
+                    // This ensures the tensor values are physically meaningful regardless of bit depth.
+                    const tQStep = 1.0 / (Math.pow(2, t1.meta.bitDepth) - 1);
+                    const invQ = 1.0 / tQStep; 
+                    for(let i=0; i<size; i++) textureMap[i] *= invQ;
+                    layers.texture = { raw: textureMap };
+
                     const INV_LOG_25 = 1.0 / 4.64;
                     const HVS_MASK = PrecisionCore.HVS_MASK_LUT; const HVS_LEN = HVS_MASK ? HVS_MASK.length - 1 : 0;
                     for(let i=0; i<size; i++) {
@@ -1156,10 +1276,21 @@ Visible:     ${visible_pct.toFixed(2)}%
                         
                         layers.heuristic.raw[i] = Math.sqrt((termPercep * flatWeight)**2 + (termStruct * edgeWeight)**2 + (termSSIM * edgeWeight)**2 + (termEnt * flatWeight * 0.5)**2 + (cDiff * 0.25)**2) * maskWeight;
                     }
-                    const keys = ['heuristic', 'perceptual', 'grad', 'ssim', 'entropy', 'coherence']; let d = 0;
-                    for(const key of keys) { layers.latent[key] = await ForensicFilter.generateManifold(layers[key].raw, w, h, key, (p) => setProgress(70 + (d/6 + p/6)*30)); d++; }
+                    const keys = ['heuristic', 'perceptual', 'grad', 'ssim', 'entropy', 'coherence', 'texture']; 
+                    let d = 0;
+                    for(const key of keys) { 
+                        // PASS BIT DEPTH HERE
+                        layers.latent[key] = await ForensicFilter.generateManifold(layers[key].raw, w, h, key, t1.meta.bitDepth, (p) => setProgress(70 + (d/7 + p/7)*30)); 
+                        d++; 
+                    }
                     const sm = QualityMetricEngine.computeSignalMetrics(t1.oklab.l, w, h, t1.meta.bitDepth); 
+                    
+                    // SUPERIOR: MS-SSIM calculation
+                    const ms_ssim = AnalysisEngine.getMSSSIM(t1.oklab.l, t2.oklab.l, w, h);
+
                     const scores = QualityMetricEngine.getRobustNPS(layers.heuristic.raw, t1.oklab.l, ent1, st1.coherence, st1.gx, st1.gy, st2.gx, st2.gy, w, h, t1.meta.bitDepth);
+                    scores.ms_ssim = ms_ssim;
+
                     setTensor({ ...layers, meta: { w, h, bitDepth: t1.meta.bitDepth }, source_metrics: sm, scores: scores }); setStatus("Ready"); setProgress(100);
                 } catch(e) { console.error(e); setStatus("Error"); } finally { setIsProcessing(false); }
             }, [img1, img2, debouncedOffset, activeTab, isReady]);
@@ -1261,7 +1392,15 @@ Visible:     ${visible_pct.toFixed(2)}%
                                     <span className="text-[10px] font-bold text-slate-500 uppercase flex items-center gap-1"><Eye className="w-3 h-3"/> Tensor Field</span>
                                     <button onClick={()=>setShowMap(!showMap)} className={`p-1 rounded hover:bg-slate-800 transition-colors ${showMap?'text-cyan-400':'text-slate-600'}`}>{showMap ? <Eye className="w-4 h-4"/> : <EyeOff className="w-4 h-4"/>}</button>
                                 </div>
-                                <div className="space-y-1"><ChannelRow label="Composite" active={activeLayer==='heuristic'} onClick={()=>setActiveLayer('heuristic')} icon={BrainCircuit} special={true}/><ChannelRow label="Structure" active={activeLayer==='grad'} onClick={()=>setActiveLayer('grad')} icon={ScanLine}/><ChannelRow label="Delta-E" active={activeLayer==='perceptual'} onClick={()=>setActiveLayer('perceptual')} icon={Sun}/><ChannelRow label="SSIM" active={activeLayer==='ssim'} onClick={()=>setActiveLayer('ssim')} icon={Binary}/><ChannelRow label="Entropy" active={activeLayer==='entropy'} onClick={()=>setActiveLayer('entropy')} icon={Waves}/><ChannelRow label="Geometric" active={activeLayer==='coherence'} onClick={()=>setActiveLayer('coherence')} icon={Compass}/></div>
+                                <div className="space-y-1">
+                                    <ChannelRow label="Composite" active={activeLayer==='heuristic'} onClick={()=>setActiveLayer('heuristic')} icon={BrainCircuit} special={true}/>
+                                    <ChannelRow label="Structure" active={activeLayer==='grad'} onClick={()=>setActiveLayer('grad')} icon={ScanLine}/>
+                                    <ChannelRow label="Texture" active={activeLayer==='texture'} onClick={()=>setActiveLayer('texture')} icon={Microscope}/>
+                                    <ChannelRow label="Delta-E" active={activeLayer==='perceptual'} onClick={()=>setActiveLayer('perceptual')} icon={Sun}/>
+                                    <ChannelRow label="SSIM" active={activeLayer==='ssim'} onClick={()=>setActiveLayer('ssim')} icon={Binary}/>
+                                    <ChannelRow label="Entropy" active={activeLayer==='entropy'} onClick={()=>setActiveLayer('entropy')} icon={Waves}/>
+                                    <ChannelRow label="Geometric" active={activeLayer==='coherence'} onClick={()=>setActiveLayer('coherence')} icon={Compass}/>
+                                </div>
                                 <button onClick={runAutoTune} className="w-full py-2 bg-indigo-900/30 border border-indigo-500/30 text-indigo-300 text-[10px] font-bold rounded flex items-center justify-center gap-2 hover:bg-indigo-900/50 transition-all"><Target className="w-3 h-3"/> Auto-Optimize Parameters</button>
                                 <div className="p-3 bg-slate-800/50 rounded border border-slate-700"><div className="flex justify-between mb-2 items-center"><span className="text-[10px] font-bold text-slate-500 uppercase flex items-center gap-1"><ShieldCheck className="w-3 h-3"/> Forensics</span><div className="flex bg-slate-950 rounded p-0.5 border border-slate-800"><button onClick={()=>setViewMode('raw')} className={`px-2 py-0.5 text-[10px] rounded font-bold ${viewMode==='raw'?'bg-slate-700 text-white':'text-slate-500'}`}>RAW</button><button onClick={()=>setViewMode('clean')} className={`px-2 py-0.5 text-[10px] rounded font-bold ${viewMode==='clean'?'bg-emerald-600 text-white shadow-lg':'text-slate-500'}`}>FILTER</button></div></div><div className="grid grid-cols-3 gap-1"><button onClick={()=>setRepairSettings(p=>({...p, chroma:!p.chroma}))} className={`py-1.5 text-[9px] font-bold rounded border transition-all ${repairSettings.chroma?'bg-cyan-900/40 border-cyan-500 text-cyan-400':'bg-slate-900 border-slate-800 text-slate-500 hover:border-slate-600'}`}>Tukey</button><button onClick={()=>setRepairSettings(p=>({...p, ringing:!p.ringing}))} className={`py-1.5 text-[9px] font-bold rounded border transition-all ${repairSettings.ringing?'bg-cyan-900/40 border-cyan-500 text-cyan-400':'bg-slate-900 border-slate-800 text-slate-500 hover:border-slate-600'}`}>NLM</button><button onClick={()=>setRepairSettings(p=>({...p, geodesic:!p.geodesic}))} className={`py-1.5 text-[9px] font-bold rounded border transition-all ${repairSettings.geodesic?'bg-rose-900/40 border-rose-500 text-rose-400':'bg-slate-900 border-slate-800 text-slate-500 hover:border-slate-600'}`}>Geo</button></div></div>
                                 <div className="space-y-2">
